@@ -112,7 +112,12 @@ docs/                      # 아키텍처 문서
 - [x] Phase 2: 모노레포 scaffold
 - [x] Phase 3: DB 스키마 + 마이그레이션
 - [x] Phase 4: Workers API (verify / QR / sync / webhook / admin door)
-- [ ] Phase 5: CRM 화면 1차
+- [ ] Phase 5: CRM 화면 1차 (진행중)
+  - [x] PR 5.1: Auth + Layout + Login + Dashboard skeleton
+  - [ ] PR 5.2: 회원 관리
+  - [ ] PR 5.3: 이용권 / 체험권
+  - [ ] PR 5.4: 출입로그 + 장비 + 대시보드 실데이터
+  - [ ] PR 5.5: 방문자 / 지점 / 레벨 / 설정
 - [ ] Phase 6: 출입권한 자동화
 - [ ] Phase 7: Mock Device 통합 테스트
 - [ ] Phase 8: 실제 장비 연동
