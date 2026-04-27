@@ -1,0 +1,37 @@
+# Phase 3 — Supabase 프로젝트 연결
+# project_id 는 Supabase Dashboard → Settings → General → Reference ID 에서 확인.
+# (또는 SUPABASE_URL = https://<project-id>.supabase.co 의 서브도메인)
+# 처음 사용 시: supabase link --project-ref <project-id>
+project_id = "REPLACE_WITH_YOUR_SUPABASE_PROJECT_REF"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
