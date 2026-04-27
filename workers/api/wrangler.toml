@@ -1,0 +1,20 @@
+name = "153-boxing-os-api"
+main = "src/index.ts"
+compatibility_date = "2026-04-28"
+
+[vars]
+ENVIRONMENT = "development"
+
+# KV (Phase 4 에서 ID 발급)
+# [[kv_namespaces]]
+# binding = "QR_USED"
+# id = "<phase 4 wrangler kv namespace create QR_USED>"
+
+# Secrets (wrangler secret put 으로 등록 — 평문 저장 금지)
+# - SUPABASE_URL
+# - SUPABASE_SERVICE_ROLE_KEY
+# - QR_SIGNING_SECRET
+# - DEVICE_KMS_KEY
+
+[dev]
+port = 8787

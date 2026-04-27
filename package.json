@@ -1,0 +1,23 @@
+{
+  "name": "153-boxing-os",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "workspaces": ["apps/*", "workers/*", "packages/*"],
+  "scripts": {
+    "build": "bun run --filter '@153/crm' build && bun run --filter '@153/api' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "dev:crm": "bun run --filter '@153/crm' dev",
+    "dev:api": "bun run --filter '@153/api' dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.10.0",
+    "eslint": "^9.10.0",
+    "globals": "^15.9.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.5.0"
+  }
+}
