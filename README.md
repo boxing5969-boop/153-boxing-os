@@ -114,7 +114,7 @@ docs/                      # 아키텍처 문서
 - [x] Phase 4: Workers API (verify / QR / sync / webhook / admin door)
 - [ ] Phase 5: CRM 화면 1차 (진행중)
   - [x] PR 5.1: Auth + Layout + Login + Dashboard skeleton
-  - [ ] PR 5.2: 회원 관리
+  - [x] PR 5.2: 회원 관리 (목록 / 신규 / 상세)
   - [ ] PR 5.3: 이용권 / 체험권
   - [ ] PR 5.4: 출입로그 + 장비 + 대시보드 실데이터
   - [ ] PR 5.5: 방문자 / 지점 / 레벨 / 설정
