@@ -1,0 +1,29 @@
+# Node / TypeScript
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.tsbuildinfo
+
+# Env / Secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+
+# Cloudflare / Supabase
+.wrangler/
+.supabase/
+
+# Misc
+*.local
