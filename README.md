@@ -49,11 +49,60 @@ docs/                      # 아키텍처 문서
    (또는 `supabase/config.toml` 의 `project_id` 를 직접 수정)
 5. **마이그레이션 적용 (선택지 2개):**
    - **A.** CLI 사용: `bunx supabase db push`
-   - **B.** Dashboard 사용: Supabase Studio → SQL Editor 에 `supabase/migrations/*.sql` 6개를 순서대로 붙여넣기
+   - **B.** Dashboard 사용: Supabase Studio → SQL Editor 에 `supabase/migrations/*.sql` 7개를 순서대로 붙여넣기 (Phase 4 의 `qr_used_tokens` 포함)
 6. **시드 적용 (선택):** `supabase/seed.sql` 을 SQL Editor 에 붙여넣기
 7. **타입 재생성 (마이그레이션 후 권장):**
    ```bash
    bunx supabase gen types typescript --project-id <ref> > packages/shared/src/types/db.ts
+   ```
+
+## Workers API 셋업 (Phase 4)
+
+1. **로컬 시크릿 작성:**
+   ```bash
+   cp workers/api/.dev.vars.example workers/api/.dev.vars
+   # 그 다음 5개 시크릿 채우기:
+   #   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET (Dashboard → API)
+   #   QR_SIGNING_SECRET (openssl rand -base64 32)
+   #   DEVICE_API_KEY    (단말기 공용 HMAC, 임의 생성)
+   ```
+2. **개발 서버:** `bun run dev:api` → `http://localhost:8787`
+3. **수동 테스트 (curl 예시):**
+
+   ### Health
+   ```bash
+   curl http://localhost:8787/health
+   ```
+
+   ### QR 발급 (Supabase JWT 필요)
+   ```bash
+   curl -X POST http://localhost:8787/api/access/qr/generate \
+     -H "Authorization: Bearer <user-jwt>" \
+     -H "Content-Type: application/json" \
+     -d '{"member_id":"<uuid>","branch_id":"<uuid>"}'
+   ```
+
+   ### 출입 verify (Device HMAC 필요 — 별도 서명 스크립트 권장)
+   ```bash
+   # signature = hex(hmac_sha256(DEVICE_API_KEY, ts + "\n" + method + "\n" + path + "\n" + sha256(body)))
+   curl -X POST http://localhost:8787/api/access/verify \
+     -H "X-Device-Id: <uuid>" \
+     -H "X-Timestamp: $(date +%s)" \
+     -H "X-Signature: <hex>" \
+     -H "Content-Type: application/json" \
+     -d '{"branch_id":"...","device_id":"...","credential_type":"face","credential_value":"...","occurred_at":"..."}'
+   ```
+
+4. **프로덕션 배포 (선택, Phase 8 직전 권장):**
+   ```bash
+   cd workers/api
+   bunx wrangler login
+   bunx wrangler secret put SUPABASE_URL
+   bunx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+   bunx wrangler secret put SUPABASE_JWT_SECRET
+   bunx wrangler secret put QR_SIGNING_SECRET
+   bunx wrangler secret put DEVICE_API_KEY
+   bunx wrangler deploy
    ```
 
 ## Phase 진행 상태
@@ -62,7 +111,7 @@ docs/                      # 아키텍처 문서
 - [x] Phase 1: 아키텍처 문서 8종
 - [x] Phase 2: 모노레포 scaffold
 - [x] Phase 3: DB 스키마 + 마이그레이션
-- [ ] Phase 4: Workers API 골격
+- [x] Phase 4: Workers API (verify / QR / sync / webhook / admin door)
 - [ ] Phase 5: CRM 화면 1차
 - [ ] Phase 6: 출입권한 자동화
 - [ ] Phase 7: Mock Device 통합 테스트

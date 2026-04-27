@@ -5,16 +5,15 @@ compatibility_date = "2026-04-28"
 [vars]
 ENVIRONMENT = "development"
 
-# KV (Phase 4 에서 ID 발급)
-# [[kv_namespaces]]
-# binding = "QR_USED"
-# id = "<phase 4 wrangler kv namespace create QR_USED>"
-
-# Secrets (wrangler secret put 으로 등록 — 평문 저장 금지)
-# - SUPABASE_URL
-# - SUPABASE_SERVICE_ROLE_KEY
-# - QR_SIGNING_SECRET
-# - DEVICE_KMS_KEY
+# 시크릿은 wrangler secret put 으로 등록 (평문 저장 금지)
+# 또는 로컬 개발 시 workers/api/.dev.vars 파일에 KEY=VALUE 형식으로 저장 (gitignored)
+#
+# 필수 시크릿:
+# - SUPABASE_URL                  : Settings → API → Project URL
+# - SUPABASE_SERVICE_ROLE_KEY     : Settings → API → service_role
+# - SUPABASE_JWT_SECRET           : Settings → API → JWT Secret
+# - QR_SIGNING_SECRET             : 임의의 32+ 바이트 (openssl rand -base64 32)
+# - DEVICE_API_KEY                : 단말기 공용 HMAC 키 (Phase 8 에서 per-device 로 전환)
 
 [dev]
 port = 8787
