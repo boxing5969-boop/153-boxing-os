@@ -75,3 +75,70 @@ adminRoutes.post("/door/open", requireJwt, async (c) => {
     "문이 열렸습니다"
   );
 });
+
+
+// ── Branch Kakao AlimTalk settings ──────────────────────────
+const kakaoSettingsSchema = z.object({
+  kakao_pfid:           z.string().min(1),
+  kakao_sender_phone:   z.string().min(1),
+  kakao_tpl_d7:         z.string().optional(),
+  kakao_tpl_d3:         z.string().optional(),
+  kakao_tpl_d1:         z.string().optional(),
+  kakao_api_key:        z.string().optional(),   // plain -- encrypted on save
+  kakao_api_secret:     z.string().optional(),   // plain -- encrypted on save
+  kakao_enabled:        z.boolean().default(false),
+});
+
+const HQ_AND_BRANCH = new Set(["super_admin", "hq_admin", "branch_admin", "branch_owner"]);
+
+adminRoutes.put("/branches/:id/kakao", requireJwt, async (c) => {
+  const branchId = c.req.param("id");
+  const parsed = kakaoSettingsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  }
+
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+
+  const { data: profileRaw } = await db
+    .from("profiles")
+    .select("role, branch_id")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+  const profile = profileRaw as { role: string; branch_id: string | null } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) {
+    return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+  }
+  // branch_admin can only update their own branch
+  if ((profile.role === "branch_admin" || profile.role === "branch_owner") && profile.branch_id !== branchId) {
+    return fail(c, "PERMISSION_DENIED", "다른 지점 설정을 변경할 수 없습니다", 403);
+  }
+
+  const { encryptDeviceKey } = await import("../lib/keyEncryption");
+  const kmsKey = c.env.DEVICE_KMS_KEY;
+
+  let apiKeyEnc: string | undefined;
+  let apiSecretEnc: string | undefined;
+
+  if (parsed.data.kakao_api_key && kmsKey) {
+    apiKeyEnc = await encryptDeviceKey(kmsKey, parsed.data.kakao_api_key);
+  }
+  if (parsed.data.kakao_api_secret && kmsKey) {
+    apiSecretEnc = await encryptDeviceKey(kmsKey, parsed.data.kakao_api_secret);
+  }
+
+  const { error } = await db.from("branches").update({
+    kakao_pfid:            parsed.data.kakao_pfid,
+    kakao_sender_phone:    parsed.data.kakao_sender_phone,
+    kakao_tpl_d7:          parsed.data.kakao_tpl_d7 ?? null,
+    kakao_tpl_d3:          parsed.data.kakao_tpl_d3 ?? null,
+    kakao_tpl_d1:          parsed.data.kakao_tpl_d1 ?? null,
+    kakao_api_key_enc:     apiKeyEnc,
+    kakao_api_secret_enc:  apiSecretEnc,
+    kakao_enabled:         parsed.data.kakao_enabled,
+  }).eq("id", branchId);
+
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { branch_id: branchId }, "카카오 알림톡 설정이 저장되었습니다");
+});

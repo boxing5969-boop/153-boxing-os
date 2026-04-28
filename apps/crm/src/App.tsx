@@ -29,6 +29,7 @@ const AlertsPage = lazy(() => import("@/pages/admin/AlertsPage"));
 const RevenuePage = lazy(() => import("@/pages/admin/RevenuePage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const KioskHomePage = lazy(() => import("@/pages/kiosk/KioskHomePage"));
+const SignupPage = lazy(() => import("@/pages/SignupPage"));
 
 function PageFallback() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
           <Route element={<ProtectedRoute />}>
             {/* Kiosk: full-screen, no sidebar/header */}
             <Route path="/kiosk" element={<KioskHomePage />} />

@@ -1,9 +1,26 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { roleLabel } from "@/lib/roleLabels";
-import { LogOut, Bell } from "lucide-react";
+import { LogOut, Bell, FlaskConical } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+
+function useTrialInfo(companyId: string | null) {
+  return useQuery({
+    queryKey: ["trial-info", companyId],
+    enabled: !!companyId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      if (!companyId) return null;
+      const { data } = await supabase
+        .from("companies")
+        .select("subscription_status,trial_ends_at")
+        .eq("id", companyId)
+        .maybeSingle();
+      return data as { subscription_status: string; trial_ends_at: string | null } | null;
+    },
+  });
+}
 
 function useUnresolvedAlertCount() {
   return useQuery({
@@ -38,7 +55,12 @@ function Avatar({ name }: { name: string }) {
 export default function Header() {
   const { user, profile, signOut } = useAuth();
   const { data: alertCount = 0 } = useUnresolvedAlertCount();
+  const { data: trialInfo } = useTrialInfo(profile?.company_id ?? null);
   const displayName = profile?.name ?? user?.email ?? "–";
+
+  const trialDaysLeft = trialInfo?.subscription_status === "trial" && trialInfo.trial_ends_at
+    ? Math.max(0, Math.ceil((new Date(trialInfo.trial_ends_at).getTime() - Date.now()) / 86_400_000))
+    : null;
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-6">
@@ -47,6 +69,18 @@ export default function Header() {
 
       {/* 오른쪽: 알림 + 사용자 */}
       <div className="flex items-center gap-3">
+        {/* 트라이얼 배지 */}
+        {trialDaysLeft !== null && (
+          <div className={[
+            "hidden sm:flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border",
+            trialDaysLeft <= 3
+              ? "bg-orange-50 text-orange-700 border-orange-200"
+              : "bg-brand/5 text-brand border-brand/20",
+          ].join(" ")}>
+            <FlaskConical className="size-3.5" />
+            무료 체험 D-{trialDaysLeft}
+          </div>
+        )}
         {/* 알림 벨 */}
         <div className="relative">
           <button

@@ -302,7 +302,7 @@ export async function runDailyNotifications(env: Env): Promise<void> {
 
   if (targets.length === 0) return;
 
-  const report = await runExpiryNotifications(env, targets);
+  const report = await runExpiryNotifications(db, env, targets);
   console.log("[alimtalk] result:", report);
 
   for (const target of targets) {

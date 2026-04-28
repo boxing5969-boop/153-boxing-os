@@ -15,6 +15,7 @@ import { formatDate } from "@/lib/format";
 import { MemberStatusBadge } from "@/components/members/MemberStatusBadge";
 import { cn } from "@/lib/cn";
 import BranchFormDialog from "@/components/branches/BranchFormDialog";
+import BranchKakaoSettingsCard from "@/components/branches/BranchKakaoSettingsCard";
 import type { MemberStatus } from "@153/shared";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -263,6 +264,13 @@ export default function BranchDetailPage() {
           </div>
         </div>
       </Card>
+
+      {/* Kakao AlimTalk Settings */}
+      <BranchKakaoSettingsCard
+        branchId={b.id}
+        config={b}
+        onSaved={() => void qc.invalidateQueries({ queryKey: ["branch-detail", id] })}
+      />
 
       <BranchFormDialog
         open={showEdit}

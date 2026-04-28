@@ -1,14 +1,16 @@
 import { type FormEvent, useState } from "react";
-import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { useNavigate, useLocation, Navigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, CheckCircle2 } from "lucide-react";
 
 interface LocationState {
   from?: { pathname?: string };
+  welcome?: boolean;
+  email?: string;
 }
 
 export default function LoginPage() {
@@ -22,6 +24,7 @@ export default function LoginPage() {
   const location = useLocation();
   const state = location.state as LocationState | null;
   const from = state?.from?.pathname ?? "/";
+  const welcomeEmail = state?.welcome ? (state.email ?? "") : null;
 
   if (loading) {
     return (
@@ -130,6 +133,19 @@ export default function LoginPage() {
             <span className="text-sm font-black tracking-wider uppercase">Boxing OS</span>
           </div>
 
+          {/* 환영 배너 (가입 직후) */}
+          {welcomeEmail && (
+            <div className="mb-6 flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+              <CheckCircle2 className="size-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-green-800">가입을 환영합니다!</p>
+                <p className="text-xs text-green-700 mt-0.5">
+                  14일 무료 체험이 시작되었습니다. 아래에서 로그인해 주세요.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* 헤더 */}
           <div className="mb-8">
             <h2 className="text-2xl font-black text-foreground">로그인</h2>
@@ -216,8 +232,10 @@ export default function LoginPage() {
 
           {/* 하단 안내 */}
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            계정이 없으신가요?{" "}
-            <span className="text-foreground font-medium">본사 관리자에게 문의하세요</span>
+            153os 계정이 없으신가요?{" "}
+            <Link to="/signup" className="text-brand font-medium hover:underline">
+              무료로 시작하기
+            </Link>
           </p>
         </div>
       </div>

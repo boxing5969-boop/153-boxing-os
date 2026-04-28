@@ -16,6 +16,12 @@ export interface BranchStats {
 export interface BranchDetail extends BranchStats {
   manager_name: string | null;
   manager_phone: string | null;
+  kakao_pfid: string | null;
+  kakao_sender_phone: string | null;
+  kakao_tpl_d7: string | null;
+  kakao_tpl_d3: string | null;
+  kakao_tpl_d1: string | null;
+  kakao_enabled: boolean;
 }
 
 export interface CreateBranchInput {
@@ -59,7 +65,7 @@ export async function getBranchesWithStats(): Promise<BranchStats[]> {
 }
 
 export async function getBranchDetail(id: string): Promise<BranchDetail | null> {
-  const { data, error } = await supabase.from("branches").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("branches").select("*,kakao_pfid,kakao_sender_phone,kakao_tpl_d7,kakao_tpl_d3,kakao_tpl_d1,kakao_enabled").eq("id", id).maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
@@ -76,6 +82,8 @@ export async function getBranchDetail(id: string): Promise<BranchDetail | null> 
   type ManagerRow = { name: string; phone: string | null } | null;
   const mgr = manager.data as ManagerRow;
 
+  type BranchRowFull = BranchRow & { kakao_pfid?: string | null; kakao_sender_phone?: string | null; kakao_tpl_d7?: string | null; kakao_tpl_d3?: string | null; kakao_tpl_d1?: string | null; kakao_enabled?: boolean };
+  const bFull = b as BranchRowFull;
   return {
     ...b,
     member_count: total.count ?? 0,
@@ -83,6 +91,12 @@ export async function getBranchDetail(id: string): Promise<BranchDetail | null> 
     device_count: devices.count ?? 0,
     manager_name: mgr?.name ?? null,
     manager_phone: mgr?.phone ?? null,
+    kakao_pfid: bFull.kakao_pfid ?? null,
+    kakao_sender_phone: bFull.kakao_sender_phone ?? null,
+    kakao_tpl_d7: bFull.kakao_tpl_d7 ?? null,
+    kakao_tpl_d3: bFull.kakao_tpl_d3 ?? null,
+    kakao_tpl_d1: bFull.kakao_tpl_d1 ?? null,
+    kakao_enabled: bFull.kakao_enabled ?? false,
   };
 }
 
