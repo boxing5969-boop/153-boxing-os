@@ -112,4 +112,3 @@ END $$;
 GRANT EXECUTE ON FUNCTION public.get_expiry_notification_targets() TO service_role;
 GRANT EXECUTE ON FUNCTION public.record_expiry_notification(uuid, uuid, text, text, text) TO service_role;
 GRANT ALL ON TABLE public.membership_notifications TO service_role;
-GRANT USAGE ON SEQUENCE public.membership_notifications_id_seq TO service_role;
