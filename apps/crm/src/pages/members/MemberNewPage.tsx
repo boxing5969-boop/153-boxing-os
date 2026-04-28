@@ -1,23 +1,82 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
-import PageHeader from "@/components/PageHeader";
+import {
+  ArrowLeft, User2, Phone, Calendar, Users,
+  CheckCircle2, CreditCard, ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { listBranches, listCoaches } from "@/services/lookups";
 import { createMember } from "@/services/members";
-import {
-  MEMBER_STATUS_VALUES,
-  memberStatusLabel,
-} from "@/components/members/MemberStatusBadge";
 import type { MemberStatus } from "@153/shared";
+import { cn } from "@/lib/cn";
 
 const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
+
+function formatPhoneInput(v: string): string {
+  const digits = v.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function SectionTitle({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <div className="flex size-6 items-center justify-center rounded-md bg-primary/10">
+        <Icon className="size-3.5 text-primary" />
+      </div>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    </div>
+  );
+}
+
+interface SuccessViewProps {
+  memberId: string;
+  memberName: string;
+  onRegisterMembership: () => void;
+}
+
+function SuccessView({ memberId, memberName, onRegisterMembership }: SuccessViewProps) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex flex-col items-center gap-6 py-10 text-center">
+      <div className="flex size-16 items-center justify-center rounded-full bg-success/10">
+        <CheckCircle2 className="size-8 text-success" />
+      </div>
+      <div>
+        <h2 className="text-xl font-black text-foreground">
+          {memberName}님 등록 완료!
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          이용권을 바로 등록하시겠어요?
+        </p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+        <Button className="flex-1 gap-2" onClick={onRegisterMembership}>
+          <CreditCard className="size-4" />
+          이용권 바로 등록
+        </Button>
+        <Button variant="outline" className="flex-1 gap-2" onClick={() => navigate(`/members/${memberId}`)}>
+          회원 상세 보기
+          <ChevronRight className="size-4" />
+        </Button>
+      </div>
+      <button
+        type="button"
+        onClick={() => navigate("/members")}
+        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        목록으로 돌아가기
+      </button>
+    </div>
+  );
+}
 
 export default function MemberNewPage() {
   const navigate = useNavigate();
@@ -40,6 +99,8 @@ export default function MemberNewPage() {
   const [branchId, setBranchId] = useState<string>(profile?.branch_id ?? "");
   const [coachId, setCoachId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [createdMember, setCreatedMember] = useState<{ id: string; name: string } | null>(null);
+  const [showMembershipDialog, setShowMembershipDialog] = useState(false);
 
   useEffect(() => {
     if (!isHq && profile?.branch_id) setBranchId(profile.branch_id);
@@ -61,7 +122,7 @@ export default function MemberNewPage() {
     mutationFn: createMember,
     onSuccess: (member) => {
       void queryClient.invalidateQueries({ queryKey: ["members"] });
-      navigate(`/members/${member.id}`, { replace: true });
+      setCreatedMember({ id: member.id, name: member.name });
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : "등록 실패");
@@ -77,22 +138,14 @@ export default function MemberNewPage() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (!branchId) {
-      setError("지점을 선택하세요");
-      return;
-    }
+    if (!branchId) { setError("지점을 선택하세요"); return; }
     const companyId = resolveCompanyId();
-    if (!companyId) {
-      setError("소속 본사 정보를 찾을 수 없습니다");
-      return;
-    }
-
+    if (!companyId) { setError("소속 본사 정보를 찾을 수 없습니다"); return; }
     createMutation.mutate({
       company_id: companyId,
       branch_id: branchId,
       name: name.trim(),
-      phone: phone.trim() || undefined,
+      phone: phone.replace(/-/g, "").trim() || undefined,
       birth_date: birthDate || undefined,
       gender: gender || undefined,
       status,
@@ -100,138 +153,235 @@ export default function MemberNewPage() {
     });
   }
 
+  // 등록 완료 후 이용권 다이얼로그로 이동
+  useEffect(() => {
+    if (createdMember && showMembershipDialog) {
+      navigate(`/members/${createdMember.id}?openMembership=1`);
+    }
+  }, [createdMember, showMembershipDialog, navigate]);
+
+  const branchLabel = isHq
+    ? (branchesQuery.data?.find((b) => b.id === branchId)?.name ?? "선택하세요")
+    : (profile?.branch_id ?? "—");
+
   return (
-    <div className="space-y-6 max-w-2xl">
-      <PageHeader
-        title="신규 회원 등록"
-        action={
-          <Link to="/members">
-            <Button variant="outline">
-              <ArrowLeft className="size-4" />
-              목록으로
-            </Button>
+    <div className="space-y-6 max-w-2xl animate-fade-in">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <Link to="/members" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2">
+            <ArrowLeft className="size-4" />
+            회원 목록
           </Link>
-        }
-      />
+          <h1 className="text-2xl font-black text-foreground">신규 회원 등록</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">기본 정보를 입력하고 이용권을 바로 등록하세요</p>
+        </div>
+      </div>
 
-      <Card className="p-6">
+      {createdMember ? (
+        <Card className="p-6">
+          <SuccessView
+            memberId={createdMember.id}
+            memberName={createdMember.name}
+            onRegisterMembership={() => {
+              setShowMembershipDialog(true);
+              navigate(`/members/${createdMember.id}`);
+            }}
+          />
+        </Card>
+      ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">이름 *</Label>
-              <Input
-                id="name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">전화번호</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="010-1234-5678"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="birth">생년월일</Label>
-              <Input
-                id="birth"
-                type="date"
-                value={birthDate}
-                onChange={(e) => setBirthDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="gender">성별</Label>
-              <Select id="gender" value={gender} onChange={(e) => setGender(e.target.value)}>
-                <option value="">선택 안함</option>
-                <option value="male">남</option>
-                <option value="female">여</option>
-                <option value="other">기타</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="status">상태 *</Label>
-              <Select
-                id="status"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as MemberStatus)}
-              >
-                {MEMBER_STATUS_VALUES.map((s) => (
-                  <option key={s} value={s}>
-                    {memberStatusLabel(s)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="branch">지점 *</Label>
-              {isHq ? (
-                <Select
-                  id="branch"
-                  value={branchId}
-                  onChange={(e) => {
-                    setBranchId(e.target.value);
-                    setCoachId("");
-                  }}
-                  required
-                  disabled={branchesQuery.isLoading}
-                >
-                  <option value="">선택하세요</option>
-                  {(branchesQuery.data ?? []).map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  id="branch"
-                  value={profile?.branch_id ?? "—"}
-                  disabled
-                  className="opacity-70"
-                />
-              )}
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="coach">담당 코치</Label>
-              <Select
-                id="coach"
-                value={coachId}
-                onChange={(e) => setCoachId(e.target.value)}
-                disabled={!branchId || coachesQuery.isLoading}
-              >
-                <option value="">미지정</option>
-                {(coachesQuery.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
+          {/* 기본 정보 섹션 */}
+          <Card>
+            <CardContent className="pt-5">
+              <SectionTitle icon={User2} title="기본 정보" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 이름 */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="name">
+                    이름 <span className="text-danger">*</span>
+                  </Label>
+                  <Input
+                    id="name"
+                    required
+                    placeholder="홍길동"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoFocus
+                  />
+                </div>
 
+                {/* 전화번호 */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone">전화번호</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="010-1234-5678"
+                      value={phone}
+                      onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+
+                {/* 생년월일 */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="birth">생년월일</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="birth"
+                      type="date"
+                      value={birthDate}
+                      onChange={(e) => setBirthDate(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+
+                {/* 성별 */}
+                <div className="space-y-1.5">
+                  <Label>성별</Label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: "", label: "선택 안함" },
+                      { value: "male", label: "남" },
+                      { value: "female", label: "여" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setGender(opt.value)}
+                        className={cn(
+                          "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
+                          gender === opt.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-card text-muted-foreground hover:border-primary/50"
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 등록 설정 섹션 */}
+          <Card>
+            <CardContent className="pt-5">
+              <SectionTitle icon={Users} title="등록 설정" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 초기 상태 */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="status">
+                    초기 상태 <span className="text-danger">*</span>
+                  </Label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: "trial", label: "체험" },
+                      { value: "active", label: "정상" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setStatus(opt.value as MemberStatus)}
+                        className={cn(
+                          "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
+                          status === opt.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-card text-muted-foreground hover:border-primary/50"
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 지점 */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="branch">
+                    지점 <span className="text-danger">*</span>
+                  </Label>
+                  {isHq ? (
+                    <Select
+                      id="branch"
+                      value={branchId}
+                      onChange={(e) => { setBranchId(e.target.value); setCoachId(""); }}
+                      required
+                      disabled={branchesQuery.isLoading}
+                    >
+                      <option value="">지점 선택</option>
+                      {(branchesQuery.data ?? []).map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <div className="flex h-10 items-center rounded-lg border border-border bg-muted/40 px-3 text-sm text-muted-foreground">
+                      {branchLabel}
+                    </div>
+                  )}
+                </div>
+
+                {/* 담당 코치 */}
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="coach">담당 코치</Label>
+                  <Select
+                    id="coach"
+                    value={coachId}
+                    onChange={(e) => setCoachId(e.target.value)}
+                    disabled={!branchId || coachesQuery.isLoading}
+                  >
+                    <option value="">미지정</option>
+                    {(coachesQuery.data ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </Select>
+                  {!branchId && (
+                    <p className="text-xs text-muted-foreground">지점 선택 후 코치를 지정할 수 있습니다</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 에러 */}
           {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
+              <div className="size-1.5 rounded-full bg-danger shrink-0" />
+              <p className="text-sm text-danger">{error}</p>
+            </div>
           )}
 
-          <div className="flex items-center gap-2 pt-2">
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "등록 중…" : "등록"}
+          {/* 액션 버튼 */}
+          <div className="flex items-center gap-3">
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || !name.trim()}
+              className="gap-2 px-6"
+            >
+              {createMutation.isPending ? (
+                <>
+                  <span className="size-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  등록 중…
+                </>
+              ) : (
+                "회원 등록"
+              )}
             </Button>
             <Link to="/members">
-              <Button type="button" variant="ghost">
+              <Button type="button" variant="ghost" className="text-muted-foreground">
                 취소
               </Button>
             </Link>
           </div>
         </form>
-      </Card>
+      )}
     </div>
   );
 }
