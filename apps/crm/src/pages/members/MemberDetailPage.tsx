@@ -14,6 +14,7 @@ import {
 } from "@/components/memberships/MembershipStatusBadge";
 import { NewMembershipDialog } from "@/components/memberships/NewMembershipDialog";
 import { NewTrialPassDialog } from "@/components/memberships/NewTrialPassDialog";
+import { ConsentManagementCard } from "@/components/consent/ConsentManagementCard";
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
@@ -270,6 +271,8 @@ export default function MemberDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConsentManagementCard memberId={member.id} />
 
       <NewMembershipDialog
         open={openNewMembership}

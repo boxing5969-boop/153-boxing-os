@@ -124,3 +124,4 @@ docs/                      # 아키텍처 문서
 - [x] Phase 8: 단말기 키 암호화 + Suprema scaffold + 배포 가이드 (30 tests)
 - [x] Phase 9: 단말기 등록 UI + 키 회전 (POST /api/devices/register · /:id/rotate-key)
 - [x] Phase 10: 직원 초대 (auth.users + profiles 자동 생성, /staff)
+- [x] Phase 11: 동의 철회 자동 처리 (face_recognition 철회 → 단말기 자동 삭제)
