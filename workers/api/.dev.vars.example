@@ -11,3 +11,7 @@ DEVICE_KMS_KEY=your-32-byte-master-key
 
 # 선택 — Sentry DSN 설정 시 에러 자동 추적
 SENTRY_DSN=
+
+# 선택 — 외부 파트너(랭킹업앱) 연동 시. 미설정 시 /api/external/* 호출 거부.
+# 파트너 서버에만 공유 — 절대 브라우저 노출 금지.
+PARTNER_API_KEY=

@@ -76,6 +76,20 @@ export async function createMember(input: CreateMemberInput): Promise<Member> {
   return data as unknown as Member;
 }
 
+export async function linkRankingAppUser(
+  memberId: string,
+  rankingUserId: string | null
+): Promise<Member> {
+  const { data, error } = await supabase
+    .from("members")
+    .update({ ranking_app_user_id: rankingUserId })
+    .eq("id", memberId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as unknown as Member;
+}
+
 export interface MemberRelated {
   memberships: Membership[];
   trials: TrialPass[];

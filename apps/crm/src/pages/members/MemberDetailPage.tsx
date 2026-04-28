@@ -15,6 +15,7 @@ import {
 import { NewMembershipDialog } from "@/components/memberships/NewMembershipDialog";
 import { NewTrialPassDialog } from "@/components/memberships/NewTrialPassDialog";
 import { ConsentManagementCard } from "@/components/consent/ConsentManagementCard";
+import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog";
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
@@ -47,6 +48,7 @@ export default function MemberDetailPage() {
 
   const [openNewMembership, setOpenNewMembership] = useState(false);
   const [openNewTrial, setOpenNewTrial] = useState(false);
+  const [openLinkRanking, setOpenLinkRanking] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [trialToCancel, setTrialToCancel] = useState<TrialPass | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -154,6 +156,19 @@ export default function MemberDetailPage() {
                 ) : (
                   "미지정"
                 )}
+              </dd>
+              <dt className="opacity-60">랭킹업 연결</dt>
+              <dd className="col-span-2 flex items-center gap-2">
+                {member.ranking_app_user_id ? (
+                  <span className="font-mono text-xs opacity-80">
+                    {member.ranking_app_user_id.slice(0, 8)}…
+                  </span>
+                ) : (
+                  <span className="opacity-60">미연결</span>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setOpenLinkRanking(true)}>
+                  변경
+                </Button>
               </dd>
             </dl>
           </CardContent>
@@ -273,6 +288,12 @@ export default function MemberDetailPage() {
       </Card>
 
       <ConsentManagementCard memberId={member.id} />
+
+      <LinkRankingAppDialog
+        open={openLinkRanking}
+        onClose={() => setOpenLinkRanking(false)}
+        member={member}
+      />
 
       <NewMembershipDialog
         open={openNewMembership}
