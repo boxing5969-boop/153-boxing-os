@@ -10,6 +10,11 @@ import MemberDetailPage from "@/pages/members/MemberDetailPage";
 import MembershipsListPage from "@/pages/memberships/MembershipsListPage";
 import AccessLogsPage from "@/pages/access-logs/AccessLogsPage";
 import DevicesListPage from "@/pages/devices/DevicesListPage";
+import VisitorsListPage from "@/pages/visitors/VisitorsListPage";
+import BranchesListPage from "@/pages/branches/BranchesListPage";
+import LevelsListPage from "@/pages/levels/LevelsListPage";
+import MemberLevelsPage from "@/pages/levels/MemberLevelsPage";
+import ProfilePage from "@/pages/settings/ProfilePage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -26,7 +31,11 @@ export default function App() {
             <Route path="/memberships" element={<MembershipsListPage />} />
             <Route path="/access-logs" element={<AccessLogsPage />} />
             <Route path="/devices" element={<DevicesListPage />} />
-            {/* PR 5.5 에서 라우트 추가 */}
+            <Route path="/visitors" element={<VisitorsListPage />} />
+            <Route path="/branches" element={<BranchesListPage />} />
+            <Route path="/levels" element={<LevelsListPage />} />
+            <Route path="/levels/:id" element={<MemberLevelsPage />} />
+            <Route path="/settings/profile" element={<ProfilePage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />

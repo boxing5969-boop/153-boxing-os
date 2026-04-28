@@ -11,36 +11,50 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
+import type { UserRole } from "@153/shared";
 
 interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  /** 추후 PR 에서 구현 예정 — 클릭 시 비활성 시각 표시 */
-  upcoming?: boolean;
+  /** undefined = 모든 역할 허용 */
+  roles?: UserRole[];
 }
+
+const BRANCH_AND_HQ: UserRole[] = [
+  "super_admin",
+  "hq_admin",
+  "branch_owner",
+  "branch_manager",
+];
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "대시보드", icon: LayoutDashboard },
   { to: "/members", label: "회원", icon: Users },
-  { to: "/memberships", label: "이용권", icon: CreditCard },
+  { to: "/memberships", label: "이용권", icon: CreditCard, roles: BRANCH_AND_HQ },
   { to: "/access-logs", label: "출입로그", icon: ScrollText },
-  { to: "/devices", label: "장비", icon: Smartphone },
-  { to: "/visitors", label: "방문자", icon: UserCheck, upcoming: true },
-  { to: "/branches", label: "지점", icon: Building2, upcoming: true },
-  { to: "/levels", label: "레벨", icon: Trophy, upcoming: true },
-  { to: "/settings/profile", label: "설정", icon: Settings, upcoming: true },
+  { to: "/devices", label: "장비", icon: Smartphone, roles: BRANCH_AND_HQ },
+  { to: "/visitors", label: "방문자", icon: UserCheck, roles: BRANCH_AND_HQ },
+  { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
+  { to: "/levels", label: "레벨", icon: Trophy },
+  { to: "/settings/profile", label: "설정", icon: Settings },
 ];
 
 export default function Sidebar() {
+  const { profile } = useAuth();
+  const items = NAV_ITEMS.filter(
+    (item) => !item.roles || (profile?.role && item.roles.includes(profile.role))
+  );
+
   return (
     <aside className="w-60 shrink-0 border-r border-foreground/10 bg-muted/30">
       <div className="h-14 flex items-center px-4 border-b border-foreground/10">
         <span className="font-bold tracking-tight">153 BOXING OS</span>
       </div>
       <nav className="p-2 space-y-1">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
@@ -52,18 +66,12 @@ export default function Sidebar() {
                   "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
                   isActive
                     ? "bg-primary text-primary-foreground"
-                    : "hover:bg-foreground/5",
-                  item.upcoming && "opacity-60"
+                    : "hover:bg-foreground/5"
                 )
               }
             >
               <Icon className="size-4" />
               <span>{item.label}</span>
-              {item.upcoming && (
-                <span className="ml-auto rounded bg-foreground/10 px-1.5 py-0.5 text-[10px]">
-                  곧
-                </span>
-              )}
             </NavLink>
           );
         })}
