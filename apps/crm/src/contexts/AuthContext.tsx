@@ -23,17 +23,26 @@ interface AuthState {
 const AuthCtx = createContext<AuthState | null>(null);
 
 async function fetchProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("auth_user_id", userId)
-    .maybeSingle();
-  if (error) {
-    console.error("[fetchProfile]", error);
+  try {
+    const fetchPromise = supabase
+      .from("profiles")
+      .select("*")
+      .eq("auth_user_id", userId)
+      .maybeSingle();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("fetchProfile timeout")), 8000)
+    );
+    const { data, error } = await Promise.race([fetchPromise, timeoutPromise]);
+    if (error) {
+      console.error("[fetchProfile]", error);
+      return null;
+    }
+    if (!data) return null;
+    return data as unknown as Profile;
+  } catch (e) {
+    console.error("[fetchProfile]", e);
     return null;
   }
-  if (!data) return null;
-  return data as unknown as Profile;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -43,17 +52,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let initialLoadDone = false;
 
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-      setSession(data.session);
-      if (data.session) {
-        const p = await fetchProfile(data.session.user.id);
+      try {
+        const { data } = await supabase.auth.getSession();
         if (!mounted) return;
-        setProfile(p);
+        setSession(data.session);
+        if (data.session) {
+          const p = await fetchProfile(data.session.user.id);
+          if (!mounted) return;
+          setProfile(p);
+        }
+      } catch (e) {
+        console.error("[AuthProvider] init error", e);
+      } finally {
+        if (mounted) {
+          initialLoadDone = true;
+          setLoading(false);
+        }
       }
-      setLoading(false);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, sess) => {
@@ -65,6 +83,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(p);
       } else {
         setProfile(null);
+      }
+      // onAuthStateChange가 초기 getSession보다 먼저 완료된 경우 loading 해제
+      if (!initialLoadDone && mounted) {
+        initialLoadDone = true;
+        setLoading(false);
       }
     });
 
