@@ -4,6 +4,11 @@ import { errorHandler } from "./middleware/errorHandler";
 import { accessRoutes } from "./routes/access";
 import { devicesRoutes } from "./routes/devices";
 import { adminRoutes } from "./routes/admin";
+import {
+  processNextSyncJobs,
+  runDailyExpiry,
+  runQrCleanup,
+} from "./services/syncQueueProcessor";
 import type { Env } from "./lib/env";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -26,4 +31,31 @@ app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)
 );
 
-export default app;
+const DAILY_EXPIRY_CRON = "5 15 * * *"; // 00:05 KST = 15:05 UTC
+const QR_CLEANUP_CRON = "*/10 * * * *";
+
+async function handleScheduled(
+  controller: ScheduledController,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<void> {
+  if (controller.cron === DAILY_EXPIRY_CRON) {
+    ctx.waitUntil(runDailyExpiry(env));
+    return;
+  }
+  if (controller.cron === QR_CLEANUP_CRON) {
+    ctx.waitUntil(runQrCleanup(env));
+    return;
+  }
+  // every minute fallback — sync queue
+  ctx.waitUntil(
+    processNextSyncJobs(env, 50).then((report) =>
+      console.log("[scheduled:sync]", report)
+    )
+  );
+}
+
+export default {
+  fetch: app.fetch,
+  scheduled: handleScheduled,
+};

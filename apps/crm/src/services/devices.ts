@@ -29,6 +29,21 @@ export async function listDevices(filters: DeviceListFilters = {}): Promise<Devi
   }));
 }
 
+export interface ForceSyncResult {
+  device_id: string;
+  jobs_created: number;
+  failed_reset: number;
+  requested_at: string;
+}
+
+export async function forceDeviceSync(deviceId: string): Promise<ForceSyncResult> {
+  const { data, error } = await supabase.rpc("force_device_sync", {
+    _device_id: deviceId,
+  });
+  if (error) throw error;
+  return data as unknown as ForceSyncResult;
+}
+
 export async function getDevicePendingCount(deviceIds: string[]): Promise<Record<string, number>> {
   if (deviceIds.length === 0) return {};
   const { data, error } = await supabase

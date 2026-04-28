@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
@@ -12,12 +12,14 @@ import {
   deviceTypeLabel,
   deviceVendorLabel,
 } from "@/components/devices/DeviceStatusBadge";
-import { getDevicePendingCount, listDevices } from "@/services/devices";
+import { forceDeviceSync, getDevicePendingCount, listDevices } from "@/services/devices";
 import { formatDateTime } from "@/lib/format";
 import type { DeviceStatus } from "@153/shared";
 
 export default function DevicesListPage() {
+  const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<"" | DeviceStatus>("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const filters = useMemo(() => ({ status: statusFilter || null }), [statusFilter]);
 
@@ -37,12 +39,32 @@ export default function DevicesListPage() {
 
   const pendingMap = pendingQuery.data ?? {};
 
+  const forceSyncMutation = useMutation({
+    mutationFn: forceDeviceSync,
+    onSuccess: (res) => {
+      setActionMessage(
+        `강제 동기화 요청됨 — ${res.jobs_created}건 생성, 실패 ${res.failed_reset}건 재시도`
+      );
+      void qc.invalidateQueries({ queryKey: ["devices"] });
+      void qc.invalidateQueries({ queryKey: ["devices-pending"] });
+    },
+    onError: (err) => {
+      setActionMessage(
+        `강제 동기화 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`
+      );
+    },
+  });
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="장비"
-        description="단말기 목록 + 상태 + 마지막 통신. 강제 동기화는 Phase 6 에서 활성."
+        description="단말기 목록 + 상태 + 마지막 통신. 강제 동기화 클릭 시 Workers cron 이 1분 내 처리."
       />
+
+      {actionMessage && (
+        <p className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{actionMessage}</p>
+      )}
 
       <Card className="p-4">
         <Select
@@ -127,8 +149,11 @@ export default function DevicesListPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled
-                      title="Phase 6 에서 활성"
+                      disabled={forceSyncMutation.isPending}
+                      onClick={() => {
+                        setActionMessage(null);
+                        forceSyncMutation.mutate(d.id);
+                      }}
                     >
                       <RefreshCw className="size-3" />
                       강제 동기화

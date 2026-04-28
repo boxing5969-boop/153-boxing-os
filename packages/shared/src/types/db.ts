@@ -11,11 +11,16 @@ type GenericTable = {
   Relationships: never[];
 };
 
+type GenericFunction = {
+  Args: Record<string, unknown>;
+  Returns: unknown;
+};
+
 export interface Database {
   public: {
     Tables: Record<string, GenericTable>;
     Views: Record<string, GenericTable>;
-    Functions: Record<string, never>;
+    Functions: Record<string, GenericFunction>;
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

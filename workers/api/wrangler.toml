@@ -17,3 +17,14 @@ ENVIRONMENT = "development"
 
 [dev]
 port = 8787
+
+# Phase 6 — Cron Triggers
+# - 매분: device_sync_jobs 처리 (50개 batch)
+# - 매 10분: qr_used_tokens 만료 정리
+# - 매일 00:05 KST (15:05 UTC): memberships/trial_passes 만료 일괄 처리
+[triggers]
+crons = [
+  "* * * * *",
+  "*/10 * * * *",
+  "5 15 * * *"
+]
