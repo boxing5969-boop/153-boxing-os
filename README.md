@@ -125,3 +125,4 @@ docs/                      # 아키텍처 문서
 - [x] Phase 9: 단말기 등록 UI + 키 회전 (POST /api/devices/register · /:id/rotate-key)
 - [x] Phase 10: 직원 초대 (auth.users + profiles 자동 생성, /staff)
 - [x] Phase 11: 동의 철회 자동 처리 (face_recognition 철회 → 단말기 자동 삭제)
+- [x] Phase 12: Sentry 통합 (Workers + apps/crm, DSN 미설정 시 자동 no-op)
