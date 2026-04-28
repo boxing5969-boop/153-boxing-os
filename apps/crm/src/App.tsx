@@ -21,6 +21,7 @@ import EmergencyPinsPage from "@/pages/admin/EmergencyPinsPage";
 import AlertsPage from "@/pages/admin/AlertsPage";
 import RevenuePage from "@/pages/admin/RevenuePage";
 import HelpPage from "@/pages/HelpPage";
+import KioskHomePage from "@/pages/kiosk/KioskHomePage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -29,6 +30,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<ProtectedRoute />}>
+          {/* Kiosk: full-screen, no sidebar/header */}
+          <Route path="/kiosk" element={<KioskHomePage />} />
           <Route element={<AppLayout />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/members" element={<MembersListPage />} />
