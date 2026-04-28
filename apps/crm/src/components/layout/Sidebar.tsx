@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   KeyRound,
+  HelpCircle,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin/emergency-pins", label: "비상 PIN", icon: KeyRound, roles: BRANCH_AND_HQ },
   { to: "/levels", label: "레벨", icon: Trophy },
   { to: "/settings/profile", label: "설정", icon: Settings },
+  { to: "/help", label: "도움말", icon: HelpCircle },
 ];
 
 export default function Sidebar() {
