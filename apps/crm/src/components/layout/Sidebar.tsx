@@ -24,7 +24,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "대시보드", icon: LayoutDashboard },
   { to: "/members", label: "회원", icon: Users },
-  { to: "/memberships", label: "이용권", icon: CreditCard, upcoming: true },
+  { to: "/memberships", label: "이용권", icon: CreditCard },
   { to: "/access-logs", label: "출입로그", icon: ScrollText, upcoming: true },
   { to: "/devices", label: "장비", icon: Smartphone, upcoming: true },
   { to: "/visitors", label: "방문자", icon: UserCheck, upcoming: true },

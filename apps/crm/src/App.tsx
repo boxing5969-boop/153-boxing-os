@@ -7,6 +7,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import MembersListPage from "@/pages/members/MembersListPage";
 import MemberNewPage from "@/pages/members/MemberNewPage";
 import MemberDetailPage from "@/pages/members/MemberDetailPage";
+import MembershipsListPage from "@/pages/memberships/MembershipsListPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -20,7 +21,8 @@ export default function App() {
             <Route path="/members" element={<MembersListPage />} />
             <Route path="/members/new" element={<MemberNewPage />} />
             <Route path="/members/:id" element={<MemberDetailPage />} />
-            {/* PR 5.3~5.5 에서 라우트 추가 */}
+            <Route path="/memberships" element={<MembershipsListPage />} />
+            {/* PR 5.4~5.5 에서 라우트 추가 */}
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
