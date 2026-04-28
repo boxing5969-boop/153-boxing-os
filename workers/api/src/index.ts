@@ -12,6 +12,7 @@ import {
   runDailyExpiry,
   runQrCleanup,
 } from "./services/syncQueueProcessor";
+import { runAlertCheck } from "./services/alertChecker";
 import type { Env } from "./lib/env";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -38,6 +39,7 @@ app.notFound((c) =>
 
 const DAILY_EXPIRY_CRON = "5 15 * * *"; // 00:05 KST = 15:05 UTC
 const QR_CLEANUP_CRON = "*/10 * * * *";
+const ALERT_CHECK_CRON = "*/5 * * * *";
 
 async function handleScheduled(
   controller: ScheduledController,
@@ -50,6 +52,14 @@ async function handleScheduled(
   }
   if (controller.cron === QR_CLEANUP_CRON) {
     ctx.waitUntil(runQrCleanup(env));
+    return;
+  }
+  if (controller.cron === ALERT_CHECK_CRON) {
+    ctx.waitUntil(
+      runAlertCheck(env).then((report) =>
+        console.log("[scheduled:alerts]", report)
+      )
+    );
     return;
   }
   // every minute fallback — sync queue

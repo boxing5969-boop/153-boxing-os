@@ -15,3 +15,7 @@ SENTRY_DSN=
 # 선택 — 외부 파트너(랭킹업앱) 연동 시. 미설정 시 /api/external/* 호출 거부.
 # 파트너 서버에만 공유 — 절대 브라우저 노출 금지.
 PARTNER_API_KEY=
+
+# 선택 — Slack Incoming Webhook URL (Phase 17). 미설정 시 알림 미발송 (DB 기록만).
+# https://api.slack.com/messaging/webhooks
+SLACK_WEBHOOK_URL=

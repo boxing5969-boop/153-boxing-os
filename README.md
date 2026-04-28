@@ -130,3 +130,4 @@ docs/                      # 아키텍처 문서
 - [x] Phase 14: 운영 대시보드 보강 (만료예정 + 거절사유 분포 + 단말기 상세)
 - [x] Phase 15: 랭킹업앱 연동 API (/api/external/me/* + 회원 매핑 UI)
 - [x] Phase 16: 운영 매뉴얼 + /help 페이지 (직원용 절차서 + 거절사유 액션 매트릭스)
+- [x] Phase 17: 사고 알림 자동화 (alert_events + 5분 cron + Slack webhook + /admin/alerts)

@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   KeyRound,
+  Bell,
   HelpCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -43,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
   { to: "/staff", label: "직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
   { to: "/admin/emergency-pins", label: "비상 PIN", icon: KeyRound, roles: BRANCH_AND_HQ },
+  { to: "/admin/alerts", label: "알림", icon: Bell, roles: BRANCH_AND_HQ },
   { to: "/levels", label: "레벨", icon: Trophy },
   { to: "/settings/profile", label: "설정", icon: Settings },
   { to: "/help", label: "도움말", icon: HelpCircle },
