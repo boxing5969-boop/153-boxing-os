@@ -19,6 +19,7 @@ const DevicesListPage = lazy(() => import("@/pages/devices/DevicesListPage"));
 const DeviceDetailPage = lazy(() => import("@/pages/devices/DeviceDetailPage"));
 const VisitorsListPage = lazy(() => import("@/pages/visitors/VisitorsListPage"));
 const BranchesListPage = lazy(() => import("@/pages/branches/BranchesListPage"));
+const BranchDetailPage = lazy(() => import("@/pages/branches/BranchDetailPage"));
 const LevelsListPage = lazy(() => import("@/pages/levels/LevelsListPage"));
 const MemberLevelsPage = lazy(() => import("@/pages/levels/MemberLevelsPage"));
 const ProfilePage = lazy(() => import("@/pages/settings/ProfilePage"));
@@ -57,6 +58,7 @@ export default function App() {
               <Route path="/devices/:id" element={<DeviceDetailPage />} />
               <Route path="/visitors" element={<VisitorsListPage />} />
               <Route path="/branches" element={<BranchesListPage />} />
+              <Route path="/branches/:id" element={<BranchDetailPage />} />
               <Route path="/levels" element={<LevelsListPage />} />
               <Route path="/levels/:id" element={<MemberLevelsPage />} />
               <Route path="/settings/profile" element={<ProfilePage />} />

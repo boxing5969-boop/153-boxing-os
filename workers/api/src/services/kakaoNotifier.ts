@@ -1,15 +1,16 @@
 /**
- * 카카오 알림톡 발송 — Solapi 경유
- * https://docs.solapi.com/api-reference/messages/send-many
+ * Kakao AlimTalk via Solapi
+ * Sender: 153 BOXING HQ channel
+ * Recipient: branch owner (franchise owner)
  *
- * 환경변수 (wrangler secret put):
- *   SOLAPI_API_KEY      Solapi API Key
- *   SOLAPI_API_SECRET   Solapi API Secret
- *   SOLAPI_SENDER_KEY   카카오 채널 pfId (KA01PF...)
- *   KAKAO_EXPIRY_TPL_D7  알림톡 템플릿 ID — D-7 (KA01TP...)
- *   KAKAO_EXPIRY_TPL_D3  알림톡 템플릿 ID — D-3
- *   KAKAO_EXPIRY_TPL_D1  알림톡 템플릿 ID — D-1
- *   SENDER_PHONE        발신 번호 (15991999 형식, 하이픈 없이)
+ * Required secrets (wrangler secret put):
+ *   SOLAPI_API_KEY
+ *   SOLAPI_API_SECRET
+ *   SOLAPI_SENDER_KEY   -- Kakao channel pfId (KA01PF...)
+ *   SENDER_PHONE        -- HQ representative number (no dashes, e.g. 15991999)
+ *   KAKAO_EXPIRY_TPL_D7 -- template ID for D-7 (KA01TP...)
+ *   KAKAO_EXPIRY_TPL_D3 -- template ID for D-3
+ *   KAKAO_EXPIRY_TPL_D1 -- template ID for D-1
  */
 
 import type { Env } from "../lib/env";
@@ -18,11 +19,12 @@ export interface NotificationTarget {
   member_id: string;
   membership_id: string;
   member_name: string;
-  member_phone: string;
   plan_name: string;
   end_date: string;
   days_left: number;
   notification_type: string;
+  branch_name: string;
+  owner_phone: string | null;
 }
 
 export interface SendResult {
@@ -30,9 +32,7 @@ export interface SendResult {
   error?: string;
 }
 
-// ────────────────────────────────────────────────────────────
-// Solapi HMAC 인증 헬퍼
-// ────────────────────────────────────────────────────────────
+// Solapi HMAC-SHA256 auth header
 async function makeAuthHeader(apiKey: string, apiSecret: string): Promise<string> {
   const date = new Date().toISOString();
   const salt = crypto.randomUUID().replace(/-/g, "");
@@ -53,47 +53,43 @@ async function makeAuthHeader(apiKey: string, apiSecret: string): Promise<string
   return `HMAC-SHA256 apiKey=${apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
 }
 
-// ────────────────────────────────────────────────────────────
-// 단건 발송
-// ────────────────────────────────────────────────────────────
+// Send single alimtalk to branch owner
 export async function sendExpiryNotification(
   env: Env,
   target: NotificationTarget
 ): Promise<SendResult> {
-  // 필수 환경변수 확인
-  if (
-    !env.SOLAPI_API_KEY ||
-    !env.SOLAPI_API_SECRET ||
-    !env.SOLAPI_SENDER_KEY ||
-    !env.SENDER_PHONE
-  ) {
-    return { success: false, error: "Solapi 환경변수 미설정 (SOLAPI_API_KEY 등)" };
+  if (!env.SOLAPI_API_KEY || !env.SOLAPI_API_SECRET || !env.SOLAPI_SENDER_KEY || !env.SENDER_PHONE) {
+    return { success: false, error: "Solapi env vars not configured" };
+  }
+
+  if (!target.owner_phone) {
+    return { success: false, error: "No owner phone for branch: " + target.branch_name };
   }
 
   const templateId = resolveTemplateId(env, target.notification_type);
   if (!templateId) {
-    return { success: false, error: `템플릿 미설정: ${target.notification_type}` };
+    return { success: false, error: "Template not configured: " + target.notification_type };
   }
 
-  const endDateFormatted = target.end_date
-    .replace(/-/g, ".")
-    .replace(/\.(\d)$/, ".$1"); // YYYY.MM.DD
+  const ownerPhone = normalizePhone(target.owner_phone);
+  if (!ownerPhone) {
+    return { success: false, error: "Invalid phone format: " + target.owner_phone };
+  }
 
+  const endDateFormatted = target.end_date.replace(/-/g, ".");
+
+  // Variables must match the approved Kakao template exactly
   const variables: Record<string, string> = {
+    "#{지점명}": target.branch_name,
     "#{회원명}": target.member_name,
     "#{플랜명}": target.plan_name,
     "#{만료일}": endDateFormatted,
     "#{남은일수}": String(target.days_left),
   };
 
-  const phone = normalizePhone(target.member_phone);
-  if (!phone) {
-    return { success: false, error: `전화번호 형식 오류: ${target.member_phone}` };
-  }
-
   const body = {
     message: {
-      to: phone,
+      to: ownerPhone,
       from: env.SENDER_PHONE,
       kakaoOptions: {
         pfId: env.SOLAPI_SENDER_KEY,
@@ -126,26 +122,21 @@ export async function sendExpiryNotification(
   }
 }
 
-// ────────────────────────────────────────────────────────────
-// 일괄 발송 (cron 용)
-// ────────────────────────────────────────────────────────────
 export interface ExpiryNotificationReport {
   total: number;
   sent: number;
   failed: number;
-  skipped: number; // 환경변수 미설정 시 전체 skip
+  skipped: number;
 }
 
 export async function runExpiryNotifications(
   env: Env,
   targets: NotificationTarget[]
 ): Promise<ExpiryNotificationReport> {
-  if (targets.length === 0) {
-    return { total: 0, sent: 0, failed: 0, skipped: 0 };
-  }
+  if (targets.length === 0) return { total: 0, sent: 0, failed: 0, skipped: 0 };
 
   if (!env.SOLAPI_API_KEY) {
-    console.warn("[알림톡] SOLAPI_API_KEY 미설정 — 알림톡 발송 건너뜀");
+    console.warn("[alimtalk] SOLAPI_API_KEY not set -- skipping");
     return { total: targets.length, sent: 0, failed: 0, skipped: targets.length };
   }
 
@@ -156,21 +147,16 @@ export async function runExpiryNotifications(
     const result = await sendExpiryNotification(env, target);
     if (result.success) {
       sent++;
-      console.log(`[알림톡] ✓ ${target.member_name} (${target.notification_type})`);
+      console.log(`[alimtalk] sent to ${target.branch_name} owner for ${target.member_name} (${target.notification_type})`);
     } else {
       failed++;
-      console.error(
-        `[알림톡] ✗ ${target.member_name} (${target.notification_type}): ${result.error}`
-      );
+      console.error(`[alimtalk] failed ${target.member_name} (${target.notification_type}): ${result.error}`);
     }
   }
 
   return { total: targets.length, sent, failed, skipped: 0 };
 }
 
-// ────────────────────────────────────────────────────────────
-// 헬퍼
-// ────────────────────────────────────────────────────────────
 function resolveTemplateId(env: Env, notificationType: string): string | null {
   switch (notificationType) {
     case "expiry_d7": return env.KAKAO_EXPIRY_TPL_D7 ?? null;
@@ -182,6 +168,6 @@ function resolveTemplateId(env: Env, notificationType: string): string | null {
 
 function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/\D/g, "");
-  if (digits.length < 10 || digits.length > 11) return null;
+  if (digits.length < 9 || digits.length > 11) return null;
   return digits;
 }
