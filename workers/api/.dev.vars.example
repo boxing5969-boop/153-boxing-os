@@ -7,3 +7,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_JWT_SECRET=your-jwt-secret-from-dashboard
 QR_SIGNING_SECRET=your-random-32-byte-secret
 DEVICE_API_KEY=your-shared-device-hmac-key
+DEVICE_KMS_KEY=your-32-byte-master-key
+
+# 선택 — Sentry DSN 설정 시 에러 자동 추적
+SENTRY_DSN=

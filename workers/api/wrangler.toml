@@ -1,6 +1,8 @@
 name = "153-boxing-os-api"
 main = "src/index.ts"
 compatibility_date = "2026-04-28"
+# @sentry/cloudflare 가 node:async_hooks 를 사용
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "development"

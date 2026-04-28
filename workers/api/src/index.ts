@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { Hono } from "hono";
 import { corsMiddleware } from "./middleware/cors";
 import { errorHandler } from "./middleware/errorHandler";
@@ -57,7 +58,19 @@ async function handleScheduled(
   );
 }
 
-export default {
-  fetch: app.fetch,
+const handler: ExportedHandler<Env> = {
+  fetch: app.fetch as ExportedHandlerFetchHandler<Env>,
   scheduled: handleScheduled,
 };
+
+// Sentry — DSN 미설정 시 자동으로 no-op (enabled: false)
+export default Sentry.withSentry(
+  (env: Env) => ({
+    dsn: env.SENTRY_DSN,
+    enabled: !!env.SENTRY_DSN,
+    environment: env.ENVIRONMENT,
+    tracesSampleRate: 0.1,
+    sendDefaultPii: false,
+  }),
+  handler
+);

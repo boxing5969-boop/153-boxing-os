@@ -13,6 +13,7 @@
   "dependencies": {
     "@153/device-adapters": "workspace:*",
     "@153/shared": "workspace:*",
+    "@sentry/react": "^8.45.0",
     "@supabase/supabase-js": "^2.45.0",
     "@tanstack/react-query": "^5.51.0",
     "clsx": "^2.1.0",

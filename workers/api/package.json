@@ -13,6 +13,7 @@
   "dependencies": {
     "@153/device-adapters": "workspace:*",
     "@153/shared": "workspace:*",
+    "@sentry/cloudflare": "^8.45.0",
     "@supabase/supabase-js": "^2.45.0",
     "hono": "^4.5.0",
     "jose": "^5.9.0",
