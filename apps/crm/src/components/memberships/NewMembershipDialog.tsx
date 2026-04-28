@@ -17,13 +17,15 @@ interface Props {
 interface PlanPreset {
   name: string;
   days: number;
+  /** Phase 18 — 추천 가격 (운영자가 변경 가능) */
+  price: number;
 }
 
 const PRESETS: PlanPreset[] = [
-  { name: "월간권 30일", days: 30 },
-  { name: "분기권 90일", days: 90 },
-  { name: "반기권 180일", days: 180 },
-  { name: "연간권 365일", days: 365 },
+  { name: "월간권 30일", days: 30, price: 150_000 },
+  { name: "분기권 90일", days: 90, price: 400_000 },
+  { name: "반기권 180일", days: 180, price: 720_000 },
+  { name: "연간권 365일", days: 365, price: 1_300_000 },
 ];
 
 function todayIso(): string {
@@ -40,6 +42,7 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
   const qc = useQueryClient();
   const [planName, setPlanName] = useState(PRESETS[0]?.name ?? "");
   const [days, setDays] = useState(PRESETS[0]?.days ?? 30);
+  const [price, setPrice] = useState(PRESETS[0]?.price ?? 0);
   const [startDate, setStartDate] = useState(todayIso());
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("paid");
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +53,7 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
     if (!open) return;
     setPlanName(PRESETS[0]?.name ?? "");
     setDays(PRESETS[0]?.days ?? 30);
+    setPrice(PRESETS[0]?.price ?? 0);
     setStartDate(todayIso());
     setPaymentStatus("paid");
     setError(null);
@@ -78,6 +82,7 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
       start_date: startDate,
       end_date: endDate,
       payment_status: paymentStatus,
+      price: price > 0 ? price : null,
     });
   }
 
@@ -94,6 +99,7 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
               if (preset) {
                 setPlanName(preset.name);
                 setDays(preset.days);
+                setPrice(preset.price);
               }
             }}
           >
@@ -132,6 +138,23 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
           </div>
         </div>
         <p className="text-xs opacity-70">종료일: {endDate}</p>
+        <div className="space-y-2">
+          <Label htmlFor="price">가격 (원)</Label>
+          <Input
+            id="price"
+            type="number"
+            min={0}
+            step={1000}
+            value={price}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (!Number.isNaN(v)) setPrice(v);
+            }}
+          />
+          <p className="text-xs opacity-60">
+            매출 집계에 사용. 0 또는 비우면 가격 미기록 (NULL).
+          </p>
+        </div>
         <div className="space-y-2">
           <Label htmlFor="pay">결제 상태</Label>
           <Select

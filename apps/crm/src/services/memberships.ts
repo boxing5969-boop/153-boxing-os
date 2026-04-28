@@ -54,6 +54,8 @@ export interface CreateMembershipInput {
   start_date: string;
   end_date: string;
   payment_status?: PaymentStatus;
+  price?: number | null;
+  currency?: string;
 }
 
 export async function createMembership(input: CreateMembershipInput): Promise<Membership> {
@@ -67,6 +69,8 @@ export async function createMembership(input: CreateMembershipInput): Promise<Me
       end_date: input.end_date,
       payment_status: input.payment_status ?? "paid",
       status: "active",
+      price: input.price ?? null,
+      currency: input.currency ?? "KRW",
     })
     .select("*")
     .single();

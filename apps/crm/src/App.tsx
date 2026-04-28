@@ -19,6 +19,7 @@ import ProfilePage from "@/pages/settings/ProfilePage";
 import StaffListPage from "@/pages/staff/StaffListPage";
 import EmergencyPinsPage from "@/pages/admin/EmergencyPinsPage";
 import AlertsPage from "@/pages/admin/AlertsPage";
+import RevenuePage from "@/pages/admin/RevenuePage";
 import HelpPage from "@/pages/HelpPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="/staff" element={<StaffListPage />} />
             <Route path="/admin/emergency-pins" element={<EmergencyPinsPage />} />
             <Route path="/admin/alerts" element={<AlertsPage />} />
+            <Route path="/admin/revenue" element={<RevenuePage />} />
             <Route path="/help" element={<HelpPage />} />
           </Route>
         </Route>

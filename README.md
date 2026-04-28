@@ -131,3 +131,4 @@ docs/                      # 아키텍처 문서
 - [x] Phase 15: 랭킹업앱 연동 API (/api/external/me/* + 회원 매핑 UI)
 - [x] Phase 16: 운영 매뉴얼 + /help 페이지 (직원용 절차서 + 거절사유 액션 매트릭스)
 - [x] Phase 17: 사고 알림 자동화 (alert_events + 5분 cron + Slack webhook + /admin/alerts)
+- [x] Phase 18: 매출/회계 보고 (이용권 가격 + 매출 RPC + 미납 reconciliation + CSV)
