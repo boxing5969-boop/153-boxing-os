@@ -4,6 +4,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { accessRoutes } from "./routes/access";
 import { devicesRoutes } from "./routes/devices";
 import { adminRoutes } from "./routes/admin";
+import { staffRoutes } from "./routes/staff";
 import {
   processNextSyncJobs,
   runDailyExpiry,
@@ -26,6 +27,7 @@ app.get("/health", (c) =>
 app.route("/api/access", accessRoutes);
 app.route("/api/devices", devicesRoutes);
 app.route("/api/admin", adminRoutes);
+app.route("/api/staff", staffRoutes);
 
 app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)

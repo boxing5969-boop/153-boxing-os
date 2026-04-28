@@ -15,6 +15,7 @@ import BranchesListPage from "@/pages/branches/BranchesListPage";
 import LevelsListPage from "@/pages/levels/LevelsListPage";
 import MemberLevelsPage from "@/pages/levels/MemberLevelsPage";
 import ProfilePage from "@/pages/settings/ProfilePage";
+import StaffListPage from "@/pages/staff/StaffListPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/levels" element={<LevelsListPage />} />
             <Route path="/levels/:id" element={<MemberLevelsPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
+            <Route path="/staff" element={<StaffListPage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />

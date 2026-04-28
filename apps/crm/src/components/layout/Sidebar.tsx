@@ -9,6 +9,7 @@ import {
   Building2,
   Trophy,
   Settings,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/devices", label: "장비", icon: Smartphone, roles: BRANCH_AND_HQ },
   { to: "/visitors", label: "방문자", icon: UserCheck, roles: BRANCH_AND_HQ },
   { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
+  { to: "/staff", label: "직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
   { to: "/levels", label: "레벨", icon: Trophy },
   { to: "/settings/profile", label: "설정", icon: Settings },
 ];
