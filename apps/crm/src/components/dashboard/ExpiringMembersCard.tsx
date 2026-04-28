@@ -1,65 +1,143 @@
 import { Link } from "react-router-dom";
-import { errorMessage } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Clock, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { listExpiringMemberships } from "@/services/dashboardWidgets";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
+function DaysChip({ days }: { days: number }) {
+  if (days <= 2) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">
+        <span className="size-1.5 rounded-full bg-danger animate-pulse" />
+        {days}일
+      </span>
+    );
+  }
+  if (days <= 5) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-semibold text-warning">
+        {days}일
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+      {days}일
+    </span>
+  );
+}
+
+function SkeletonRow() {
+  return (
+    <div className="flex items-center gap-3 py-3 px-5">
+      <div className="size-8 rounded-full bg-muted animate-pulse" />
+      <div className="flex-1 space-y-1.5">
+        <div className="h-3.5 w-24 rounded bg-muted animate-pulse" />
+        <div className="h-3 w-36 rounded bg-muted animate-pulse" />
+      </div>
+      <div className="h-5 w-12 rounded-full bg-muted animate-pulse" />
+    </div>
+  );
+}
+
 export function ExpiringMembersCard({ days = 7 }: { days?: number }) {
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["dashboard-expiring", days],
     queryFn: () => listExpiringMemberships(days, 20),
     staleTime: 60_000,
   });
 
+  const count = data?.length ?? 0;
+
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-sm font-semibold opacity-80">
-          {days}일 이내 만료 예정 이용권
-        </h2>
-        <p className="text-xs opacity-60 mt-0.5">최대 20건 — 행 클릭 시 회원 상세</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex size-7 items-center justify-center rounded-md bg-warning/10">
+              <Clock className="size-3.5 text-warning" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                {days}일 이내 만료 예정
+              </h2>
+              <p className="text-xs text-muted-foreground">이용권 기준</p>
+            </div>
+          </div>
+          {count > 0 && (
+            <span className="rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-bold text-warning">
+              {count}건
+            </span>
+          )}
+        </div>
       </CardHeader>
+
       <CardContent className="p-0">
-        {isLoading && <p className="px-4 py-6 text-sm opacity-60">로딩 중…</p>}
+        {isLoading && (
+          <div className="divide-y divide-border">
+            {[...Array(4)].map((_, i) => <SkeletonRow key={i} />)}
+          </div>
+        )}
+
         {isError && (
-          <p className="px-4 py-6 text-sm text-red-600">
-            오류: {errorMessage(error)}
-          </p>
+          <div className="px-5 py-8 text-center">
+            <p className="text-sm text-danger">데이터를 불러오지 못했습니다</p>
+          </div>
         )}
-        {!isLoading && !isError && (data?.length ?? 0) === 0 && (
-          <p className="px-4 py-6 text-sm opacity-60">만료 예정 이용권이 없습니다.</p>
+
+        {!isLoading && !isError && count === 0 && (
+          <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
+            <CheckCircle2 className="size-8 text-success/60" />
+            <p className="text-sm font-medium text-foreground">만료 예정 이용권 없음</p>
+            <p className="text-xs text-muted-foreground">모든 회원 이용권이 정상입니다</p>
+          </div>
         )}
-        {(data?.length ?? 0) > 0 && (
-          <ul className="divide-y divide-foreground/5">
-            {(data ?? []).map((m) => (
-              <li key={m.id} className="px-4 py-2.5">
-                <Link
-                  to={`/members/${m.member_id}`}
-                  className="flex items-center justify-between gap-3 hover:bg-foreground/5 -mx-4 px-4 py-1 rounded"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{m.member_name}</div>
-                    <div className="text-xs opacity-70 truncate">
-                      {m.plan_name} · {formatDate(m.end_date)}
-                    </div>
-                  </div>
-                  <span
+
+        {count > 0 && (
+          <ul className="divide-y divide-border">
+            {(data ?? []).map((m) => {
+              const initials = m.member_name
+                .split(" ")
+                .map((n: string) => n[0])
+                .join("")
+                .slice(0, 2)
+                .toUpperCase();
+
+              return (
+                <li key={m.id}>
+                  <Link
+                    to={`/members/${m.member_id}`}
                     className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-                      m.days_remaining <= 2
-                        ? "bg-red-100 text-red-700"
-                        : m.days_remaining <= 5
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-blue-100 text-blue-700"
+                      "flex items-center gap-3 px-5 py-3 transition-colors",
+                      "hover:bg-muted/60 group"
                     )}
                   >
-                    {m.days_remaining}일 남음
-                  </span>
-                </Link>
-              </li>
-            ))}
+                    {/* 아바타 */}
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                      {initials}
+                    </div>
+
+                    {/* 이름 / 플랜 */}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {m.member_name}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {m.plan_name} · 만료 {formatDate(m.end_date)}
+                      </p>
+                    </div>
+
+                    {/* 남은 일수 + 화살표 */}
+                    <div className="flex items-center gap-1.5">
+                      <DaysChip days={m.days_remaining} />
+                      <ChevronRight className="size-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </CardContent>
