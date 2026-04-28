@@ -7,6 +7,7 @@
   "scripts": {
     "build": "bun run --filter '@153/crm' build && bun run --filter '@153/api' build",
     "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '@153/device-adapters' test && bun run --filter '@153/api' test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "dev:crm": "bun run --filter '@153/crm' dev",

@@ -12,6 +12,7 @@ bun install                    # 의존성 설치 (모노레포 전체)
 bun run dev:crm                # CRM 개발 서버 (http://localhost:5173)
 bun run dev:api                # Workers API 개발 서버 (http://localhost:8787)
 bun run typecheck              # 전체 타입체크
+bun run test                   # vitest (workers/api + packages/device-adapters)
 bun run build                  # 전체 빌드
 bun run lint                   # ESLint
 bun run format                 # Prettier
@@ -119,5 +120,5 @@ docs/                      # 아키텍처 문서
   - [x] PR 5.4: 출입로그 + 장비 + 대시보드 실데이터
   - [x] PR 5.5: 방문자 / 지점 / 레벨 / 설정 + 사이드바 권한 필터
 - [x] Phase 6: 출입권한 자동화 (DB 트리거 + Workers cron + 강제 동기화)
-- [ ] Phase 7: Mock Device 통합 테스트
+- [x] Phase 7: Mock Device + vitest (23 tests) + 시나리오 테스트 계획
 - [ ] Phase 8: 실제 장비 연동
