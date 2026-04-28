@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { errorMessage } from "@/lib/errors";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Pause, X as Cancel, Receipt } from "lucide-react";
-import PageHeader from "@/components/PageHeader";
+import {
+  ArrowLeft, Plus, Pause, X as Cancel, Receipt,
+  Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirmDialog";
@@ -21,13 +22,47 @@ import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
 import { formatDate, formatDateTime, formatPhone, daysUntil } from "@/lib/format";
+import { cn } from "@/lib/cn";
 import type { Member, Membership, TrialPass } from "@153/shared";
 
 type MembershipAction = "pause" | "cancel" | "refund";
+interface PendingAction { type: MembershipAction; membership: Membership; }
 
-interface PendingAction {
-  type: MembershipAction;
-  membership: Membership;
+const AVATAR_COLORS = [
+  "bg-primary/20 text-primary",
+  "bg-success/20 text-success",
+  "bg-warning/20 text-warning",
+  "bg-purple-100 text-purple-700",
+  "bg-pink-100 text-pink-700",
+];
+function avatarColor(name: string) {
+  const code = name.charCodeAt(0) + (name.charCodeAt(1) || 0);
+  return AVATAR_COLORS[code % AVATAR_COLORS.length];
+}
+function getInitials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+}
+function genderLabel(g: string | null) {
+  return g === "male" ? "남" : g === "female" ? "여" : g === "other" ? "기타" : "—";
+}
+function actionTitle(a: MembershipAction) {
+  return a === "pause" ? "이용권 정지" : a === "refund" ? "이용권 환불" : "이용권 취소";
+}
+function actionWord(a: MembershipAction) {
+  return a === "pause" ? "정지" : a === "refund" ? "환불" : "취소";
+}
+
+interface AccessCheck { allowed: boolean; reason?: string; }
+function computeAccessReady(member: Member, memberships: Membership[], trials: TrialPass[]): AccessCheck {
+  if (["expired", "unpaid", "suspended", "withdrawn"].includes(member.status))
+    return { allowed: false, reason: { expired: "이용권 만료", unpaid: "미납", suspended: "정지", withdrawn: "탈퇴" }[member.status] };
+  const today = new Date().toISOString().slice(0, 10);
+  if (memberships.find((m) => m.status === "active" && m.end_date >= today && ["paid", "partial"].includes(m.payment_status)))
+    return { allowed: true };
+  const nowIso = new Date().toISOString();
+  if (trials.find((t) => t.status === "active" && t.end_at >= nowIso && t.used_entries < t.max_entries))
+    return { allowed: true };
+  return { allowed: false, reason: "유효한 이용권/체험권 없음" };
 }
 
 export default function MemberDetailPage() {
@@ -35,17 +70,8 @@ export default function MemberDetailPage() {
   const memberId = id ?? "";
   const qc = useQueryClient();
 
-  const memberQuery = useQuery({
-    queryKey: ["member", memberId],
-    queryFn: () => getMember(memberId),
-    enabled: !!memberId,
-  });
-
-  const relatedQuery = useQuery({
-    queryKey: ["member-related", memberId],
-    queryFn: () => getMemberRelated(memberId),
-    enabled: !!memberId,
-  });
+  const memberQuery = useQuery({ queryKey: ["member", memberId], queryFn: () => getMember(memberId), enabled: !!memberId });
+  const relatedQuery = useQuery({ queryKey: ["member-related", memberId], queryFn: () => getMemberRelated(memberId), enabled: !!memberId });
 
   const [openNewMembership, setOpenNewMembership] = useState(false);
   const [openNewTrial, setOpenNewTrial] = useState(false);
@@ -60,50 +86,32 @@ export default function MemberDetailPage() {
       if (action === "cancel") return updateMembershipState(id, { status: "canceled" });
       return updateMembershipState(id, { status: "canceled", payment_status: "refunded" });
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["member-related", memberId] });
-      void qc.invalidateQueries({ queryKey: ["memberships"] });
-      setPending(null);
-      setActionError(null);
-    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["memberships"] }); setPending(null); setActionError(null); },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
   });
 
   const trialCancelMutation = useMutation({
     mutationFn: cancelTrialPass,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["member-related", memberId] });
-      void qc.invalidateQueries({ queryKey: ["trialPasses"] });
-      setTrialToCancel(null);
-      setActionError(null);
-    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["trialPasses"] }); setTrialToCancel(null); setActionError(null); },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
   });
 
   if (memberQuery.isLoading) {
-    return <p className="text-sm opacity-60">로딩 중…</p>;
-  }
-  if (memberQuery.isError) {
     return (
-      <p className="text-sm text-red-600">
-        오류: {errorMessage(memberQuery.error)}
-      </p>
+      <div className="space-y-4 max-w-4xl animate-pulse">
+        <div className="h-36 rounded-xl bg-muted" />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="h-48 rounded-xl bg-muted" />
+          <div className="h-48 rounded-xl bg-muted" />
+        </div>
+      </div>
     );
   }
   if (!memberQuery.data) {
     return (
-      <div className="space-y-4">
-        <PageHeader
-          title="회원을 찾을 수 없습니다"
-          action={
-            <Link to="/members">
-              <Button variant="outline">
-                <ArrowLeft className="size-4" />
-                목록으로
-              </Button>
-            </Link>
-          }
-        />
+      <div className="flex flex-col items-center gap-4 py-20">
+        <p className="text-lg font-semibold">회원을 찾을 수 없습니다</p>
+        <Link to="/members"><Button variant="outline"><ArrowLeft className="size-4" />목록으로</Button></Link>
       </div>
     );
   }
@@ -114,171 +122,199 @@ export default function MemberDetailPage() {
   const accessReady = computeAccessReady(member, memberships, trials);
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <PageHeader
-        title={member.name}
-        description={
-          <span className="flex items-center gap-2">
-            <MemberStatusBadge status={member.status} />
-            <span className="opacity-60">가입 {formatDate(member.created_at)}</span>
-          </span>
-        }
-        action={
-          <Link to="/members">
-            <Button variant="outline">
-              <ArrowLeft className="size-4" />
-              목록으로
-            </Button>
-          </Link>
-        }
-      />
+    <div className="space-y-5 max-w-4xl">
+      {/* 뒤로 버튼 */}
+      <Link to="/members" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <ArrowLeft className="size-4" />
+        회원 목록
+      </Link>
+
+      {/* 프로필 히어로 카드 */}
+      <Card className="overflow-hidden">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 p-6">
+          {/* 아바타 */}
+          <div className={cn(
+            "flex size-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-black",
+            avatarColor(member.name)
+          )}>
+            {getInitials(member.name)}
+          </div>
+
+          {/* 이름 + 상태 */}
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl font-black text-foreground">{member.name}</h1>
+              <MemberStatusBadge status={member.status} />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Phone className="size-3.5" />
+                {formatPhone(member.phone)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Calendar className="size-3.5" />
+                가입 {formatDate(member.created_at)}
+              </span>
+            </div>
+          </div>
+
+          {/* 출입 가능 여부 */}
+          <div className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shrink-0",
+            accessReady.allowed
+              ? "bg-success/10 text-success"
+              : "bg-danger/10 text-danger"
+          )}>
+            {accessReady.allowed
+              ? <><ShieldCheck className="size-4" /> 출입 가능</>
+              : <><ShieldX className="size-4" /> {accessReady.reason ?? "출입 불가"}</>
+            }
+          </div>
+        </div>
+      </Card>
 
       {actionError && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</p>
+        <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
+          <div className="size-1.5 rounded-full bg-danger shrink-0" />
+          <p className="text-sm text-danger">{actionError}</p>
+        </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80">기본 정보</h2>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-3 gap-y-2 text-sm">
-              <dt className="opacity-60">전화</dt>
-              <dd className="col-span-2">{formatPhone(member.phone)}</dd>
-              <dt className="opacity-60">생년월일</dt>
-              <dd className="col-span-2">{formatDate(member.birth_date)}</dd>
-              <dt className="opacity-60">성별</dt>
-              <dd className="col-span-2">{genderLabel(member.gender)}</dd>
-              <dt className="opacity-60">담당 코치</dt>
-              <dd className="col-span-2">
-                {member.assigned_coach_id ? (
-                  <span className="opacity-70">{member.assigned_coach_id.slice(0, 8)}…</span>
-                ) : (
-                  "미지정"
-                )}
-              </dd>
-              <dt className="opacity-60">랭킹업 연결</dt>
-              <dd className="col-span-2 flex items-center gap-2">
+      {/* 기본 정보 */}
+      <Card>
+        <CardHeader>
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <User2 className="size-4 text-muted-foreground" />
+            기본 정보
+          </h2>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+            {[
+              { label: "생년월일", value: formatDate(member.birth_date) },
+              { label: "성별", value: genderLabel(member.gender) },
+              { label: "담당 코치", value: member.assigned_coach_id ? member.assigned_coach_id.slice(0, 8) + "…" : "미지정" },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+                <p className="font-medium text-foreground">{value}</p>
+              </div>
+            ))}
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">랭킹업 연결</p>
+              <div className="flex items-center gap-2">
                 {member.ranking_app_user_id ? (
-                  <span className="font-mono text-xs opacity-80">
+                  <span className="flex items-center gap-1 font-mono text-xs text-primary">
+                    <Link2 className="size-3" />
                     {member.ranking_app_user_id.slice(0, 8)}…
                   </span>
                 ) : (
-                  <span className="opacity-60">미연결</span>
+                  <span className="text-muted-foreground">미연결</span>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setOpenLinkRanking(true)}>
+                <Button size="sm" variant="ghost" onClick={() => setOpenLinkRanking(true)} className="h-6 px-2 text-xs">
                   변경
                 </Button>
-              </dd>
-            </dl>
-          </CardContent>
-        </Card>
+              </div>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80">출입 가능 여부</h2>
-          </CardHeader>
-          <CardContent>
-            <p className={accessReady.allowed ? "text-green-700" : "text-red-700"}>
-              {accessReady.allowed ? "출입 가능 ✓" : `출입 불가 — ${accessReady.reason}`}
-            </p>
-            <p className="mt-1 text-xs opacity-60">
-              상태({member.status}) + 활성 이용권/체험권 기준
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
+      {/* 이용권 */}
       <Card>
         <CardHeader className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold opacity-80">이용권</h2>
-          <Button size="sm" onClick={() => setOpenNewMembership(true)}>
-            <Plus className="size-4" />
+          <h2 className="text-sm font-semibold text-foreground">이용권</h2>
+          <Button size="sm" onClick={() => setOpenNewMembership(true)} className="gap-1.5">
+            <Plus className="size-3.5" />
             이용권 등록
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {memberships.length === 0 ? (
-            <p className="text-sm opacity-60">이용권 이력 없음</p>
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-muted-foreground">이용권 이력이 없습니다</p>
+            </div>
           ) : (
-            <ul className="divide-y divide-foreground/5">
-              {memberships.map((m) => (
-                <li key={m.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium">{m.plan_name}</div>
-                    <div className="text-xs opacity-70">
-                      {formatDate(m.start_date)} ~ {formatDate(m.end_date)}
-                      {m.status === "active" && daysUntil(m.end_date) !== null && (
-                        <span className="ml-2 opacity-80">({daysUntil(m.end_date)}일 남음)</span>
-                      )}
+            <ul className="divide-y divide-border">
+              {memberships.map((m) => {
+                const remaining = m.status === "active" ? daysUntil(m.end_date) : null;
+                return (
+                  <li key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-foreground">{m.plan_name}</span>
+                        {remaining != null && remaining <= 7 && (
+                          <span className="text-xs rounded-full bg-warning/10 text-warning px-2 py-0.5 font-medium">
+                            D-{remaining}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 tabular">
+                        {formatDate(m.start_date)} ~ {formatDate(m.end_date)}
+                        {remaining != null && <span className="ml-2">({remaining}일 남음)</span>}
+                      </p>
                     </div>
-                  </div>
-                  <MembershipStatusBadge status={m.status} />
-                  <PaymentStatusBadge status={m.payment_status} />
-                  {m.status === "active" && (
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setPending({ type: "pause", membership: m })}
-                      >
-                        <Pause className="size-3" />
-                        정지
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setPending({ type: "refund", membership: m })}
-                      >
-                        <Receipt className="size-3" />
-                        환불
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => setPending({ type: "cancel", membership: m })}
-                      >
-                        <Cancel className="size-3" />
-                        취소
-                      </Button>
+                    <div className="flex items-center gap-2">
+                      <MembershipStatusBadge status={m.status} />
+                      <PaymentStatusBadge status={m.payment_status} />
                     </div>
-                  )}
-                </li>
-              ))}
+                    {m.status === "active" && (
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="outline" onClick={() => setPending({ type: "pause", membership: m })} className="gap-1">
+                          <Pause className="size-3" /> 정지
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setPending({ type: "refund", membership: m })} className="gap-1">
+                          <Receipt className="size-3" /> 환불
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => setPending({ type: "cancel", membership: m })} className="gap-1">
+                          <Cancel className="size-3" /> 취소
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
       </Card>
 
+      {/* 체험권 */}
       <Card>
         <CardHeader className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold opacity-80">체험권</h2>
-          <Button size="sm" variant="outline" onClick={() => setOpenNewTrial(true)}>
-            <Plus className="size-4" />
+          <h2 className="text-sm font-semibold text-foreground">체험권</h2>
+          <Button size="sm" variant="outline" onClick={() => setOpenNewTrial(true)} className="gap-1.5">
+            <Plus className="size-3.5" />
             체험권 발급
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {trials.length === 0 ? (
-            <p className="text-sm opacity-60">체험권 없음</p>
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-muted-foreground">체험권이 없습니다</p>
+            </div>
           ) : (
-            <ul className="divide-y divide-foreground/5">
+            <ul className="divide-y divide-border">
               {trials.map((t) => (
-                <li key={t.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm">
+                    <p className="text-sm font-medium text-foreground tabular">
                       {formatDateTime(t.start_at)} ~ {formatDateTime(t.end_at)}
-                    </div>
-                    <div className="text-xs opacity-70">
-                      사용 {t.used_entries} / {t.max_entries}회
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="h-1.5 w-24 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${t.max_entries === 0 ? 0 : (t.used_entries / t.max_entries) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground">{t.used_entries}/{t.max_entries}회 사용</span>
                     </div>
                   </div>
                   <TrialStatusBadge status={t.status} />
                   {t.status === "active" && (
-                    <Button size="sm" variant="destructive" onClick={() => setTrialToCancel(t)}>
-                      <Cancel className="size-3" />
-                      취소
+                    <Button size="sm" variant="destructive" onClick={() => setTrialToCancel(t)} className="gap-1">
+                      <Cancel className="size-3" /> 취소
                     </Button>
                   )}
                 </li>
@@ -288,132 +324,34 @@ export default function MemberDetailPage() {
         </CardContent>
       </Card>
 
+      {/* 동의 관리 */}
       <ConsentManagementCard memberId={member.id} />
 
-      <LinkRankingAppDialog
-        open={openLinkRanking}
-        onClose={() => setOpenLinkRanking(false)}
-        member={member}
-      />
-
-      <NewMembershipDialog
-        open={openNewMembership}
-        onClose={() => setOpenNewMembership(false)}
-        member={member}
-      />
-      <NewTrialPassDialog
-        open={openNewTrial}
-        onClose={() => setOpenNewTrial(false)}
-        member={member}
-      />
+      {/* 다이얼로그들 */}
+      <LinkRankingAppDialog open={openLinkRanking} onClose={() => setOpenLinkRanking(false)} member={member} />
+      <NewMembershipDialog open={openNewMembership} onClose={() => setOpenNewMembership(false)} member={member} />
+      <NewTrialPassDialog open={openNewTrial} onClose={() => setOpenNewTrial(false)} member={member} />
 
       <ConfirmDialog
         open={!!pending}
-        onClose={() => {
-          if (!membershipActionMutation.isPending) setPending(null);
-        }}
+        onClose={() => { if (!membershipActionMutation.isPending) setPending(null); }}
         title={pending ? actionTitle(pending.type) : ""}
-        description={
-          pending ? (
-            <span>
-              <strong>{pending.membership.plan_name}</strong> ({formatDate(pending.membership.start_date)} ~{" "}
-              {formatDate(pending.membership.end_date)}) 이용권을{" "}
-              <strong>{actionWord(pending.type)}</strong> 처리합니다. 계속할까요?
-            </span>
-          ) : (
-            ""
-          )
-        }
+        description={pending ? <span><strong>{pending.membership.plan_name}</strong> 이용권을 <strong>{actionWord(pending.type)}</strong> 처리합니다. 계속할까요?</span> : ""}
         confirmLabel={pending ? actionWord(pending.type) : "확인"}
         variant={pending?.type === "cancel" ? "destructive" : "default"}
-        onConfirm={() => {
-          if (pending) {
-            membershipActionMutation.mutate({ id: pending.membership.id, action: pending.type });
-          }
-        }}
+        onConfirm={() => { if (pending) membershipActionMutation.mutate({ id: pending.membership.id, action: pending.type }); }}
         pending={membershipActionMutation.isPending}
       />
-
       <ConfirmDialog
         open={!!trialToCancel}
-        onClose={() => {
-          if (!trialCancelMutation.isPending) setTrialToCancel(null);
-        }}
+        onClose={() => { if (!trialCancelMutation.isPending) setTrialToCancel(null); }}
         title="체험권 취소"
-        description={
-          trialToCancel ? (
-            <span>
-              {formatDateTime(trialToCancel.start_at)} 발급 체험권을 취소합니다. 계속할까요?
-            </span>
-          ) : (
-            ""
-          )
-        }
+        description={trialToCancel ? <span>{formatDateTime(trialToCancel.start_at)} 발급 체험권을 취소합니다. 계속할까요?</span> : ""}
         confirmLabel="취소"
         variant="destructive"
-        onConfirm={() => {
-          if (trialToCancel) trialCancelMutation.mutate(trialToCancel.id);
-        }}
+        onConfirm={() => { if (trialToCancel) trialCancelMutation.mutate(trialToCancel.id); }}
         pending={trialCancelMutation.isPending}
       />
     </div>
   );
-}
-
-function genderLabel(g: string | null): string {
-  switch (g) {
-    case "male":
-      return "남";
-    case "female":
-      return "여";
-    case "other":
-      return "기타";
-    default:
-      return "—";
-  }
-}
-
-function actionTitle(action: MembershipAction): string {
-  if (action === "pause") return "이용권 정지";
-  if (action === "refund") return "이용권 환불";
-  return "이용권 취소";
-}
-
-function actionWord(action: MembershipAction): string {
-  if (action === "pause") return "정지";
-  if (action === "refund") return "환불";
-  return "취소";
-}
-
-interface AccessCheck {
-  allowed: boolean;
-  reason?: string;
-}
-
-function computeAccessReady(
-  member: Member,
-  memberships: Membership[],
-  trials: TrialPass[]
-): AccessCheck {
-  if (member.status === "expired") return { allowed: false, reason: "이용권 만료" };
-  if (member.status === "unpaid") return { allowed: false, reason: "미납" };
-  if (member.status === "suspended") return { allowed: false, reason: "정지" };
-  if (member.status === "withdrawn") return { allowed: false, reason: "탈퇴" };
-
-  const today = new Date().toISOString().slice(0, 10);
-  const activeMembership = memberships.find(
-    (m) =>
-      m.status === "active" &&
-      m.end_date >= today &&
-      (m.payment_status === "paid" || m.payment_status === "partial")
-  );
-  if (activeMembership) return { allowed: true };
-
-  const nowIso = new Date().toISOString();
-  const activeTrial = trials.find(
-    (t) => t.status === "active" && t.end_at >= nowIso && t.used_entries < t.max_entries
-  );
-  if (activeTrial) return { allowed: true };
-
-  return { allowed: false, reason: "유효한 이용권/체험권 없음" };
 }
