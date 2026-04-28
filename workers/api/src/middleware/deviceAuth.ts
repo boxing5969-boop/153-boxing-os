@@ -2,6 +2,8 @@ import type { MiddlewareHandler } from "hono";
 import type { Env } from "../lib/env";
 import { fail } from "../lib/responses";
 import { hmacVerify, sha256Hex } from "../lib/hmac";
+import { decryptDeviceKey } from "../lib/keyEncryption";
+import { getServiceClient } from "../lib/supabase";
 
 const MAX_TIMESTAMP_DRIFT_SECONDS = 60;
 
@@ -9,6 +11,32 @@ declare module "hono" {
   interface ContextVariableMap {
     deviceId: string;
   }
+}
+
+async function resolveDeviceApiKey(
+  env: Env,
+  deviceId: string
+): Promise<string | null> {
+  // 단말기별 암호화 키 우선 — Phase 8 부터 운영 권장
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const db = getServiceClient(env);
+      const { data } = await db
+        .from("access_devices")
+        .select("api_key_encrypted")
+        .eq("id", deviceId)
+        .maybeSingle();
+      const enc = (data as { api_key_encrypted: string | null } | null)
+        ?.api_key_encrypted;
+      if (enc && env.DEVICE_KMS_KEY) {
+        return decryptDeviceKey(env.DEVICE_KMS_KEY, enc);
+      }
+    } catch (err) {
+      console.error("[deviceAuth] resolveDeviceApiKey", err);
+    }
+  }
+  // Fallback: shared DEVICE_API_KEY (Phase 4-7 호환)
+  return env.DEVICE_API_KEY ?? null;
 }
 
 export const requireDeviceAuth: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
@@ -36,16 +64,15 @@ export const requireDeviceAuth: MiddlewareHandler<{ Bindings: Env }> = async (c,
 
   const method = c.req.method;
   const path = new URL(c.req.url).pathname;
-  // Hono caches body internally so subsequent c.req.json() in route still works
   const bodyText =
     method === "POST" || method === "PUT" || method === "PATCH" ? await c.req.text() : "";
   const bodyHash = await sha256Hex(bodyText);
 
   const data = `${ts}\n${method}\n${path}\n${bodyHash}`;
 
-  const apiKey = c.env.DEVICE_API_KEY;
+  const apiKey = await resolveDeviceApiKey(c.env, deviceId);
   if (!apiKey) {
-    return fail(c, "INTERNAL_ERROR", "DEVICE_API_KEY not configured", 500);
+    return fail(c, "INTERNAL_ERROR", "Device API key not resolvable", 500);
   }
 
   const valid = await hmacVerify(apiKey, data, signature);

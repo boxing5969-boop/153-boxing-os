@@ -5,6 +5,7 @@ import {
   type AdapterContext,
 } from "@153/device-adapters";
 import { getServiceClient } from "../lib/supabase";
+import { decryptDeviceKey } from "../lib/keyEncryption";
 import type { Env } from "../lib/env";
 
 const MAX_RETRIES = 5;
@@ -25,7 +26,16 @@ interface DeviceRow {
   vendor: string;
   device_identifier: string | null;
   api_endpoint: string | null;
+  api_key_encrypted: string | null;
   status: string;
+}
+
+async function resolveDeviceApiKey(env: Env, encrypted: string | null): Promise<string> {
+  if (!encrypted) return env.DEVICE_API_KEY; // legacy/mock fallback
+  if (!env.DEVICE_KMS_KEY) {
+    throw new Error("DEVICE_KMS_KEY not configured (cannot decrypt per-device key)");
+  }
+  return decryptDeviceKey(env.DEVICE_KMS_KEY, encrypted);
 }
 
 interface MemberRow {
@@ -84,13 +94,14 @@ async function processOne(
   try {
     const { data: deviceRaw } = await db
       .from("access_devices")
-      .select("id,branch_id,vendor,device_identifier,api_endpoint,status")
+      .select("id,branch_id,vendor,device_identifier,api_endpoint,api_key_encrypted,status")
       .eq("id", job.device_id)
       .maybeSingle();
     const device = deviceRaw as DeviceRow | null;
     if (!device) throw new Error("device not found");
 
     const adapter = getAdapter(device.vendor);
+    const apiKey = await resolveDeviceApiKey(env, device.api_key_encrypted);
     const ctx: AdapterContext = {
       device: {
         id: device.id,
@@ -98,7 +109,7 @@ async function processOne(
         device_identifier: device.device_identifier,
         api_endpoint: device.api_endpoint,
       },
-      device_api_key: env.DEVICE_API_KEY,
+      device_api_key: apiKey,
       base_url: device.api_endpoint ?? "",
     };
 

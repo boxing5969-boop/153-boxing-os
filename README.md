@@ -121,4 +121,4 @@ docs/                      # 아키텍처 문서
   - [x] PR 5.5: 방문자 / 지점 / 레벨 / 설정 + 사이드바 권한 필터
 - [x] Phase 6: 출입권한 자동화 (DB 트리거 + Workers cron + 강제 동기화)
 - [x] Phase 7: Mock Device + vitest (23 tests) + 시나리오 테스트 계획
-- [ ] Phase 8: 실제 장비 연동
+- [x] Phase 8: 단말기 키 암호화 + Suprema scaffold + 배포 가이드 (30 tests)

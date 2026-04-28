@@ -5,4 +5,5 @@ export interface Env {
   SUPABASE_JWT_SECRET: string;
   QR_SIGNING_SECRET: string;
   DEVICE_API_KEY: string;
+  DEVICE_KMS_KEY: string;
 }
