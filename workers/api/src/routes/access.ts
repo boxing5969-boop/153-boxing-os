@@ -83,12 +83,16 @@ accessRoutes.post("/verify", requireDeviceAuth, async (c) => {
   const decision = await verifyAccess(db, input, qrConsumed);
 
   if (decision.door_open) {
+    const rawEventId = decision.pin_id
+      ? `pin:${decision.pin_id}:issuer:${decision.pin_issuer ?? "unknown"}`
+      : null;
     const logId = await appendAccessLog(db, {
       branch_id: input.branch_id,
       device_id: input.device_id,
       member_id: decision.member_id,
       credential_type: input.credential_type,
       result: "success",
+      raw_event_id: rawEventId,
       occurred_at: input.occurred_at,
     });
     return ok(c, {

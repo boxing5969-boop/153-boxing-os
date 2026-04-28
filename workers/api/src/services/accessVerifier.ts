@@ -11,7 +11,7 @@ export interface VerifyInput {
 }
 
 export type VerifyDecision =
-  | { door_open: true; member_id: string; member_name: string }
+  | { door_open: true; member_id: string | null; member_name: string; pin_id?: string; pin_issuer?: string | null }
   | { door_open: false; member_id: string | null; reason: DeniedReason };
 
 interface DeviceRow {
@@ -89,6 +89,29 @@ export async function verifyAccess(
     memberId = duRow.member_id;
   } else if (input.credential_type === "qr") {
     memberId = input.credential_value;
+  } else if (input.credential_type === "pin") {
+    // 비상 PIN — RPC 가 해시 검증 + 사용 카운트 증가
+    const { data: pinResult, error: pinErr } = await db.rpc("consume_emergency_pin", {
+      _branch_id: input.branch_id,
+      _pin: input.credential_value,
+    });
+    if (pinErr) {
+      return { door_open: false, member_id: null, reason: "device_error" };
+    }
+    const pin = pinResult as
+      | { success: true; pin_id: string; issued_by: string | null; purpose: string | null }
+      | { success: false; reason: string }
+      | null;
+    if (!pin || !pin.success) {
+      return { door_open: false, member_id: null, reason: "no_valid_grant" };
+    }
+    return {
+      door_open: true,
+      member_id: null,
+      member_name: "비상 PIN 입장",
+      pin_id: pin.pin_id,
+      pin_issuer: pin.issued_by,
+    };
   } else {
     return { door_open: false, member_id: null, reason: "unknown_user" };
   }

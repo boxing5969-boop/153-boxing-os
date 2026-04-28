@@ -10,6 +10,7 @@ import {
   Trophy,
   Settings,
   ShieldCheck,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/visitors", label: "방문자", icon: UserCheck, roles: BRANCH_AND_HQ },
   { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
   { to: "/staff", label: "직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
+  { to: "/admin/emergency-pins", label: "비상 PIN", icon: KeyRound, roles: BRANCH_AND_HQ },
   { to: "/levels", label: "레벨", icon: Trophy },
   { to: "/settings/profile", label: "설정", icon: Settings },
 ];

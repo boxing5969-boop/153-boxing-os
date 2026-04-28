@@ -126,3 +126,4 @@ docs/                      # 아키텍처 문서
 - [x] Phase 10: 직원 초대 (auth.users + profiles 자동 생성, /staff)
 - [x] Phase 11: 동의 철회 자동 처리 (face_recognition 철회 → 단말기 자동 삭제)
 - [x] Phase 12: Sentry 통합 (Workers + apps/crm, DSN 미설정 시 자동 no-op)
+- [x] Phase 13: 비상 PIN 발급 (emergency_pins + bcrypt + verify credential_type=pin)

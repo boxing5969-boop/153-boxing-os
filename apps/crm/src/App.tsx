@@ -16,6 +16,7 @@ import LevelsListPage from "@/pages/levels/LevelsListPage";
 import MemberLevelsPage from "@/pages/levels/MemberLevelsPage";
 import ProfilePage from "@/pages/settings/ProfilePage";
 import StaffListPage from "@/pages/staff/StaffListPage";
+import EmergencyPinsPage from "@/pages/admin/EmergencyPinsPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/levels/:id" element={<MemberLevelsPage />} />
             <Route path="/settings/profile" element={<ProfilePage />} />
             <Route path="/staff" element={<StaffListPage />} />
+            <Route path="/admin/emergency-pins" element={<EmergencyPinsPage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
