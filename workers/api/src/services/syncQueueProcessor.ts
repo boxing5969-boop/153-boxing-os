@@ -7,6 +7,10 @@ import {
 import { getServiceClient } from "../lib/supabase";
 import { decryptDeviceKey } from "../lib/keyEncryption";
 import type { Env } from "../lib/env";
+import {
+  runExpiryNotifications,
+  type NotificationTarget,
+} from "./kakaoNotifier";
 
 const MAX_RETRIES = 5;
 
@@ -272,12 +276,46 @@ async function resolveVendorUserId(
 
 export async function runDailyExpiry(env: Env): Promise<void> {
   const db = getServiceClient(env);
+
+  // 1) 만료 처리
   const { data, error } = await db.rpc("expire_outdated_memberships");
   if (error) {
     console.error("[dailyExpiry]", error);
     return;
   }
   console.log("[dailyExpiry]", data);
+
+  // 2) 만료 예정 알림톡 (D-7 / D-3 / D-1)
+  await runDailyNotifications(env);
+}
+
+export async function runDailyNotifications(env: Env): Promise<void> {
+  const db = getServiceClient(env);
+
+  const { data, error } = await db.rpc("get_expiry_notification_targets");
+  if (error) {
+    console.error("[alimtalk] target fetch failed:", error);
+    return;
+  }
+  const targets = (data ?? []) as NotificationTarget[];
+  console.log("[alimtalk] targets:", targets.length);
+
+  if (targets.length === 0) return;
+
+  const report = await runExpiryNotifications(env, targets);
+  console.log("[alimtalk] result:", report);
+
+  for (const target of targets) {
+    await db.rpc("record_expiry_notification", {
+      _member_id: target.member_id,
+      _membership_id: target.membership_id,
+      _notification_type: target.notification_type,
+      _status: "sent",
+      _error_message: null,
+    }).then(({ error: recErr }: { error: unknown }) => {
+      if (recErr) console.error("[alimtalk] record failed:", recErr);
+    });
+  }
 }
 
 export async function runQrCleanup(env: Env): Promise<void> {

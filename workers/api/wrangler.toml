@@ -16,6 +16,15 @@ ENVIRONMENT = "development"
 # - SUPABASE_JWT_SECRET           : Settings → API → JWT Secret
 # - QR_SIGNING_SECRET             : 임의의 32+ 바이트 (openssl rand -base64 32)
 # - DEVICE_API_KEY                : 단말기 공용 HMAC 키 (Phase 8 에서 per-device 로 전환)
+#
+# 선택 시크릿 — 카카오 알림톡 (Solapi):
+# - SOLAPI_API_KEY                : Solapi 콘솔 → API Key
+# - SOLAPI_API_SECRET             : Solapi 콘솔 → API Secret
+# - SOLAPI_SENDER_KEY             : 카카오 채널 pfId (KA01PF...)
+# - SENDER_PHONE                  : 발신 번호 (하이픈 없이, 예: 15991999)
+# - KAKAO_EXPIRY_TPL_D7           : D-7 알림톡 템플릿 ID (KA01TP...)
+# - KAKAO_EXPIRY_TPL_D3           : D-3 알림톡 템플릿 ID
+# - KAKAO_EXPIRY_TPL_D1           : D-1 알림톡 템플릿 ID
 
 [dev]
 port = 8787

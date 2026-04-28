@@ -6,10 +6,15 @@ export interface Env {
   QR_SIGNING_SECRET: string;
   DEVICE_API_KEY: string;
   DEVICE_KMS_KEY: string;
-  /** 선택 — 미설정 시 Sentry 비활성화 (no-op) */
   SENTRY_DSN?: string;
-  /** 선택 — 외부 파트너(랭킹업앱) 연동 시. 미설정 시 /api/external/* 거부 */
   PARTNER_API_KEY?: string;
-  /** 선택 — Slack Incoming Webhook URL. 미설정 시 알림 미발송 (DB 기록만 남김) */
   SLACK_WEBHOOK_URL?: string;
+  // Kakao AlimTalk via Solapi (optional -- skip if not set)
+  SOLAPI_API_KEY?: string;
+  SOLAPI_API_SECRET?: string;
+  SOLAPI_SENDER_KEY?: string;
+  SENDER_PHONE?: string;
+  KAKAO_EXPIRY_TPL_D7?: string;
+  KAKAO_EXPIRY_TPL_D3?: string;
+  KAKAO_EXPIRY_TPL_D1?: string;
 }
