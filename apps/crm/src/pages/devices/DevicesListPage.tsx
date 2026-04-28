@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Key } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -21,6 +22,7 @@ import type { DeviceStatus } from "@153/shared";
 
 export default function DevicesListPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<"" | DeviceStatus>("");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
@@ -152,7 +154,14 @@ export default function DevicesListPage() {
               const pending = pendingMap[d.id] ?? 0;
               const fingerprint = (d as { api_key_fingerprint?: string | null }).api_key_fingerprint;
               return (
-                <tr key={d.id} className="border-b border-foreground/5">
+                <tr
+                  key={d.id}
+                  className="border-b border-foreground/5 hover:bg-foreground/5 cursor-pointer"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("button")) return;
+                    navigate(`/devices/${d.id}`);
+                  }}
+                >
                   <td className="px-4 py-3 font-medium">{d.device_name}</td>
                   <td className="px-4 py-3 opacity-80">{d.branch_name ?? "—"}</td>
                   <td className="px-4 py-3 opacity-80">{deviceTypeLabel(d.device_type)}</td>

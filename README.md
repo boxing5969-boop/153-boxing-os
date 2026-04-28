@@ -127,3 +127,4 @@ docs/                      # 아키텍처 문서
 - [x] Phase 11: 동의 철회 자동 처리 (face_recognition 철회 → 단말기 자동 삭제)
 - [x] Phase 12: Sentry 통합 (Workers + apps/crm, DSN 미설정 시 자동 no-op)
 - [x] Phase 13: 비상 PIN 발급 (emergency_pins + bcrypt + verify credential_type=pin)
+- [x] Phase 14: 운영 대시보드 보강 (만료예정 + 거절사유 분포 + 단말기 상세)

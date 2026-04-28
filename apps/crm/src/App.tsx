@@ -10,6 +10,7 @@ import MemberDetailPage from "@/pages/members/MemberDetailPage";
 import MembershipsListPage from "@/pages/memberships/MembershipsListPage";
 import AccessLogsPage from "@/pages/access-logs/AccessLogsPage";
 import DevicesListPage from "@/pages/devices/DevicesListPage";
+import DeviceDetailPage from "@/pages/devices/DeviceDetailPage";
 import VisitorsListPage from "@/pages/visitors/VisitorsListPage";
 import BranchesListPage from "@/pages/branches/BranchesListPage";
 import LevelsListPage from "@/pages/levels/LevelsListPage";
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/memberships" element={<MembershipsListPage />} />
             <Route path="/access-logs" element={<AccessLogsPage />} />
             <Route path="/devices" element={<DevicesListPage />} />
+            <Route path="/devices/:id" element={<DeviceDetailPage />} />
             <Route path="/visitors" element={<VisitorsListPage />} />
             <Route path="/branches" element={<BranchesListPage />} />
             <Route path="/levels" element={<LevelsListPage />} />

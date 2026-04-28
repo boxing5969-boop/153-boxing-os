@@ -43,6 +43,8 @@ export interface AccessDevice {
   device_identifier: string | null;
   api_endpoint: string | null;
   api_key_hash: string | null;
+  api_key_encrypted?: string | null;
+  api_key_fingerprint?: string | null;
   status: DeviceStatus;
   last_seen_at: string | null;
   created_at: string;
