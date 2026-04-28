@@ -4,38 +4,104 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 0 0% 98%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --border: 214 32% 91%;
-    --radius: 0.5rem;
-  }
+    /* ── 브랜드 레드 ── */
+    --brand: 0 84% 58%;
+    --brand-foreground: 0 0% 100%;
+    --brand-hover: 0 72% 50%;
 
-  .dark {
-    --background: 222 47% 11%;
-    --foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 222 47% 11%;
-    --muted: 217 32% 17%;
-    --muted-foreground: 215 20% 65%;
-    --border: 217 32% 17%;
+    /* ── 페이지 배경 / 텍스트 ── */
+    --background: 220 20% 97%;
+    --foreground: 222 25% 10%;
+
+    /* ── 카드 ── */
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 10%;
+
+    /* ── Primary (버튼/링크) ── */
+    --primary: 0 84% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    /* ── Muted ── */
+    --muted: 220 14% 93%;
+    --muted-foreground: 220 9% 48%;
+
+    /* ── Border / Input ── */
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 0 84% 58%;
+
+    /* ── 사이드바 (항상 다크) ── */
+    --sidebar: 225 28% 8%;
+    --sidebar-foreground: 220 15% 85%;
+    --sidebar-muted: 225 20% 14%;
+    --sidebar-active: 0 84% 58%;
+    --sidebar-active-foreground: 0 0% 100%;
+    --sidebar-border: 225 20% 14%;
+    --sidebar-logo: 0 0% 100%;
+
+    /* ── 상태 색상 ── */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --danger: 0 84% 58%;
+    --danger-foreground: 0 0% 100%;
+
+    /* ── 반경 ── */
+    --radius: 0.625rem;
+
+    /* ── 그림자 ── */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   }
 
   * {
     @apply border-border;
+    box-sizing: border-box;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
     font-family:
+      "Pretendard Variable",
       "Pretendard",
       system-ui,
       -apple-system,
       "Segoe UI",
       Roboto,
       sans-serif;
+    font-feature-settings: "tnum";
+  }
+
+  /* 스크롤바 커스텀 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer utilities {
+  /* 카드 그림자 */
+  .card-shadow {
+    box-shadow: var(--shadow);
+  }
+  .card-shadow-md {
+    box-shadow: var(--shadow-md);
+  }
+
+  /* 숫자 폰트 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }

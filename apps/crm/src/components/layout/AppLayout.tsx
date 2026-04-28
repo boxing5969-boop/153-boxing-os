@@ -6,10 +6,12 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen flex bg-background text-foreground">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 p-6 overflow-auto">
-          <Outlet />
+        <main className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-7xl animate-fade-in">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
