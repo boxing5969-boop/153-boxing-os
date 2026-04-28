@@ -53,9 +53,16 @@ function actionWord(a: MembershipAction) {
 }
 
 interface AccessCheck { allowed: boolean; reason?: string; }
+const BLOCK_REASON: Partial<Record<string, string>> = {
+  expired: "이용권 만료",
+  unpaid: "미납",
+  suspended: "정지",
+  withdrawn: "탈퇴",
+};
+
 function computeAccessReady(member: Member, memberships: Membership[], trials: TrialPass[]): AccessCheck {
-  if (["expired", "unpaid", "suspended", "withdrawn"].includes(member.status))
-    return { allowed: false, reason: { expired: "이용권 만료", unpaid: "미납", suspended: "정지", withdrawn: "탈퇴" }[member.status] };
+  if (BLOCK_REASON[member.status])
+    return { allowed: false, reason: BLOCK_REASON[member.status] };
   const today = new Date().toISOString().slice(0, 10);
   if (memberships.find((m) => m.status === "active" && m.end_date >= today && ["paid", "partial"].includes(m.payment_status)))
     return { allowed: true };
