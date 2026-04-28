@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, AlertCircle } from "lucide-react";
@@ -64,7 +65,7 @@ export default function StaffListPage() {
             {isError && (
               <tr>
                 <td colSpan={7} className="px-4 py-12 text-center text-red-600">
-                  오류: {error instanceof Error ? error.message : "알 수 없는 오류"}
+                  오류: {errorMessage(error)}
                 </td>
               </tr>
             )}

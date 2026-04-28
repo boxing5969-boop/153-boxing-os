@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, RefreshCw, Key } from "lucide-react";
@@ -61,7 +62,7 @@ export default function DeviceDetailPage() {
       void qc.invalidateQueries({ queryKey: ["device-detail", deviceId] });
     },
     onError: (err) => {
-      setActionMsg(`동기화 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+      setActionMsg(`동기화 실패: ${errorMessage(err)}`);
     },
   });
 
@@ -72,7 +73,7 @@ export default function DeviceDetailPage() {
       void qc.invalidateQueries({ queryKey: ["device-detail", deviceId] });
     },
     onError: (err) => {
-      setActionMsg(`키 회전 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+      setActionMsg(`키 회전 실패: ${errorMessage(err)}`);
     },
   });
 
@@ -80,7 +81,7 @@ export default function DeviceDetailPage() {
   if (isError) {
     return (
       <p className="text-sm text-red-600">
-        오류: {error instanceof Error ? error.message : "알 수 없는 오류"}
+        오류: {errorMessage(error)}
       </p>
     );
   }

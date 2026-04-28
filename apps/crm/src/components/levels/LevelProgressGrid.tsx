@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { errorMessage } from "@/lib/errors";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { LevelProgress, LevelStatus, LevelTier } from "@153/shared";
 import { upsertLevelProgress } from "@/services/levels";
@@ -122,7 +123,7 @@ export function LevelProgressGrid({ memberId, rows, approvedBy }: Props) {
       {mutation.isError && (
         <p className="mt-2 text-xs text-red-600">
           저장 실패:{" "}
-          {mutation.error instanceof Error ? mutation.error.message : "알 수 없는 오류"}
+          {errorMessage(mutation.error)}
         </p>
       )}
     </div>

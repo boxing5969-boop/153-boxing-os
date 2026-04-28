@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, Pause, X as Cancel, Receipt } from "lucide-react";
@@ -85,7 +86,7 @@ export default function MemberDetailPage() {
   if (memberQuery.isError) {
     return (
       <p className="text-sm text-red-600">
-        오류: {memberQuery.error instanceof Error ? memberQuery.error.message : "알 수 없는 오류"}
+        오류: {errorMessage(memberQuery.error)}
       </p>
     );
   }

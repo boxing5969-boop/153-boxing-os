@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, Ban } from "lucide-react";
@@ -58,7 +59,7 @@ export default function EmergencyPinsPage() {
       setRevokeId(null);
     },
     onError: (err) => {
-      setActionMsg(`취소 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+      setActionMsg(`취소 실패: ${errorMessage(err)}`);
       setRevokeId(null);
     },
   });
@@ -105,7 +106,7 @@ export default function EmergencyPinsPage() {
             {isError && (
               <tr>
                 <td colSpan={8} className="px-4 py-12 text-center text-red-600">
-                  오류: {error instanceof Error ? error.message : "알 수 없는 오류"}
+                  오류: {errorMessage(error)}
                 </td>
               </tr>
             )}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
@@ -140,7 +141,7 @@ export default function MembershipsListPage() {
               {memQuery.isError && (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center text-red-600">
-                    오류: {memQuery.error instanceof Error ? memQuery.error.message : "알 수 없는 오류"}
+                    오류: {errorMessage(memQuery.error)}
                   </td>
                 </tr>
               )}
@@ -193,7 +194,7 @@ export default function MembershipsListPage() {
               {trialQuery.isError && (
                 <tr>
                   <td colSpan={4} className="px-4 py-12 text-center text-red-600">
-                    오류: {trialQuery.error instanceof Error ? trialQuery.error.message : "알 수 없는 오류"}
+                    오류: {errorMessage(trialQuery.error)}
                   </td>
                 </tr>
               )}

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { errorMessage } from "@/lib/errors";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { roleLabel } from "@/lib/roleLabels";
@@ -58,7 +59,7 @@ export default function DashboardPage() {
 
       {isError && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          통계 조회 실패: {error instanceof Error ? error.message : "알 수 없는 오류"}
+          통계 조회 실패: {errorMessage(error)}
         </p>
       )}
 

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { errorMessage } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { listExpiringMemberships } from "@/services/dashboardWidgets";
@@ -24,7 +25,7 @@ export function ExpiringMembersCard({ days = 7 }: { days?: number }) {
         {isLoading && <p className="px-4 py-6 text-sm opacity-60">로딩 중…</p>}
         {isError && (
           <p className="px-4 py-6 text-sm text-red-600">
-            오류: {error instanceof Error ? error.message : "알 수 없는 오류"}
+            오류: {errorMessage(error)}
           </p>
         )}
         {!isLoading && !isError && (data?.length ?? 0) === 0 && (

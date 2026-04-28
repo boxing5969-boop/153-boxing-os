@@ -1,4 +1,5 @@
 import { Navigate } from "react-router-dom";
+import { errorMessage } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
@@ -48,7 +49,7 @@ export default function BranchesListPage() {
             {isError && (
               <tr>
                 <td colSpan={7} className="px-4 py-12 text-center text-red-600">
-                  오류: {error instanceof Error ? error.message : "알 수 없는 오류"}
+                  오류: {errorMessage(error)}
                 </td>
               </tr>
             )}

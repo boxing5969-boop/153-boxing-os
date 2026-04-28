@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
@@ -138,7 +139,7 @@ export default function AccessLogsPage() {
             {isError && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-red-600">
-                  오류: {error instanceof Error ? error.message : "알 수 없는 오류"}
+                  오류: {errorMessage(error)}
                 </td>
               </tr>
             )}

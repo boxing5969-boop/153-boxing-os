@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { errorMessage } from "@/lib/errors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, X, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -67,7 +68,7 @@ export function ConsentManagementCard({ memberId }: Props) {
       setPending(null);
     },
     onError: (err) => {
-      setActionMsg(`철회 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+      setActionMsg(`철회 실패: ${errorMessage(err)}`);
       setPending(null);
     },
   });
@@ -81,7 +82,7 @@ export function ConsentManagementCard({ memberId }: Props) {
       setPending(null);
     },
     onError: (err) => {
-      setActionMsg(`기록 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+      setActionMsg(`기록 실패: ${errorMessage(err)}`);
       setPending(null);
     },
   });
@@ -110,9 +111,7 @@ export function ConsentManagementCard({ memberId }: Props) {
         {consentsQuery.isError && (
           <p className="text-sm text-red-600">
             오류:{" "}
-            {consentsQuery.error instanceof Error
-              ? consentsQuery.error.message
-              : "알 수 없는 오류"}
+            {errorMessage(consentsQuery.error)}
           </p>
         )}
         {!consentsQuery.isLoading && !consentsQuery.isError && (
