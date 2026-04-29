@@ -12,7 +12,7 @@ import { getBranchDetail } from "@/services/branches";
 import { listDevices } from "@/services/devices";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDate } from "@/lib/format";
-import { MemberStatusBadge } from "@/components/members/MemberStatusBadge";
+import MemberStatusBadge from "@/components/members/MemberStatusBadge";
 import { cn } from "@/lib/cn";
 import BranchFormDialog from "@/components/branches/BranchFormDialog";
 import BranchKakaoSettingsCard from "@/components/branches/BranchKakaoSettingsCard";

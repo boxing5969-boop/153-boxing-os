@@ -7,7 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { getBranchesWithStats } from "@/services/branches";
+import { getBranchesWithStats, type BranchStats } from "@/services/branches";
 import { cn } from "@/lib/cn";
 import BranchFormDialog from "@/components/branches/BranchFormDialog";
 
@@ -22,7 +22,7 @@ const STATUS_LABEL: Record<string, string> = {
   active: "운영중", inactive: "비활성", closed: "폐점",
 };
 
-function BranchCard({ b, onClick }: { b: ReturnType<typeof getBranchesWithStats> extends Promise<infer A> ? A[number] : never; onClick: () => void }) {
+function BranchCard({ b, onClick }: { b: BranchStats; onClick: () => void }) {
   const fillPct = b.member_count > 0 ? Math.round((b.active_member_count / b.member_count) * 100) : 0;
   return (
     <button

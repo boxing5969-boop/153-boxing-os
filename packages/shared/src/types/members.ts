@@ -34,6 +34,7 @@ export interface Membership {
   end_date: string;
   payment_status: PaymentStatus;
   status: MembershipStatus;
+  price?: number | null;
   created_at: string;
   updated_at: string;
 }

@@ -101,13 +101,15 @@ export async function getBranchDetail(id: string): Promise<BranchDetail | null> 
 }
 
 export async function createBranch(input: CreateBranchInput) {
-  const { data, error } = await supabase.from("branches").insert(input).select().single();
+  // TODO: 추후 Supabase Database 타입 생성 후 제거 (supabase gen types)
+  const { data, error } = await supabase.from("branches").insert(input as unknown as Record<string, unknown>).select().single();
   if (error) throw error;
   return data;
 }
 
 export async function updateBranch(id: string, input: UpdateBranchInput) {
-  const { data, error } = await supabase.from("branches").update(input).eq("id", id).select().single();
+  // TODO: 추후 Supabase Database 타입 생성 후 제거 (supabase gen types)
+  const { data, error } = await supabase.from("branches").update(input as unknown as Record<string, unknown>).eq("id", id).select().single();
   if (error) throw error;
   return data;
 }
