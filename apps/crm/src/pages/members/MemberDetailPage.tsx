@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Pause, X as Cancel, Receipt,
   Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
+  CreditCard, Send, CheckCircle2, Clock, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -21,6 +22,8 @@ import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog"
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
+import { getPaymentRequests, type PaymentRequest } from "@/services/payments";
+import { SendBillDialog } from "@/components/payments/SendBillDialog";
 import { formatDate, formatDateTime, formatPhone, daysUntil } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import type { Member, Membership, TrialPass } from "@153/shared";
@@ -83,9 +86,18 @@ export default function MemberDetailPage() {
   const [openNewMembership, setOpenNewMembership] = useState(false);
   const [openNewTrial, setOpenNewTrial] = useState(false);
   const [openLinkRanking, setOpenLinkRanking] = useState(false);
+  const [openSendBill, setOpenSendBill] = useState(false);
+  const [billTargetMembership, setBillTargetMembership] = useState<Membership | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [trialToCancel, setTrialToCancel] = useState<TrialPass | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const paymentRequestsQuery = useQuery({
+    queryKey: ["payment-requests", memberId],
+    queryFn: () => getPaymentRequests(memberId),
+    enabled: !!memberId,
+    staleTime: 30_000,
+  });
 
   const membershipActionMutation = useMutation({
     mutationFn: ({ id, action }: { id: string; action: MembershipAction }) => {
@@ -267,6 +279,14 @@ export default function MemberDetailPage() {
                     </div>
                     {m.status === "active" && (
                       <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => { setBillTargetMembership(m); setOpenSendBill(true); }}
+                          className="gap-1 text-brand border-brand/30 hover:bg-brand/5"
+                        >
+                          <Send className="size-3" /> 청구
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => setPending({ type: "pause", membership: m })} className="gap-1">
                           <Pause className="size-3" /> 정지
                         </Button>
@@ -331,10 +351,87 @@ export default function MemberDetailPage() {
         </CardContent>
       </Card>
 
+      {/* 결제 청구 내역 */}
+      <Card>
+        <CardHeader className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <CreditCard className="size-4 text-muted-foreground" />
+            결제 청구
+          </h2>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { setBillTargetMembership(null); setOpenSendBill(true); }}
+            className="gap-1.5"
+          >
+            <Send className="size-3.5" />
+            청구서 발송
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {paymentRequestsQuery.isLoading ? (
+            <div className="px-5 py-6 space-y-2">
+              {[1,2].map((i) => <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />)}
+            </div>
+          ) : (paymentRequestsQuery.data?.length ?? 0) === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-muted-foreground">청구 내역이 없습니다</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {paymentRequestsQuery.data?.map((pr: PaymentRequest) => (
+                <li key={pr.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">{pr.description}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {new Intl.NumberFormat("ko-KR").format(pr.amount)}원
+                      {pr.due_date && <span className="ml-2">· 납기 {formatDate(pr.due_date)}</span>}
+                      <span className="ml-2">· {formatDate(pr.created_at)}</span>
+                    </p>
+                  </div>
+                  {/* 상태 배지 */}
+                  {pr.status === "paid" && (
+                    <span className="flex items-center gap-1 rounded-full bg-success/10 text-success text-xs font-semibold px-2.5 py-1">
+                      <CheckCircle2 className="size-3" /> 결제 완료
+                    </span>
+                  )}
+                  {pr.status === "pending" && (
+                    <span className="flex items-center gap-1 rounded-full bg-warning/10 text-warning text-xs font-semibold px-2.5 py-1">
+                      <Clock className="size-3" /> 대기 중
+                    </span>
+                  )}
+                  {(pr.status === "cancelled" || pr.status === "expired") && (
+                    <span className="flex items-center gap-1 rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2.5 py-1">
+                      <XCircle className="size-3" /> {pr.status === "expired" ? "만료" : "취소"}
+                    </span>
+                  )}
+                  {pr.payssam_bill_url && pr.status === "pending" && (
+                    <a
+                      href={pr.payssam_bill_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-brand hover:underline shrink-0"
+                    >
+                      링크 보기
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
       {/* 동의 관리 */}
       <ConsentManagementCard memberId={member.id} />
 
       {/* 다이얼로그들 */}
+      <SendBillDialog
+        open={openSendBill}
+        onClose={() => { setOpenSendBill(false); setBillTargetMembership(null); }}
+        member={member}
+        membership={billTargetMembership}
+      />
       <LinkRankingAppDialog open={openLinkRanking} onClose={() => setOpenLinkRanking(false)} member={member} />
       <NewMembershipDialog open={openNewMembership} onClose={() => setOpenNewMembership(false)} member={member} />
       <NewTrialPassDialog open={openNewTrial} onClose={() => setOpenNewTrial(false)} member={member} />

@@ -17,4 +17,7 @@ export interface Env {
   KAKAO_EXPIRY_TPL_D7?: string;
   KAKAO_EXPIRY_TPL_D3?: string;
   KAKAO_EXPIRY_TPL_D1?: string;
+  // 결제선생(Payssam) — 파트너 계약 후 발급
+  PAYSSAM_API_KEY?: string;
+  PAYSSAM_WEBHOOK_SECRET?: string;
 }

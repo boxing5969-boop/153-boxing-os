@@ -115,10 +115,13 @@ onboardingRoutes.post("/signup", async (c) => {
   // 4) trial 정보 조회
   const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-  return ok(c, {
-    company_id:   companyId,
-    slug:         d.slug,
-    trial_ends_at: trialEndsAt,
-    message:      `153os에 오신 것을 환영합니다! 14일 무료 체험이 시작되었습니다.`,
+  return c.json({
+    success: true,
+    data: {
+      company_id:   companyId,
+      slug:         d.slug,
+      trial_ends_at: trialEndsAt,
+      message:      `153os에 오신 것을 환영합니다! 14일 무료 체험이 시작되었습니다.`,
+    },
   }, 201);
 });
