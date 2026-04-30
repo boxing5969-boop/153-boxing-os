@@ -26,7 +26,7 @@ type ViewState =
   | { kind: "error"; message: string };
 
 export default function KioskHomePage() {
-  const { profile, loading } = useAuth();
+  const { profile, authLoading } = useAuth();
   const [phoneSuffix, setPhoneSuffix] = useState("");
   const [view, setView] = useState<ViewState>({ kind: "input" });
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -51,7 +51,7 @@ export default function KioskHomePage() {
     return;
   }, [view.kind]);
 
-  if (loading) {
+  if (authLoading) {
     return (
       <main className="min-h-screen flex items-center justify-center text-sm opacity-70">
         로딩 중…

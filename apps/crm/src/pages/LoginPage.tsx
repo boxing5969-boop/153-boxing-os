@@ -14,7 +14,7 @@ interface LocationState {
 }
 
 export default function LoginPage() {
-  const { user, loading } = useAuth();
+  const { user, authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -26,7 +26,7 @@ export default function LoginPage() {
   const from = state?.from?.pathname ?? "/";
   const welcomeEmail = state?.welcome ? (state.email ?? "") : null;
 
-  if (loading) {
+  if (authLoading) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-sidebar">
         <div className="flex flex-col items-center gap-3">
