@@ -21,9 +21,10 @@ import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog"
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
+import { getAccessPreview } from "@/services/access";
 import { formatDate, formatDateTime, formatPhone, daysUntil } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import type { Member, Membership, TrialPass } from "@153/shared";
+import { DENIED_REASON_LABELS, type Member, type Membership, type TrialPass } from "@153/shared";
 
 type MembershipAction = "pause" | "cancel" | "refund";
 interface PendingAction { type: MembershipAction; membership: Membership; }
@@ -79,6 +80,12 @@ export default function MemberDetailPage() {
 
   const memberQuery = useQuery({ queryKey: ["member", memberId], queryFn: () => getMember(memberId), enabled: !!memberId });
   const relatedQuery = useQuery({ queryKey: ["member-related", memberId], queryFn: () => getMemberRelated(memberId), enabled: !!memberId });
+  const accessPreviewQuery = useQuery({
+    queryKey: ["access-preview", memberId],
+    queryFn: () => getAccessPreview(memberId),
+    enabled: !!memberId,
+    staleTime: 30_000,
+  });
 
   const [openNewMembership, setOpenNewMembership] = useState(false);
   const [openNewTrial, setOpenNewTrial] = useState(false);
@@ -126,7 +133,14 @@ export default function MemberDetailPage() {
   const member = memberQuery.data;
   const memberships = relatedQuery.data?.memberships ?? [];
   const trials = relatedQuery.data?.trials ?? [];
-  const accessReady = computeAccessReady(member, memberships, trials);
+  const accessReadyFallback = computeAccessReady(member, memberships, trials);
+  const previewData = accessPreviewQuery.data;
+  const accessAllowed = previewData ? previewData.allowed : accessReadyFallback.allowed;
+  const accessLabel = previewData
+    ? previewData.allowed
+      ? "출입 가능"
+      : (DENIED_REASON_LABELS[previewData.reason] ?? previewData.message ?? "출입 불가")
+    : (accessReadyFallback.allowed ? "출입 가능" : (accessReadyFallback.reason ?? "출입 불가"));
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -168,13 +182,13 @@ export default function MemberDetailPage() {
           {/* 출입 가능 여부 */}
           <div className={cn(
             "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shrink-0",
-            accessReady.allowed
+            accessAllowed
               ? "bg-success/10 text-success"
               : "bg-danger/10 text-danger"
           )}>
-            {accessReady.allowed
-              ? <><ShieldCheck className="size-4" /> 출입 가능</>
-              : <><ShieldX className="size-4" /> {accessReady.reason ?? "출입 불가"}</>
+            {accessAllowed
+              ? <><ShieldCheck className="size-4" /> {accessLabel}</>
+              : <><ShieldX className="size-4" /> {accessLabel}</>
             }
           </div>
         </div>

@@ -7,10 +7,14 @@ import { requireJwt } from "../middleware/jwt";
 import { getServiceClient } from "../lib/supabase";
 import { generateQrToken, verifyQrToken } from "../services/qrToken";
 import { verifyAccess, type VerifyInput } from "../services/accessVerifier";
+import { previewAccessForMember } from "../services/accessPreview";
 import { appendAccessLog } from "../services/auditLogger";
 import { DENIED_REASON_LABELS, type DeniedReason } from "@153/shared";
 
 export const accessRoutes = new Hono<{ Bindings: Env }>();
+
+const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
+const BRANCH_ROLES = new Set(["branch_admin", "branch_owner", "coach", "staff"]);
 
 const verifySchema = z.object({
   branch_id: z.string().uuid(),
@@ -144,5 +148,80 @@ accessRoutes.post("/qr/generate", requireJwt, async (c) => {
     qr_token: token,
     expires_at: new Date(expires_at * 1000).toISOString(),
     ttl_seconds: 60,
+  });
+});
+
+// 회원 1명에 대한 출입 가능 여부 미리보기 (side-effect 없음, JWT 인증)
+const previewQuerySchema = z.object({
+  member_id: z.string().uuid(),
+  branch_id: z.string().uuid().optional(),
+});
+
+accessRoutes.get("/preview", requireJwt, async (c) => {
+  const parsed = previewQuerySchema.safeParse({
+    member_id: c.req.query("member_id"),
+    branch_id: c.req.query("branch_id"),
+  });
+  if (!parsed.success) {
+    return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid query", 400);
+  }
+  const { member_id, branch_id } = parsed.data;
+
+  const user = c.get("user");
+  const db = getServiceClient(c.env);
+
+  const { data: profileRaw } = await db
+    .from("profiles")
+    .select("id,role,company_id,branch_id")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+  const profile = profileRaw as
+    | { id: string; role: string; company_id: string | null; branch_id: string | null }
+    | null;
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다.", 403);
+  if (!HQ_ROLES.has(profile.role) && !BRANCH_ROLES.has(profile.role)) {
+    return fail(c, "FORBIDDEN", "권한이 없습니다.", 403);
+  }
+
+  const { data: memberRaw } = await db
+    .from("members")
+    .select("id,branch_id,company_id")
+    .eq("id", member_id)
+    .maybeSingle();
+  const member = memberRaw as { id: string; branch_id: string; company_id: string } | null;
+  if (!member) return fail(c, "NOT_FOUND", "회원을 찾을 수 없습니다.", 404);
+
+  // 본사 권한이면 같은 company 만, 지점 권한이면 같은 branch 만
+  if (HQ_ROLES.has(profile.role)) {
+    if (profile.company_id && profile.company_id !== member.company_id) {
+      return fail(c, "FORBIDDEN", "다른 회사의 회원입니다.", 403);
+    }
+  } else {
+    if (!profile.branch_id || profile.branch_id !== member.branch_id) {
+      return fail(c, "FORBIDDEN", "다른 지점의 회원입니다.", 403);
+    }
+  }
+
+  // branch_id 가 명시되면 회원 소속과 일치해야 함
+  if (branch_id && branch_id !== member.branch_id) {
+    return fail(c, "FORBIDDEN", "해당 지점 소속 회원이 아닙니다.", 403);
+  }
+
+  const decision = await previewAccessForMember(db, member.id, branch_id ?? member.branch_id);
+
+  if (decision.allowed) {
+    return ok(c, {
+      allowed: true,
+      member_id: decision.member_id,
+      member_name: decision.member_name,
+      source: decision.source,
+    });
+  }
+  const reason: DeniedReason = decision.reason;
+  return ok(c, {
+    allowed: false,
+    member_id: decision.member_id,
+    reason,
+    message: DENIED_REASON_LABELS[reason] ?? "출입 불가",
   });
 });
