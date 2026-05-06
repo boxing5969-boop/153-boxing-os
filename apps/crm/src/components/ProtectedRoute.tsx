@@ -5,7 +5,7 @@ export default function ProtectedRoute() {
   const { user, profile, authLoading, profileState, signOut, refreshProfile } = useAuth();
   const location = useLocation();
 
-  if (authLoading || profileState === "idle" || profileState === "loading") {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm opacity-70">
         로딩 중…
@@ -15,6 +15,14 @@ export default function ProtectedRoute() {
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (profileState === "idle" || profileState === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm opacity-70">
+        로딩 중…
+      </div>
+    );
   }
 
   if (profileState === "error") {
