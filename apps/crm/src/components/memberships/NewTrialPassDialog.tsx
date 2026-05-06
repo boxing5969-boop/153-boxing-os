@@ -49,6 +49,7 @@ export function NewTrialPassDialog({ open, onClose, member }: Props) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["trialPasses"] });
       void qc.invalidateQueries({ queryKey: ["member-related", member.id] });
+      void qc.invalidateQueries({ queryKey: ["access-preview", member.id] });
       onClose();
     },
     onError: (err) => setError(err instanceof Error ? err.message : "발급 실패"),

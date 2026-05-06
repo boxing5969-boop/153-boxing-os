@@ -100,13 +100,13 @@ export default function MemberDetailPage() {
       if (action === "cancel") return updateMembershipState(id, { status: "canceled" });
       return updateMembershipState(id, { status: "canceled", payment_status: "refunded" });
     },
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["memberships"] }); setPending(null); setActionError(null); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["memberships"] }); void qc.invalidateQueries({ queryKey: ["access-preview", memberId] }); setPending(null); setActionError(null); },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
   });
 
   const trialCancelMutation = useMutation({
     mutationFn: cancelTrialPass,
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["trialPasses"] }); setTrialToCancel(null); setActionError(null); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["trialPasses"] }); void qc.invalidateQueries({ queryKey: ["access-preview", memberId] }); setTrialToCancel(null); setActionError(null); },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
   });
 

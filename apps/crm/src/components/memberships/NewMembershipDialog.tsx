@@ -76,6 +76,7 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["memberships"] });
       void qc.invalidateQueries({ queryKey: ["member-related", member.id] });
+      void qc.invalidateQueries({ queryKey: ["access-preview", member.id] });
       void qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       onClose();
     },
