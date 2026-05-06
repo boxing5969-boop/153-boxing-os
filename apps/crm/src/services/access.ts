@@ -3,6 +3,12 @@ import type { DeniedReason } from "@153/shared";
 
 export type AccessPreviewSource = "grant" | "membership" | "trial";
 
+export const ACCESS_SOURCE_LABELS: Record<AccessPreviewSource, string> = {
+  membership: "이용권",
+  trial:      "체험권",
+  grant:      "특별 출입권한",
+};
+
 export type AccessPreview =
   | { allowed: true; member_id: string; member_name: string; source: AccessPreviewSource }
   | { allowed: false; member_id: string | null; reason: DeniedReason; message: string };

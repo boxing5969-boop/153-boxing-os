@@ -21,7 +21,7 @@ import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog"
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
-import { getAccessPreview } from "@/services/access";
+import { getAccessPreview, ACCESS_SOURCE_LABELS } from "@/services/access";
 import { formatDate, formatDateTime, formatPhone, daysUntil } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { DENIED_REASON_LABELS, type Member, type Membership, type TrialPass } from "@153/shared";
@@ -134,13 +134,25 @@ export default function MemberDetailPage() {
   const memberships = relatedQuery.data?.memberships ?? [];
   const trials = relatedQuery.data?.trials ?? [];
   const accessReadyFallback = computeAccessReady(member, memberships, trials);
-  const previewData = accessPreviewQuery.data;
-  const accessAllowed = previewData ? previewData.allowed : accessReadyFallback.allowed;
+  const previewData    = accessPreviewQuery.data;
+  const previewError   = accessPreviewQuery.isError;
+  const previewLoading = accessPreviewQuery.isLoading;
+  const previewSource  = previewData?.allowed ? previewData.source : null;
+  const accessAllowed  = previewData ? previewData.allowed : accessReadyFallback.allowed;
   const accessLabel = previewData
     ? previewData.allowed
       ? "출입 가능"
       : (DENIED_REASON_LABELS[previewData.reason] ?? previewData.message ?? "출입 불가")
     : (accessReadyFallback.allowed ? "출입 가능" : (accessReadyFallback.reason ?? "출입 불가"));
+  const sourceLabel = previewSource ? ACCESS_SOURCE_LABELS[previewSource] : null;
+  const accessSubStatus: { text: string; tone: "muted" | "warn" } | null =
+    previewLoading
+      ? { text: "서버 확인 중…", tone: "muted" }
+      : previewError
+        ? { text: "서버 확인 실패 — 임시 계산값 표시 중", tone: "warn" }
+        : previewData
+          ? { text: "서버 기준 확인됨", tone: "muted" }
+          : null;
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -179,17 +191,44 @@ export default function MemberDetailPage() {
             </div>
           </div>
 
-          {/* 출입 가능 여부 */}
+          {/* 출입 가능 여부 — 서버 access preview 우선, 응답 전엔 fallback */}
           <div className={cn(
-            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shrink-0",
-            accessAllowed
-              ? "bg-success/10 text-success"
-              : "bg-danger/10 text-danger"
+            "flex flex-col items-stretch gap-1.5 rounded-xl px-4 py-2.5 shrink-0 min-w-[180px]",
+            accessAllowed ? "bg-success/10" : "bg-danger/10"
           )}>
-            {accessAllowed
-              ? <><ShieldCheck className="size-4" /> {accessLabel}</>
-              : <><ShieldX className="size-4" /> {accessLabel}</>
-            }
+            <div className={cn(
+              "flex items-center gap-2 text-sm font-semibold",
+              accessAllowed ? "text-success" : "text-danger"
+            )}>
+              {accessAllowed
+                ? <ShieldCheck className="size-4 shrink-0" />
+                : <ShieldX className="size-4 shrink-0" />}
+              <span className="truncate">{accessLabel}</span>
+            </div>
+
+            {(sourceLabel || accessSubStatus) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-tight">
+                {sourceLabel && (
+                  <span className={cn(
+                    "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-bold",
+                    accessAllowed
+                      ? "bg-success/20 text-success"
+                      : "bg-muted text-muted-foreground"
+                  )}>
+                    {sourceLabel}
+                  </span>
+                )}
+                {accessSubStatus && (
+                  <span className={cn(
+                    accessSubStatus.tone === "warn"
+                      ? "text-warning"
+                      : "text-muted-foreground"
+                  )}>
+                    {accessSubStatus.text}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </Card>
