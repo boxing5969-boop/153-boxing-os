@@ -48,7 +48,7 @@ export async function listBranchPlanPresets(
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data ?? []) as BranchPlanPreset[];
+  return (data ?? []) as unknown as BranchPlanPreset[];
 }
 
 /** 프리셋 생성 */
