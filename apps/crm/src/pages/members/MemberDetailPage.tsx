@@ -310,7 +310,7 @@ export default function MemberDetailPage() {
 
       {/* 이용권 현황 요약 카드 */}
       {activeMembership && (() => {
-        const remaining = daysUntil(activeMembership.end_date);
+        const remaining = daysUntil(activeMembership.end_date) ?? 0;
         const hasSessions = activeMembership.max_sessions != null;
         const usedSessions = activeMembership.used_sessions ?? 0;
         const maxSessions = activeMembership.max_sessions ?? 0;
