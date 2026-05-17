@@ -34,12 +34,13 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     >
       <div
         className={cn(
-          "relative w-full max-w-md rounded-lg border border-foreground/10 bg-background shadow-lg",
+          "relative flex flex-col w-full max-w-md max-h-[90vh] rounded-lg border border-foreground/10 bg-background shadow-lg",
           className
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-3">
+        {/* 헤더: 고정 */}
+        <div className="flex shrink-0 items-center justify-between border-b border-foreground/10 px-4 py-3">
           <h2 className="font-semibold text-base">{title}</h2>
           <button
             type="button"
@@ -50,7 +51,8 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
             <X className="size-4" />
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        {/* 본문: 스크롤 가능 */}
+        <div className="overflow-y-auto p-4">{children}</div>
       </div>
     </div>
   );
