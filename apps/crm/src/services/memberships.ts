@@ -51,26 +51,31 @@ export interface CreateMembershipInput {
   member_id: string;
   branch_id: string;
   plan_name: string;
+  plan_type?: string | null;
   start_date: string;
   end_date: string;
   payment_status?: PaymentStatus;
   price?: number | null;
   currency?: string;
+  max_sessions?: number | null;
 }
 
 export async function createMembership(input: CreateMembershipInput): Promise<Membership> {
   const { data, error } = await supabase
     .from("memberships")
     .insert({
-      member_id: input.member_id,
-      branch_id: input.branch_id,
-      plan_name: input.plan_name,
-      start_date: input.start_date,
-      end_date: input.end_date,
+      member_id:    input.member_id,
+      branch_id:    input.branch_id,
+      plan_name:    input.plan_name,
+      plan_type:    input.plan_type ?? null,
+      start_date:   input.start_date,
+      end_date:     input.end_date,
       payment_status: input.payment_status ?? "paid",
-      status: "active",
-      price: input.price ?? null,
-      currency: input.currency ?? "KRW",
+      status:       "active",
+      price:        input.price ?? null,
+      currency:     input.currency ?? "KRW",
+      max_sessions: input.max_sessions ?? null,
+      used_sessions: 0,
     })
     .select("*")
     .single();

@@ -25,21 +25,27 @@ export interface Member {
   updated_at: string;
 }
 
+export type PlanType = 'period' | 'session' | 'pt' | 'class';
+
 export interface Membership {
   id: string;
   member_id: string;
   branch_id: string;
   plan_name: string;
+  plan_type?: PlanType | null;
   start_date: string;
   end_date: string;
   payment_status: PaymentStatus;
   status: MembershipStatus;
   price?: number | null;
   currency?: string;
+  // 횟수권
+  max_sessions?: number | null;
+  used_sessions?: number | null;
   // 홀딩 관련
-  hold_start?: string | null;        // 현재 홀딩 시작일
-  hold_end?: string | null;          // 현재 홀딩 예정 종료일
-  total_held_days?: number | null;   // 누적 홀딩 일수
+  hold_start?: string | null;
+  hold_end?: string | null;
+  total_held_days?: number | null;
   // 환불 관련
   refund_amount?: number | null;
   refund_reason?: string | null;

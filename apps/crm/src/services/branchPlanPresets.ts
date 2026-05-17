@@ -1,12 +1,30 @@
 import { supabase } from "@/integrations/supabase/client";
 
+export type PlanType = 'period' | 'session' | 'pt' | 'class';
+
+export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
+  period:  '기간권',
+  session: '횟수권',
+  pt:      'PT권',
+  class:   '수강권',
+};
+
+export const PLAN_TYPE_COLORS: Record<PlanType, string> = {
+  period:  'bg-primary/10 text-primary border-primary/20',
+  session: 'bg-success/10 text-success border-success/20',
+  pt:      'bg-purple-100 text-purple-700 border-purple-200',
+  class:   'bg-warning/10 text-warning border-warning/20',
+};
+
 export interface BranchPlanPreset {
   id: string;
   branch_id: string;
   name: string;
+  plan_type: PlanType;
   days: number;
   price: number;
   description: string | null;
+  max_sessions: number | null;   // 횟수권 전용
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -16,16 +34,20 @@ export interface BranchPlanPreset {
 export interface CreatePresetInput {
   branch_id: string;
   name: string;
+  plan_type: PlanType;
   days: number;
   price: number;
   description?: string;
+  max_sessions?: number | null;
 }
 
 export interface UpdatePresetInput {
   name?: string;
+  plan_type?: PlanType;
   days?: number;
   price?: number;
   description?: string | null;
+  max_sessions?: number | null;
   is_active?: boolean;
   sort_order?: number;
 }
@@ -64,12 +86,14 @@ export async function createBranchPlanPreset(
   const { data, error } = await supabase
     .from("branch_plan_presets")
     .insert({
-      branch_id:   input.branch_id,
-      name:        input.name.trim(),
-      days:        input.days,
-      price:       input.price,
-      description: input.description?.trim() || null,
-      sort_order:  count ?? 0,
+      branch_id:    input.branch_id,
+      name:         input.name.trim(),
+      plan_type:    input.plan_type,
+      days:         input.days,
+      price:        input.price,
+      description:  input.description?.trim() || null,
+      max_sessions: input.max_sessions ?? null,
+      sort_order:   count ?? 0,
     })
     .select("*")
     .single();
@@ -86,12 +110,14 @@ export async function updateBranchPlanPreset(
   const { data, error } = await supabase
     .from("branch_plan_presets")
     .update({
-      ...(patch.name !== undefined      && { name:        patch.name.trim() }),
-      ...(patch.days !== undefined      && { days:        patch.days }),
-      ...(patch.price !== undefined     && { price:       patch.price }),
-      ...(patch.description !== undefined && { description: patch.description?.trim() || null }),
-      ...(patch.is_active !== undefined && { is_active:   patch.is_active }),
-      ...(patch.sort_order !== undefined && { sort_order:  patch.sort_order }),
+      ...(patch.name !== undefined         && { name:         patch.name.trim() }),
+      ...(patch.plan_type !== undefined    && { plan_type:    patch.plan_type }),
+      ...(patch.days !== undefined         && { days:         patch.days }),
+      ...(patch.price !== undefined        && { price:        patch.price }),
+      ...(patch.description !== undefined  && { description:  patch.description?.trim() || null }),
+      ...(patch.max_sessions !== undefined && { max_sessions: patch.max_sessions ?? null }),
+      ...(patch.is_active !== undefined    && { is_active:    patch.is_active }),
+      ...(patch.sort_order !== undefined   && { sort_order:   patch.sort_order }),
     })
     .eq("id", id)
     .select("*")
