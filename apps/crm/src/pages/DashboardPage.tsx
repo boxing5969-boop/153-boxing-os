@@ -12,6 +12,7 @@ import { roleLabel } from "@/lib/roleLabels";
 import { getDashboardStats } from "@/services/dashboardStats";
 import { ExpiringMembersCard } from "@/components/dashboard/ExpiringMembersCard";
 import { DeniedReasonsCard } from "@/components/dashboard/DeniedReasonsCard";
+import { RevenueSnapshotCard } from "@/components/dashboard/RevenueSnapshotCard";
 import { cn } from "@/lib/cn";
 
 interface KpiSpec {
@@ -162,10 +163,11 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* 하단 카드 2열 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* 하단 카드 3열 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <ExpiringMembersCard days={7} />
         <DeniedReasonsCard days={7} />
+        <RevenueSnapshotCard />
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Pause, Play, X as Cancel, Receipt,
   Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
-  RotateCcw, RefreshCw,
+  RotateCcw, RefreshCw, Dumbbell,
 } from "lucide-react";
 import {
   PLAN_TYPE_LABELS,
@@ -25,6 +25,7 @@ import { NewTrialPassDialog } from "@/components/memberships/NewTrialPassDialog"
 import { HoldMembershipDialog } from "@/components/memberships/HoldMembershipDialog";
 import { ResumeMembershipDialog } from "@/components/memberships/ResumeMembershipDialog";
 import { RefundMembershipDialog } from "@/components/memberships/RefundMembershipDialog";
+import { CheckInDialog } from "@/components/memberships/CheckInDialog";
 import { ConsentManagementCard } from "@/components/consent/ConsentManagementCard";
 import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog";
 import { getMember, getMemberRelated } from "@/services/members";
@@ -98,6 +99,9 @@ export default function MemberDetailPage() {
 
   // 이용권 연장 모드: activeMembership을 전달하면 NewMembershipDialog가 연장 탭으로 열림
   const [extendTarget, setExtendTarget] = useState<Membership | null>(null);
+
+  // 출석 체크 다이얼로그
+  const [checkInTarget, setCheckInTarget] = useState<Membership | null>(null);
 
   // 이용권 액션 다이얼로그
   const [holdTarget, setHoldTarget] = useState<Membership | null>(null);
@@ -506,9 +510,19 @@ export default function MemberDetailPage() {
 
                     {/* 이용권 액션 버튼들 */}
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {/* 활성 이용권: 연장 + 홀딩 + 환불 + 취소 */}
+                      {/* 활성 이용권: 출석체크(횟수권) + 연장 + 홀딩 + 환불 + 취소 */}
                       {m.status === "active" && (
                         <>
+                          {/* 횟수권 계열만 출석 체크 버튼 표시 */}
+                          {m.max_sessions != null && (
+                            <Button
+                              size="sm"
+                              onClick={() => setCheckInTarget(m)}
+                              className="gap-1 bg-success hover:bg-success/90 text-white"
+                            >
+                              <Dumbbell className="size-3" /> 출석
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -670,6 +684,16 @@ export default function MemberDetailPage() {
           open={!!refundTarget}
           onClose={() => setRefundTarget(null)}
           membership={refundTarget}
+          memberId={memberId}
+        />
+      )}
+
+      {/* 출석 체크 */}
+      {checkInTarget && (
+        <CheckInDialog
+          open={!!checkInTarget}
+          onClose={() => setCheckInTarget(null)}
+          membership={checkInTarget}
           memberId={memberId}
         />
       )}
