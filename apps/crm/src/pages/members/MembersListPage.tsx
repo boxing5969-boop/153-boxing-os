@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Search, Users, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { Plus, Search, Users, ChevronRight, SlidersHorizontal, CreditCard } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +11,12 @@ import MemberStatusBadge, {
   MEMBER_STATUS_VALUES,
   memberStatusLabel,
 } from "@/components/members/MemberStatusBadge";
+import { NewMembershipDialog } from "@/components/memberships/NewMembershipDialog";
 import { listMembers } from "@/services/members";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatPhone, formatDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import type { MemberStatus } from "@153/shared";
+import type { Member, MemberStatus } from "@153/shared";
 
 const PAGE_SIZE = 20;
 
@@ -56,6 +57,9 @@ export default function MembersListPage() {
   const [statusFilter, setStatusFilter] = useState<"" | MemberStatus>("");
   const [page, setPage] = useState(0);
   const debouncedQuery = useDebouncedValue(query, 300);
+
+  // 이용권 바로 등록 (목록에서 클릭)
+  const [quickRegisterMember, setQuickRegisterMember] = useState<Member | null>(null);
 
   const filters = useMemo(
     () => ({ q: debouncedQuery, status: statusFilter || null, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
@@ -192,7 +196,22 @@ export default function MembersListPage() {
                   {formatDate(m.created_at)}
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  <ChevronRight className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors ml-auto" />
+                  <div className="flex items-center justify-end gap-2">
+                    {/* 이용권 바로 등록 버튼 (hover 시 표시) */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="opacity-0 group-hover:opacity-100 gap-1 transition-opacity h-7 px-2 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQuickRegisterMember(m);
+                      }}
+                    >
+                      <CreditCard className="size-3" />
+                      이용권
+                    </Button>
+                    <ChevronRight className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -226,6 +245,15 @@ export default function MembersListPage() {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* 이용권 바로 등록 다이얼로그 */}
+      {quickRegisterMember && (
+        <NewMembershipDialog
+          open={!!quickRegisterMember}
+          onClose={() => setQuickRegisterMember(null)}
+          member={quickRegisterMember}
+        />
       )}
     </div>
   );

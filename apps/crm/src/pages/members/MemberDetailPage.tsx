@@ -4,8 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Pause, Play, X as Cancel, Receipt,
   Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
-  RotateCcw,
+  RotateCcw, RefreshCw,
 } from "lucide-react";
+import {
+  PLAN_TYPE_LABELS,
+  PLAN_TYPE_COLORS,
+  type PlanType,
+} from "@/services/branchPlanPresets";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirmDialog";
@@ -91,6 +96,9 @@ export default function MemberDetailPage() {
   const [openNewTrial, setOpenNewTrial] = useState(false);
   const [openLinkRanking, setOpenLinkRanking] = useState(false);
 
+  // 이용권 연장 모드: activeMembership을 전달하면 NewMembershipDialog가 연장 탭으로 열림
+  const [extendTarget, setExtendTarget] = useState<Membership | null>(null);
+
   // 이용권 액션 다이얼로그
   const [holdTarget, setHoldTarget] = useState<Membership | null>(null);
   const [resumeTarget, setResumeTarget] = useState<Membership | null>(null);
@@ -147,6 +155,12 @@ export default function MemberDetailPage() {
   const member = memberQuery.data;
   const memberships = relatedQuery.data?.memberships ?? [];
   const trials = relatedQuery.data?.trials ?? [];
+
+  // 현재 활성 이용권 (첫 번째 active 항목)
+  const today = new Date().toISOString().slice(0, 10);
+  const activeMembership = memberships.find(
+    (m) => m.status === "active" && m.end_date >= today
+  ) ?? null;
   const accessReadyFallback = computeAccessReady(member, memberships, trials);
   const previewData    = accessPreviewQuery.data;
   const previewError   = accessPreviewQuery.isError;
@@ -294,20 +308,117 @@ export default function MemberDetailPage() {
         </CardContent>
       </Card>
 
-      {/* 이용권 */}
+      {/* 이용권 현황 요약 카드 */}
+      {activeMembership && (() => {
+        const remaining = daysUntil(activeMembership.end_date);
+        const hasSessions = activeMembership.max_sessions != null;
+        const usedSessions = activeMembership.used_sessions ?? 0;
+        const maxSessions = activeMembership.max_sessions ?? 0;
+        const sessionPct = hasSessions && maxSessions > 0
+          ? Math.min(100, Math.round((usedSessions / maxSessions) * 100))
+          : 0;
+        const planType = activeMembership.plan_type as PlanType | undefined;
+
+        return (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-start gap-4">
+                {/* 왼쪽: 플랜 정보 */}
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {planType && (
+                      <span className={cn(
+                        "inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold",
+                        PLAN_TYPE_COLORS[planType]
+                      )}>
+                        {PLAN_TYPE_LABELS[planType]}
+                      </span>
+                    )}
+                    <span className="text-sm font-bold text-foreground">{activeMembership.plan_name}</span>
+                    {remaining <= 7 && (
+                      <span className="text-xs rounded-full bg-warning/20 text-warning px-2 py-0.5 font-semibold">
+                        D-{remaining}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground tabular">
+                    {activeMembership.start_date} ~ {activeMembership.end_date}
+                    <span className="ml-2 font-semibold text-foreground">{remaining}일 남음</span>
+                  </p>
+                  {/* 횟수 진행 바 */}
+                  {hasSessions && (
+                    <div className="space-y-1 pt-0.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">횟수 사용</span>
+                        <span className="font-semibold text-foreground">{usedSessions} / {maxSessions}회</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-primary/20 overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            sessionPct >= 90 ? "bg-danger" : sessionPct >= 70 ? "bg-warning" : "bg-primary"
+                          )}
+                          style={{ width: `${sessionPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 오른쪽: 빠른 액션 버튼들 */}
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    onClick={() => { setExtendTarget(activeMembership); setOpenNewMembership(true); }}
+                    className="gap-1.5"
+                  >
+                    <RefreshCw className="size-3.5" /> 연장
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setHoldTarget(activeMembership)}
+                    className="gap-1 text-warning border-warning/30 hover:bg-warning/10"
+                  >
+                    <Pause className="size-3" /> 홀딩
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* 이용권 이력 */}
       <Card>
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">이용권</h2>
-          <Button size="sm" onClick={() => setOpenNewMembership(true)} className="gap-1.5">
-            <Plus className="size-3.5" />
-            이용권 등록
-          </Button>
+          <div className="flex gap-2">
+            {activeMembership && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setExtendTarget(activeMembership); setOpenNewMembership(true); }}
+                className="gap-1.5"
+              >
+                <RefreshCw className="size-3.5" /> 연장
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => { setExtendTarget(null); setOpenNewMembership(true); }}
+              className="gap-1.5"
+            >
+              <Plus className="size-3.5" />
+              이용권 등록
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {memberships.length === 0 ? (
             <div className="px-5 py-10 text-center space-y-3">
               <p className="text-sm text-muted-foreground">이용권 이력이 없습니다</p>
-              <Button size="sm" variant="outline" onClick={() => setOpenNewMembership(true)} className="gap-1.5">
+              <Button size="sm" variant="outline" onClick={() => { setExtendTarget(null); setOpenNewMembership(true); }} className="gap-1.5">
                 <Plus className="size-3.5" />
                 첫 이용권 등록
               </Button>
@@ -318,12 +429,23 @@ export default function MemberDetailPage() {
                 const remaining = m.status === "active" ? daysUntil(m.end_date) : null;
                 const isHolding = m.status === "paused";
                 const canReRegister = ["expired", "canceled"].includes(m.status);
+                const planType = m.plan_type as PlanType | undefined;
+                const hasSessions = m.max_sessions != null;
 
                 return (
                   <li key={m.id} className="px-5 py-4 space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* 플랜 타입 뱃지 */}
+                          {planType && (
+                            <span className={cn(
+                              "inline-block rounded-full border px-1.5 py-[1px] text-[10px] font-bold",
+                              PLAN_TYPE_COLORS[planType]
+                            )}>
+                              {PLAN_TYPE_LABELS[planType]}
+                            </span>
+                          )}
                           <span className="font-semibold text-foreground">{m.plan_name}</span>
                           {remaining != null && remaining <= 7 && (
                             <span className="text-xs rounded-full bg-warning/10 text-warning px-2 py-0.5 font-medium">
@@ -343,7 +465,30 @@ export default function MemberDetailPage() {
                         {m.price != null && (
                           <p className="text-xs text-muted-foreground">
                             {Number(m.price).toLocaleString("ko-KR")}원
+                            {hasSessions && m.max_sessions! > 0 && m.price! > 0 && (
+                              <span className="ml-1">
+                                · 회당 {Math.round(Number(m.price) / m.max_sessions!).toLocaleString("ko-KR")}원
+                              </span>
+                            )}
                           </p>
+                        )}
+                        {/* 횟수 사용 현황 */}
+                        {hasSessions && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-primary"
+                                style={{
+                                  width: `${m.max_sessions! > 0
+                                    ? Math.min(100, ((m.used_sessions ?? 0) / m.max_sessions!) * 100)
+                                    : 0}%`
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {m.used_sessions ?? 0}/{m.max_sessions}회
+                            </span>
+                          </div>
                         )}
                         {/* 환불 정보 */}
                         {m.refund_amount != null && (
@@ -361,9 +506,17 @@ export default function MemberDetailPage() {
 
                     {/* 이용권 액션 버튼들 */}
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {/* 활성 이용권: 홀딩 + 환불 + 취소 */}
+                      {/* 활성 이용권: 연장 + 홀딩 + 환불 + 취소 */}
                       {m.status === "active" && (
                         <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setExtendTarget(m); setOpenNewMembership(true); }}
+                            className="gap-1 text-primary border-primary/30 hover:bg-primary/10"
+                          >
+                            <RefreshCw className="size-3" /> 연장
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -418,7 +571,7 @@ export default function MemberDetailPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setOpenNewMembership(true)}
+                          onClick={() => { setExtendTarget(null); setOpenNewMembership(true); }}
                           className="gap-1 text-primary border-primary/30 hover:bg-primary/10"
                         >
                           <RotateCcw className="size-3" /> 재등록
@@ -483,7 +636,12 @@ export default function MemberDetailPage() {
 
       {/* ── 다이얼로그들 ── */}
       <LinkRankingAppDialog open={openLinkRanking} onClose={() => setOpenLinkRanking(false)} member={member} />
-      <NewMembershipDialog open={openNewMembership} onClose={() => setOpenNewMembership(false)} member={member} />
+      <NewMembershipDialog
+        open={openNewMembership}
+        onClose={() => { setOpenNewMembership(false); setExtendTarget(null); }}
+        member={member}
+        activeMembership={extendTarget}
+      />
       <NewTrialPassDialog open={openNewTrial} onClose={() => setOpenNewTrial(false)} member={member} />
 
       {/* 홀딩 시작 */}
