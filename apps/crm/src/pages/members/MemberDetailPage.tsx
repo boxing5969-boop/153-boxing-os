@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Plus, Pause, X as Cancel, Receipt,
+  ArrowLeft, Plus, Pause, Play, X as Cancel, Receipt,
   Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -16,6 +17,9 @@ import {
 } from "@/components/memberships/MembershipStatusBadge";
 import { NewMembershipDialog } from "@/components/memberships/NewMembershipDialog";
 import { NewTrialPassDialog } from "@/components/memberships/NewTrialPassDialog";
+import { HoldMembershipDialog } from "@/components/memberships/HoldMembershipDialog";
+import { ResumeMembershipDialog } from "@/components/memberships/ResumeMembershipDialog";
+import { RefundMembershipDialog } from "@/components/memberships/RefundMembershipDialog";
 import { ConsentManagementCard } from "@/components/consent/ConsentManagementCard";
 import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog";
 import { getMember, getMemberRelated } from "@/services/members";
@@ -26,8 +30,9 @@ import { formatDate, formatDateTime, formatPhone, daysUntil } from "@/lib/format
 import { cn } from "@/lib/cn";
 import { DENIED_REASON_LABELS, type Member, type Membership, type TrialPass } from "@153/shared";
 
-type MembershipAction = "pause" | "cancel" | "refund";
-interface PendingAction { type: MembershipAction; membership: Membership; }
+// 이용권 액션 타입 — hold/resume/refund 는 별도 다이얼로그로 처리
+type SimpleAction = "cancel";
+interface PendingSimpleAction { type: SimpleAction; membership: Membership; }
 
 const AVATAR_COLORS = [
   "bg-primary/20 text-primary",
@@ -45,12 +50,6 @@ function getInitials(name: string) {
 }
 function genderLabel(g: string | null) {
   return g === "male" ? "남" : g === "female" ? "여" : g === "other" ? "기타" : "—";
-}
-function actionTitle(a: MembershipAction) {
-  return a === "pause" ? "이용권 정지" : a === "refund" ? "이용권 환불" : "이용권 취소";
-}
-function actionWord(a: MembershipAction) {
-  return a === "pause" ? "정지" : a === "refund" ? "환불" : "취소";
 }
 
 interface AccessCheck { allowed: boolean; reason?: string; }
@@ -87,26 +86,41 @@ export default function MemberDetailPage() {
     staleTime: 30_000,
   });
 
+  // 다이얼로그 상태
   const [openNewMembership, setOpenNewMembership] = useState(false);
   const [openNewTrial, setOpenNewTrial] = useState(false);
   const [openLinkRanking, setOpenLinkRanking] = useState(false);
-  const [pending, setPending] = useState<PendingAction | null>(null);
+
+  // 이용권 액션 다이얼로그
+  const [holdTarget, setHoldTarget] = useState<Membership | null>(null);
+  const [resumeTarget, setResumeTarget] = useState<Membership | null>(null);
+  const [refundTarget, setRefundTarget] = useState<Membership | null>(null);
+  const [pendingCancel, setPendingCancel] = useState<PendingSimpleAction | null>(null);
+
   const [trialToCancel, setTrialToCancel] = useState<TrialPass | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const membershipActionMutation = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: MembershipAction }) => {
-      if (action === "pause") return updateMembershipState(id, { status: "paused" });
-      if (action === "cancel") return updateMembershipState(id, { status: "canceled" });
-      return updateMembershipState(id, { status: "canceled", payment_status: "refunded" });
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => updateMembershipState(id, { status: "canceled" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["member-related", memberId] });
+      void qc.invalidateQueries({ queryKey: ["memberships"] });
+      void qc.invalidateQueries({ queryKey: ["access-preview", memberId] });
+      setPendingCancel(null);
+      setActionError(null);
     },
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["memberships"] }); void qc.invalidateQueries({ queryKey: ["access-preview", memberId] }); setPending(null); setActionError(null); },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
   });
 
   const trialCancelMutation = useMutation({
     mutationFn: cancelTrialPass,
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["member-related", memberId] }); void qc.invalidateQueries({ queryKey: ["trialPasses"] }); void qc.invalidateQueries({ queryKey: ["access-preview", memberId] }); setTrialToCancel(null); setActionError(null); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["member-related", memberId] });
+      void qc.invalidateQueries({ queryKey: ["trialPasses"] });
+      void qc.invalidateQueries({ queryKey: ["access-preview", memberId] });
+      setTrialToCancel(null);
+      setActionError(null);
+    },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
   });
 
@@ -191,7 +205,7 @@ export default function MemberDetailPage() {
             </div>
           </div>
 
-          {/* 출입 가능 여부 — 서버 access preview 우선, 응답 전엔 fallback */}
+          {/* 출입 가능 여부 */}
           <div className={cn(
             "flex flex-col items-stretch gap-1.5 rounded-xl px-4 py-2.5 shrink-0 min-w-[180px]",
             accessAllowed ? "bg-success/10" : "bg-danger/10"
@@ -291,46 +305,126 @@ export default function MemberDetailPage() {
         </CardHeader>
         <CardContent className="p-0">
           {memberships.length === 0 ? (
-            <div className="px-5 py-10 text-center">
+            <div className="px-5 py-10 text-center space-y-3">
               <p className="text-sm text-muted-foreground">이용권 이력이 없습니다</p>
+              <Button size="sm" variant="outline" onClick={() => setOpenNewMembership(true)} className="gap-1.5">
+                <Plus className="size-3.5" />
+                첫 이용권 등록
+              </Button>
             </div>
           ) : (
             <ul className="divide-y divide-border">
               {memberships.map((m) => {
                 const remaining = m.status === "active" ? daysUntil(m.end_date) : null;
+                const isHolding = m.status === "paused";
+                const canReRegister = ["expired", "canceled"].includes(m.status);
+
                 return (
-                  <li key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-foreground">{m.plan_name}</span>
-                        {remaining != null && remaining <= 7 && (
-                          <span className="text-xs rounded-full bg-warning/10 text-warning px-2 py-0.5 font-medium">
-                            D-{remaining}
-                          </span>
+                  <li key={m.id} className="px-5 py-4 space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-foreground">{m.plan_name}</span>
+                          {remaining != null && remaining <= 7 && (
+                            <span className="text-xs rounded-full bg-warning/10 text-warning px-2 py-0.5 font-medium">
+                              D-{remaining}
+                            </span>
+                          )}
+                          {isHolding && (
+                            <span className="text-xs rounded-full bg-warning/20 text-warning px-2 py-0.5 font-medium">
+                              홀딩 중{m.hold_start ? ` (${m.hold_start}~)` : ""}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 tabular">
+                          {formatDate(m.start_date)} ~ {formatDate(m.end_date)}
+                          {remaining != null && <span className="ml-2">({remaining}일 남음)</span>}
+                        </p>
+                        {m.price != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {Number(m.price).toLocaleString("ko-KR")}원
+                          </p>
+                        )}
+                        {/* 환불 정보 */}
+                        {m.refund_amount != null && (
+                          <p className="text-xs text-danger mt-0.5">
+                            환불: {Number(m.refund_amount).toLocaleString("ko-KR")}원
+                            {m.refund_reason && <span className="ml-1 text-muted-foreground">({m.refund_reason})</span>}
+                          </p>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 tabular">
-                        {formatDate(m.start_date)} ~ {formatDate(m.end_date)}
-                        {remaining != null && <span className="ml-2">({remaining}일 남음)</span>}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MembershipStatusBadge status={m.status} />
-                      <PaymentStatusBadge status={m.payment_status} />
-                    </div>
-                    {m.status === "active" && (
-                      <div className="flex items-center gap-1">
-                        <Button size="sm" variant="outline" onClick={() => setPending({ type: "pause", membership: m })} className="gap-1">
-                          <Pause className="size-3" /> 정지
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setPending({ type: "refund", membership: m })} className="gap-1">
-                          <Receipt className="size-3" /> 환불
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => setPending({ type: "cancel", membership: m })} className="gap-1">
-                          <Cancel className="size-3" /> 취소
-                        </Button>
+                      <div className="flex items-center gap-2">
+                        <MembershipStatusBadge status={m.status} />
+                        <PaymentStatusBadge status={m.payment_status} />
                       </div>
-                    )}
+                    </div>
+
+                    {/* 이용권 액션 버튼들 */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {/* 활성 이용권: 홀딩 + 환불 + 취소 */}
+                      {m.status === "active" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setHoldTarget(m)}
+                            className="gap-1 text-warning border-warning/30 hover:bg-warning/10"
+                          >
+                            <Pause className="size-3" /> 홀딩
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setRefundTarget(m)}
+                            className="gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                          >
+                            <Receipt className="size-3" /> 환불
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setPendingCancel({ type: "cancel", membership: m })}
+                            className="gap-1"
+                          >
+                            <Cancel className="size-3" /> 취소
+                          </Button>
+                        </>
+                      )}
+
+                      {/* 홀딩 중 이용권: 홀딩 해제 + 환불 */}
+                      {isHolding && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setResumeTarget(m)}
+                            className="gap-1 text-primary border-primary/30 hover:bg-primary/10"
+                          >
+                            <Play className="size-3" /> 홀딩 해제
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setRefundTarget(m)}
+                            className="gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                          >
+                            <Receipt className="size-3" /> 환불
+                          </Button>
+                        </>
+                      )}
+
+                      {/* 만료/취소 이용권: 재등록 */}
+                      {canReRegister && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setOpenNewMembership(true)}
+                          className="gap-1 text-primary border-primary/30 hover:bg-primary/10"
+                        >
+                          <RotateCcw className="size-3" /> 재등록
+                        </Button>
+                      )}
+                    </div>
                   </li>
                 );
               })}
@@ -387,26 +481,63 @@ export default function MemberDetailPage() {
       {/* 동의 관리 */}
       <ConsentManagementCard memberId={member.id} />
 
-      {/* 다이얼로그들 */}
+      {/* ── 다이얼로그들 ── */}
       <LinkRankingAppDialog open={openLinkRanking} onClose={() => setOpenLinkRanking(false)} member={member} />
       <NewMembershipDialog open={openNewMembership} onClose={() => setOpenNewMembership(false)} member={member} />
       <NewTrialPassDialog open={openNewTrial} onClose={() => setOpenNewTrial(false)} member={member} />
 
+      {/* 홀딩 시작 */}
+      {holdTarget && (
+        <HoldMembershipDialog
+          open={!!holdTarget}
+          onClose={() => setHoldTarget(null)}
+          membership={holdTarget}
+          memberId={memberId}
+        />
+      )}
+
+      {/* 홀딩 해제 */}
+      {resumeTarget && (
+        <ResumeMembershipDialog
+          open={!!resumeTarget}
+          onClose={() => setResumeTarget(null)}
+          membership={resumeTarget}
+          memberId={memberId}
+        />
+      )}
+
+      {/* 환불 */}
+      {refundTarget && (
+        <RefundMembershipDialog
+          open={!!refundTarget}
+          onClose={() => setRefundTarget(null)}
+          membership={refundTarget}
+          memberId={memberId}
+        />
+      )}
+
+      {/* 취소 확인 */}
       <ConfirmDialog
-        open={!!pending}
-        onClose={() => { if (!membershipActionMutation.isPending) setPending(null); }}
-        title={pending ? actionTitle(pending.type) : ""}
-        description={pending ? <span><strong>{pending.membership.plan_name}</strong> 이용권을 <strong>{actionWord(pending.type)}</strong> 처리합니다. 계속할까요?</span> : ""}
-        confirmLabel={pending ? actionWord(pending.type) : "확인"}
-        variant={pending?.type === "cancel" ? "destructive" : "default"}
-        onConfirm={() => { if (pending) membershipActionMutation.mutate({ id: pending.membership.id, action: pending.type }); }}
-        pending={membershipActionMutation.isPending}
+        open={!!pendingCancel}
+        onClose={() => { if (!cancelMutation.isPending) setPendingCancel(null); }}
+        title="이용권 취소"
+        description={pendingCancel
+          ? <span><strong>{pendingCancel.membership.plan_name}</strong> 이용권을 <strong>취소</strong> 처리합니다. 계속할까요?</span>
+          : ""}
+        confirmLabel="취소"
+        variant="destructive"
+        onConfirm={() => { if (pendingCancel) cancelMutation.mutate(pendingCancel.membership.id); }}
+        pending={cancelMutation.isPending}
       />
+
+      {/* 체험권 취소 확인 */}
       <ConfirmDialog
         open={!!trialToCancel}
         onClose={() => { if (!trialCancelMutation.isPending) setTrialToCancel(null); }}
         title="체험권 취소"
-        description={trialToCancel ? <span>{formatDateTime(trialToCancel.start_at)} 발급 체험권을 취소합니다. 계속할까요?</span> : ""}
+        description={trialToCancel
+          ? <span>{formatDateTime(trialToCancel.start_at)} 발급 체험권을 취소합니다. 계속할까요?</span>
+          : ""}
         confirmLabel="취소"
         variant="destructive"
         onConfirm={() => { if (trialToCancel) trialCancelMutation.mutate(trialToCancel.id); }}

@@ -1,11 +1,11 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { createMembership } from "@/services/memberships";
+import { listBranchPlanPresets } from "@/services/branchPlanPresets";
 import { cn } from "@/lib/cn";
 import type { Member, PaymentStatus } from "@153/shared";
 
@@ -14,20 +14,6 @@ interface Props {
   onClose: () => void;
   member: Member;
 }
-
-interface PlanPreset {
-  name: string;
-  days: number;
-  price: number;
-  tag?: string;
-}
-
-const PRESETS: PlanPreset[] = [
-  { name: "월간권", days: 30,  price: 150_000 },
-  { name: "분기권", days: 90,  price: 400_000, tag: "인기" },
-  { name: "반기권", days: 180, price: 720_000 },
-  { name: "연간권", days: 365, price: 1_300_000, tag: "Best" },
-];
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function addDays(iso: string, days: number) {
@@ -47,29 +33,49 @@ const PAYMENT_OPTIONS: { value: PaymentStatus; label: string; color: string }[] 
 
 export function NewMembershipDialog({ open, onClose, member }: Props) {
   const qc = useQueryClient();
-  const [selectedPreset, setSelectedPreset] = useState(0);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [customName, setCustomName] = useState("");
-  const [days, setDays] = useState(PRESETS[0]?.days ?? 30);
-  const [price, setPrice] = useState(PRESETS[0]?.price ?? 0);
+  const [days, setDays] = useState(30);
+  const [price, setPrice] = useState(0);
   const [startDate, setStartDate] = useState(todayIso());
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("paid");
   const [isCustom, setIsCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const endDate = useMemo(() => addDays(startDate, days), [startDate, days]);
-  const planName = isCustom ? customName : (PRESETS[selectedPreset]?.name ?? "");
+  // 지점 플랜 프리셋 로드
+  const presetsQ = useQuery({
+    queryKey: ["branch-plan-presets-active", member.branch_id],
+    queryFn: () => listBranchPlanPresets(member.branch_id, false),
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const presets = presetsQ.data ?? [];
 
+  const endDate = useMemo(() => addDays(startDate, days), [startDate, days]);
+  const planName = isCustom ? customName : (presets.find((p) => p.id === selectedPresetId)?.name ?? "");
+
+  // 다이얼로그 열릴 때 초기화
   useEffect(() => {
     if (!open) return;
-    setSelectedPreset(0);
     setCustomName("");
-    setDays(PRESETS[0]?.days ?? 30);
-    setPrice(PRESETS[0]?.price ?? 0);
+    setDays(30);
+    setPrice(0);
     setStartDate(todayIso());
     setPaymentStatus("paid");
     setIsCustom(false);
     setError(null);
+    setSelectedPresetId(null);
   }, [open]);
+
+  // 프리셋 로드 완료 시 첫 번째 선택
+  useEffect(() => {
+    if (open && presets.length > 0 && !selectedPresetId && !isCustom) {
+      const first = presets[0]!;
+      setSelectedPresetId(first.id);
+      setDays(first.days);
+      setPrice(Number(first.price));
+    }
+  }, [open, presets, selectedPresetId, isCustom]);
 
   const mutation = useMutation({
     mutationFn: createMembership,
@@ -83,11 +89,18 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
     onError: (err) => setError(err instanceof Error ? err.message : "등록 실패"),
   });
 
-  function handlePresetSelect(idx: number) {
-    setSelectedPreset(idx);
+  function handlePresetSelect(id: string) {
+    const p = presets.find((x) => x.id === id);
+    if (!p) return;
+    setSelectedPresetId(id);
     setIsCustom(false);
-    setDays(PRESETS[idx]?.days ?? 30);
-    setPrice(PRESETS[idx]?.price ?? 0);
+    setDays(p.days);
+    setPrice(Number(p.price));
+  }
+
+  function handleCustomSelect() {
+    setIsCustom(true);
+    setSelectedPresetId(null);
   }
 
   function handleSubmit(e: FormEvent) {
@@ -106,9 +119,9 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title={`이용권 등록`}>
+    <Dialog open={open} onClose={onClose} title="이용권 등록">
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* 회원 정보 표시 */}
+        {/* 회원 정보 */}
         <div className="flex items-center gap-2.5 rounded-lg bg-muted/60 px-3 py-2.5">
           <div className="flex size-7 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">
             {member.name[0]}
@@ -120,35 +133,51 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
         {/* 플랜 카드 선택 */}
         <div>
           <Label className="mb-2 block">플랜 선택</Label>
-          <div className="grid grid-cols-2 gap-2">
-            {PRESETS.map((p, idx) => (
-              <button
-                key={p.name}
-                type="button"
-                onClick={() => handlePresetSelect(idx)}
-                className={cn(
-                  "relative flex flex-col items-start gap-0.5 rounded-xl border p-3 text-left transition-all",
-                  !isCustom && selectedPreset === idx
-                    ? "border-primary bg-primary/5 shadow-sm"
-                    : "border-border bg-card hover:border-primary/40"
-                )}
-              >
-                {p.tag && (
-                  <span className="absolute right-2 top-2 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
-                    {p.tag}
-                  </span>
-                )}
-                <span className="text-sm font-semibold text-foreground">{p.name}</span>
-                <span className="text-xs text-muted-foreground">{p.days}일</span>
-                <span className="mt-1 text-sm font-bold text-primary">{formatPrice(p.price)}</span>
-              </button>
-            ))}
-          </div>
+
+          {presetsQ.isLoading && (
+            <div className="grid grid-cols-2 gap-2">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-20 rounded-xl bg-muted animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {!presetsQ.isLoading && presets.length === 0 && !isCustom && (
+            <div className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
+              등록된 플랜이 없습니다. 직접 입력하거나{" "}
+              <span className="text-primary font-semibold">지점 설정</span>에서 플랜을 추가하세요.
+            </div>
+          )}
+
+          {!presetsQ.isLoading && presets.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handlePresetSelect(p.id)}
+                  className={cn(
+                    "relative flex flex-col items-start gap-0.5 rounded-xl border p-3 text-left transition-all",
+                    !isCustom && selectedPresetId === p.id
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card hover:border-primary/40"
+                  )}
+                >
+                  <span className="text-sm font-semibold text-foreground">{p.name}</span>
+                  <span className="text-xs text-muted-foreground">{p.days}일</span>
+                  <span className="mt-1 text-sm font-bold text-primary">{formatPrice(Number(p.price))}</span>
+                  {p.description && (
+                    <span className="text-[11px] text-muted-foreground truncate w-full">{p.description}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* 직접 입력 */}
           <button
             type="button"
-            onClick={() => setIsCustom(true)}
+            onClick={handleCustomSelect}
             className={cn(
               "mt-2 w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-all",
               isCustom
@@ -206,7 +235,7 @@ export function NewMembershipDialog({ open, onClose, member }: Props) {
               step={10000}
               value={price}
               onChange={(e) => { const v = Number(e.target.value); if (!Number.isNaN(v)) setPrice(v); }}
-              className="pr-14"
+              className="pr-8"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">원</span>
           </div>

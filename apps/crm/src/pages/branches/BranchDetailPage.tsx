@@ -16,6 +16,7 @@ import MemberStatusBadge from "@/components/members/MemberStatusBadge";
 import { cn } from "@/lib/cn";
 import BranchFormDialog from "@/components/branches/BranchFormDialog";
 import BranchKakaoSettingsCard from "@/components/branches/BranchKakaoSettingsCard";
+import { BranchPlanPresetsCard } from "@/components/branches/BranchPlanPresetsCard";
 import type { MemberStatus } from "@153/shared";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -264,6 +265,9 @@ export default function BranchDetailPage() {
           </div>
         </div>
       </Card>
+
+      {/* 이용권 플랜 설정 */}
+      <BranchPlanPresetsCard branchId={b.id} />
 
       {/* Kakao AlimTalk Settings */}
       <BranchKakaoSettingsCard

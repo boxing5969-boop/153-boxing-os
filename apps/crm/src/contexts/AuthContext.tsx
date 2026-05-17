@@ -32,7 +32,10 @@ interface AuthState {
 const AuthCtx = createContext<AuthState | null>(null);
 
 const FETCH_TIMEOUT_MS = 8000;
-const RETRY_DELAYS_MS = [400, 1200];
+// error: 400ms → 1200ms 재시도 (PostgREST 일시 오류, GRANT 미적용 등)
+const ERROR_RETRY_DELAYS_MS = [400, 1200];
+// missing: 600ms 후 1회 재시도 (신규 가입 직후 profile row 전파 지연 대응)
+const MISSING_RETRY_DELAY_MS = 600;
 
 async function fetchProfileOnce(userId: string): Promise<FetchOutcome> {
   try {
@@ -59,15 +62,29 @@ function delay(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
-// missing/loaded 는 바로 확정. error 만 짧게 재시도 후 최종 판정.
+// loaded  → 즉시 확정
+// missing → 600ms 후 1회 재시도 (신규 가입 직후 row 전파 지연 대응)
+// error   → 400ms, 1200ms 재시도 후 최종 판정
 async function fetchProfileWithRetry(
   userId: string,
   isCanceled: () => boolean,
 ): Promise<FetchOutcome> {
   let last: FetchOutcome = await fetchProfileOnce(userId);
-  if (last.kind !== "error") return last;
 
-  for (const wait of RETRY_DELAYS_MS) {
+  if (last.kind === "loaded") return last;
+
+  // missing: 1회만 재시도
+  if (last.kind === "missing") {
+    if (isCanceled()) return last;
+    await delay(MISSING_RETRY_DELAY_MS);
+    if (isCanceled()) return last;
+    last = await fetchProfileOnce(userId);
+    if (last.kind !== "error") return last;
+    // missing 재시도 후 error 가 됐으면 아래 error 재시도로 계속
+  }
+
+  // error: 최대 2회 재시도
+  for (const wait of ERROR_RETRY_DELAYS_MS) {
     if (isCanceled()) return last;
     await delay(wait);
     if (isCanceled()) return last;

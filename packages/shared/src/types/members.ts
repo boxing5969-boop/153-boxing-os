@@ -35,6 +35,17 @@ export interface Membership {
   payment_status: PaymentStatus;
   status: MembershipStatus;
   price?: number | null;
+  currency?: string;
+  // 홀딩 관련
+  hold_start?: string | null;        // 현재 홀딩 시작일
+  hold_end?: string | null;          // 현재 홀딩 예정 종료일
+  total_held_days?: number | null;   // 누적 홀딩 일수
+  // 환불 관련
+  refund_amount?: number | null;
+  refund_reason?: string | null;
+  refunded_at?: string | null;
+  // 메모
+  notes?: string | null;
   created_at: string;
   updated_at: string;
 }

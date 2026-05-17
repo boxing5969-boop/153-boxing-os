@@ -91,3 +91,60 @@ export async function updateMembershipState(
   if (error) throw error;
   return data as unknown as Membership;
 }
+
+// ── 홀딩 시작
+export interface StartHoldInput {
+  membership_id: string;
+  hold_start: string;   // YYYY-MM-DD
+  hold_end?: string;    // YYYY-MM-DD (없으면 무기한)
+  reason?: string;
+}
+
+export async function startMembershipHold(input: StartHoldInput): Promise<{ hold_id: string }> {
+  const { data, error } = await supabase.rpc("start_membership_hold", {
+    _membership_id: input.membership_id,
+    _hold_start:    input.hold_start,
+    _hold_end:      input.hold_end ?? null,
+    _reason:        input.reason ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { hold_id: string };
+}
+
+// ── 홀딩 해제 (재개)
+export async function resumeMembershipHold(
+  membershipId: string,
+  resumeDate?: string
+): Promise<{ days_held: number; new_end_date: string }> {
+  const { data, error } = await supabase.rpc("resume_membership_hold", {
+    _membership_id: membershipId,
+    _resume_date:   resumeDate ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { days_held: number; new_end_date: string };
+}
+
+// ── 환불 처리
+export interface RefundMembershipInput {
+  membership_id: string;
+  refund_amount?: number;
+  refund_reason?: string;
+}
+
+export async function refundMembership(input: RefundMembershipInput): Promise<void> {
+  const { error } = await supabase.rpc("refund_membership", {
+    _membership_id: input.membership_id,
+    _refund_amount: input.refund_amount ?? null,
+    _refund_reason: input.refund_reason ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ── 메모 저장
+export async function saveMembershipNotes(id: string, notes: string): Promise<void> {
+  const { error } = await supabase
+    .from("memberships")
+    .update({ notes })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
