@@ -12,6 +12,7 @@ import {
   type NotificationTarget,
 } from "./kakaoNotifier";
 
+
 const MAX_RETRIES = 5;
 
 interface PendingJob {
@@ -302,16 +303,20 @@ export async function runDailyNotifications(env: Env): Promise<void> {
 
   if (targets.length === 0) return;
 
-  const report = await runExpiryNotifications(db, env, targets);
+  const { report, results } = await runExpiryNotifications(db, env, targets);
   console.log("[alimtalk] result:", report);
 
-  for (const target of targets) {
+  // 발송 결과별 정확한 상태 기록 (성공 → sent, 실패 → failed)
+  for (const { target, result } of results) {
+    const status = result.success ? "sent" : "failed";
+    const errorMsg = result.success ? null : (result.error ?? null);
     await db.rpc("record_expiry_notification", {
-      _member_id: target.member_id,
-      _membership_id: target.membership_id,
+      _member_id:         target.member_id,
+      _membership_id:     target.membership_id,
       _notification_type: target.notification_type,
-      _status: "sent",
-      _error_message: null,
+      _status:            status,
+      _error_message:     errorMsg,
+      _recipient_phone:   target.member_phone ?? null,
     }).then(({ error: recErr }: { error: unknown }) => {
       if (recErr) console.error("[alimtalk] record failed:", recErr);
     });

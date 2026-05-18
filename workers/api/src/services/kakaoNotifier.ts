@@ -4,6 +4,8 @@
  * Each branch has its own Solapi account and Kakao channel.
  * Credentials are stored encrypted in branches table.
  * The HQ fallback (env vars) is used only if branch has no credentials.
+ *
+ * 발송 대상: 회원 본인 번호 (마케팅 동의 회원만 DB RPC에서 필터)
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -20,7 +22,7 @@ export interface NotificationTarget {
   notification_type: string;
   branch_id: string;
   branch_name: string;
-  owner_phone: string | null;
+  member_phone: string | null; // 회원 본인 번호
 }
 
 export interface SendResult {
@@ -102,15 +104,18 @@ export async function sendExpiryNotification(
     return { success: false, error: `Kakao not configured for branch: ${target.branch_name}` };
   }
 
-  if (!target.owner_phone) {
-    return { success: false, error: "No owner phone for branch: " + target.branch_name };
+  // 회원 본인 번호로 발송
+  if (!target.member_phone) {
+    return { success: false, error: `회원 번호 없음: ${target.member_name}` };
   }
-  const ownerPhone = target.owner_phone.replace(/\D/g, "");
-  if (ownerPhone.length < 9) return { success: false, error: "Invalid phone: " + target.owner_phone };
+  const recipientPhone = target.member_phone.replace(/\D/g, "");
+  if (recipientPhone.length < 9) {
+    return { success: false, error: `유효하지 않은 번호: ${target.member_phone}` };
+  }
 
   const body = {
     message: {
-      to: ownerPhone,
+      to: recipientPhone,
       from: config.senderPhone,
       kakaoOptions: {
         pfId: config.pfId,
@@ -147,25 +152,38 @@ export interface ExpiryNotificationReport {
   total: number; sent: number; failed: number; skipped: number;
 }
 
+export interface TargetResult {
+  target: NotificationTarget;
+  result: SendResult;
+}
+
 export async function runExpiryNotifications(
   db: SupabaseClient,
   env: Env,
   targets: NotificationTarget[]
-): Promise<ExpiryNotificationReport> {
-  if (targets.length === 0) return { total: 0, sent: 0, failed: 0, skipped: 0 };
+): Promise<{ report: ExpiryNotificationReport; results: TargetResult[] }> {
+  if (targets.length === 0) {
+    return { report: { total: 0, sent: 0, failed: 0, skipped: 0 }, results: [] };
+  }
+
   let sent = 0; let failed = 0; let skipped = 0;
+  const results: TargetResult[] = [];
+
   for (const target of targets) {
     const result = await sendExpiryNotification(db, env, target);
+    results.push({ target, result });
+
     if (result.success) {
       sent++;
-      console.log(`[alimtalk] sent -> ${target.branch_name} / ${target.member_name} (${target.notification_type})`);
+      console.log(`[alimtalk] sent → ${target.member_name} (${target.member_phone}) / ${target.notification_type}`);
     } else if (result.error?.includes("not configured")) {
       skipped++;
-      console.log(`[alimtalk] skip -> ${target.branch_name}: ${result.error}`);
+      console.log(`[alimtalk] skip → ${target.branch_name}: ${result.error}`);
     } else {
       failed++;
-      console.error(`[alimtalk] fail -> ${target.member_name}: ${result.error}`);
+      console.error(`[alimtalk] fail → ${target.member_name}: ${result.error}`);
     }
   }
-  return { total: targets.length, sent, failed, skipped };
+
+  return { report: { total: targets.length, sent, failed, skipped }, results };
 }
