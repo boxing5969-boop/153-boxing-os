@@ -127,7 +127,7 @@ export default function HrStaffListPage() {
           </div>
           <div className="flex gap-1.5">
             {[["active", "재직중"], ["inactive", "휴직"], ["resigned", "퇴사"], ["all", "전체"]].map(([val, lbl]) => (
-              <button key={val} onClick={() => setStatusFilter(val)}
+              <button key={val} onClick={() => setStatusFilter(val ?? "")}
                 className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                   statusFilter === val ? "bg-brand text-white" : "bg-muted text-muted-foreground hover:bg-muted/70")}>
                 {lbl}
