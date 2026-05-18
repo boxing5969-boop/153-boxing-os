@@ -10,6 +10,8 @@ import {
   sendMemberNotification,
   runBulkNotification,
 } from "../services/manualNotifier";
+import { dispatchMessage, dispatchToGroup, type NotifyChannel } from "../services/messageDispatcher";
+import { getServiceClient as _getServiceClient } from "../lib/supabase";
 
 export const adminRoutes = new Hono<{ Bindings: Env }>();
 
@@ -220,4 +222,139 @@ adminRoutes.post("/notify/bulk", requireJwt, async (c) => {
   } catch (err) {
     return fail(c, "SEND_ERROR", err instanceof Error ? err.message : "발송 오류", 500);
   }
+});
+
+// ── 채널 선택 포함 회원 개별 발송 ────────────────────────────
+const memberSendSchema = z.object({
+  channel: z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
+  content: z.string().optional(),
+});
+
+adminRoutes.post("/members/:id/send", requireJwt, async (c) => {
+  const memberId = c.req.param("id");
+  const parsed = memberSendSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db.from("profiles").select("role").eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+
+  // 회원 정보 조회
+  const { data: memberRaw } = await db.from("members")
+    .select("id,name,phone,branch_id,branches!inner(name)")
+    .eq("id", memberId).maybeSingle();
+  type MemberRow = { id: string; name: string; phone: string | null; branch_id: string; branches: { name: string } };
+  const member = memberRaw as MemberRow | null;
+  if (!member) return fail(c, "NOT_FOUND", "회원을 찾을 수 없습니다", 404);
+  if (!member.phone) return fail(c, "NO_PHONE", "전화번호가 없습니다", 400);
+
+  // 마케팅 동의 확인
+  const { data: consentRaw } = await db.from("consent_records")
+    .select("id").eq("member_id", memberId).eq("consent_type", "marketing")
+    .eq("agreed", true).is("revoked_at", null).maybeSingle();
+  if (!consentRaw) return fail(c, "NO_CONSENT", "마케팅 수신 동의를 받지 않은 회원입니다", 400);
+
+  // 활성 이용권 조회
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: msRaw } = await db.from("memberships")
+    .select("id,plan_name,end_date")
+    .eq("member_id", memberId).eq("status", "active")
+    .in("payment_status", ["paid", "partial"])
+    .gte("end_date", today).order("end_date").limit(1).maybeSingle();
+  type MsRow = { id: string; plan_name: string; end_date: string };
+  const ms = msRaw as MsRow | null;
+
+  const daysLeft = ms ? Math.max(0, Math.floor(
+    (new Date(ms.end_date).getTime() - new Date(today).getTime()) / 86400000
+  )) : 0;
+  const notifType = daysLeft <= 1 ? "expiry_d1" : daysLeft <= 3 ? "expiry_d3" : "expiry_d7";
+
+  const defaultContent = `[#{지점명}] #{회원명}님, 이용권이 #{남은일수}일 후(#{만료일}) 만료됩니다.`;
+  const content = parsed.data.content ?? defaultContent;
+
+  const result = await dispatchMessage(db, c.env, {
+    member_id: member.id, membership_id: ms?.id,
+    member_name: member.name, plan_name: ms?.plan_name,
+    end_date: ms?.end_date, days_left: daysLeft,
+    branch_id: member.branch_id, branch_name: member.branches.name,
+    member_phone: member.phone, notification_type: notifType,
+  }, parsed.data.channel as NotifyChannel, content);
+
+  if (!result.overall_success) {
+    const errMsg = result.sms?.error ?? result.kakao?.error ?? "발송 실패";
+    return fail(c, "SEND_FAILED", errMsg, 400);
+  }
+  return ok(c, result, `${member.name}님께 발송했습니다`);
+});
+
+// ── 채널 선택 포함 그룹 발송 ──────────────────────────────
+const bulkMsgSchema = z.object({
+  days_ahead: z.number().int().min(1).max(90),
+  channel: z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
+  content: z.string().min(1),
+  branch_id: z.string().uuid().optional(),
+  dry_run: z.boolean().default(false),
+});
+
+adminRoutes.post("/notify/bulk-msg", requireJwt, async (c) => {
+  const parsed = bulkMsgSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db.from("profiles").select("role").eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+
+  const { data: rows } = await db.rpc("get_bulk_notification_targets", {
+    _days_ahead: parsed.data.days_ahead, _branch_id: parsed.data.branch_id ?? null,
+  });
+  const targets = ((rows ?? []) as Array<{
+    member_id: string; membership_id: string; member_name: string; plan_name: string;
+    end_date: string; days_left: number; branch_id: string; branch_name: string; member_phone: string;
+  }>).map(r => ({
+    member_id: r.member_id, membership_id: r.membership_id,
+    member_name: r.member_name, plan_name: r.plan_name,
+    end_date: r.end_date, days_left: r.days_left,
+    branch_id: r.branch_id, branch_name: r.branch_name,
+    member_phone: r.member_phone,
+  }));
+
+  if (parsed.data.dry_run) return ok(c, { targets_count: targets.length }, `발송 예정: ${targets.length}명`);
+
+  const report = await dispatchToGroup(db, c.env, targets, parsed.data.channel as NotifyChannel, parsed.data.content);
+  return ok(c, { targets_count: targets.length, report }, `발송 완료: 성공 ${report.success}건`);
+});
+
+// ── 지점 알림 설정 저장 ───────────────────────────────────
+const notifySettingsSchema = z.object({
+  notify_channel:  z.enum(["sms","kakao","both","kakao_sms_fallback"]).optional(),
+  notify_triggers: z.array(z.string()).optional(),
+  sms_sender_phone: z.string().optional(),
+});
+
+adminRoutes.put("/branches/:id/notify-settings", requireJwt, async (c) => {
+  const branchId = c.req.param("id");
+  const parsed = notifySettingsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db.from("profiles").select("role,branch_id").eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string; branch_id: string | null } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+  if ((profile.role === "branch_owner" || profile.role === "branch_admin") && profile.branch_id !== branchId) {
+    return fail(c, "PERMISSION_DENIED", "다른 지점 설정을 변경할 수 없습니다", 403);
+  }
+
+  const { error } = await db.from("branches").update({
+    ...(parsed.data.notify_channel   !== undefined && { notify_channel:   parsed.data.notify_channel }),
+    ...(parsed.data.notify_triggers  !== undefined && { notify_triggers:  parsed.data.notify_triggers }),
+    ...(parsed.data.sms_sender_phone !== undefined && { sms_sender_phone: parsed.data.sms_sender_phone }),
+  }).eq("id", branchId);
+
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { branch_id: branchId }, "알림 설정이 저장되었습니다");
 });

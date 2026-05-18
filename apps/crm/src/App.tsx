@@ -29,6 +29,9 @@ const AlertsPage = lazy(() => import("@/pages/admin/AlertsPage"));
 const RevenuePage = lazy(() => import("@/pages/admin/RevenuePage"));
 const NotificationLogsPage = lazy(() => import("@/pages/admin/NotificationLogsPage"));
 const BulkNotifyPage = lazy(() => import("@/pages/admin/BulkNotifyPage"));
+const MessageTemplatesPage = lazy(() => import("@/pages/admin/MessageTemplatesPage"));
+const ScheduledMessagesPage = lazy(() => import("@/pages/admin/ScheduledMessagesPage"));
+const MessageSendLogsPage = lazy(() => import("@/pages/admin/MessageSendLogsPage"));
 const FinancePage = lazy(() => import("@/pages/finance/FinancePage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const KioskHomePage = lazy(() => import("@/pages/kiosk/KioskHomePage"));
@@ -73,6 +76,9 @@ export default function App() {
               <Route path="/admin/revenue" element={<RevenuePage />} />
               <Route path="/admin/notification-logs" element={<NotificationLogsPage />} />
               <Route path="/admin/bulk-notify" element={<BulkNotifyPage />} />
+              <Route path="/admin/msg-templates" element={<MessageTemplatesPage />} />
+              <Route path="/admin/scheduled-msgs" element={<ScheduledMessagesPage />} />
+              <Route path="/admin/send-logs" element={<MessageSendLogsPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/help" element={<HelpPage />} />
             </Route>

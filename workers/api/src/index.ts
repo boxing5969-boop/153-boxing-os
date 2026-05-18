@@ -12,6 +12,7 @@ import {
   processNextSyncJobs,
   runDailyExpiry,
   runQrCleanup,
+  runScheduledMessages,
 } from "./services/syncQueueProcessor";
 import { runAlertCheck } from "./services/alertChecker";
 import type { Env } from "./lib/env";
@@ -39,9 +40,10 @@ app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)
 );
 
-const DAILY_EXPIRY_CRON = "5 15 * * *"; // 00:05 KST = 15:05 UTC
-const QR_CLEANUP_CRON = "*/10 * * * *";
-const ALERT_CHECK_CRON = "*/5 * * * *";
+const DAILY_EXPIRY_CRON      = "5 15 * * *";   // 00:05 KST = 15:05 UTC
+const QR_CLEANUP_CRON        = "*/10 * * * *";
+const ALERT_CHECK_CRON       = "*/5 * * * *";
+const SCHEDULED_MSG_CRON     = "0 * * * *";    // 매시간 정각 — 예약 발송 처리
 
 async function handleScheduled(
   controller: ScheduledController,
@@ -60,6 +62,14 @@ async function handleScheduled(
     ctx.waitUntil(
       runAlertCheck(env).then((report) =>
         console.log("[scheduled:alerts]", report)
+      )
+    );
+    return;
+  }
+  if (controller.cron === SCHEDULED_MSG_CRON) {
+    ctx.waitUntil(
+      runScheduledMessages(env).then(() =>
+        console.log("[scheduled:messages] done")
       )
     );
     return;

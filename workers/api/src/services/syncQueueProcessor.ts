@@ -11,6 +11,12 @@ import {
   runExpiryNotifications,
   type NotificationTarget,
 } from "./kakaoNotifier";
+import {
+  dispatchToGroup,
+  type DispatchTarget,
+  type NotifyChannel,
+} from "./messageDispatcher";
+import { substituteVars } from "./smsNotifier";
 
 
 const MAX_RETRIES = 5;
@@ -286,42 +292,185 @@ export async function runDailyExpiry(env: Env): Promise<void> {
   }
   console.log("[dailyExpiry]", data);
 
-  // 2) 만료 예정 알림톡 (D-7 / D-3 / D-1)
+  // 2) 만료 예정 알림 (D-7 / D-3 / D-1 + D-0 + D+7) — 지점별 트리거 설정 반영
   await runDailyNotifications(env);
+}
+
+/** 예약 발송 실행 (매시간 cron) */
+export async function runScheduledMessages(env: Env): Promise<void> {
+  const db = getServiceClient(env);
+
+  const { data, error } = await db.rpc("get_due_scheduled_messages");
+  if (error) { console.error("[scheduledMsg] fetch failed:", error); return; }
+
+  type DueMsg = {
+    id: string; branch_id: string; name: string; content: string;
+    channel: string; target_type: string;
+    target_member_id: string | null; target_days_ahead: number | null;
+  };
+  const due = (data ?? []) as DueMsg[];
+  if (due.length === 0) return;
+  console.log("[scheduledMsg] due:", due.length);
+
+  for (const msg of due) {
+    // processing 상태로 변경
+    await db.from("scheduled_messages").update({ status: "processing" }).eq("id", msg.id);
+
+    try {
+      let targets: DispatchTarget[] = [];
+
+      if (msg.target_type === "member" && msg.target_member_id) {
+        // 특정 회원
+        const { data: m } = await db.from("members")
+          .select("id,name,phone,branch_id,branches!inner(name)")
+          .eq("id", msg.target_member_id).maybeSingle();
+        type MRow = { id: string; name: string; phone: string | null; branch_id: string; branches: { name: string } };
+        const mr = m as MRow | null;
+        if (mr?.phone) {
+          targets = [{
+            member_id: mr.id, member_name: mr.name,
+            branch_id: mr.branch_id, branch_name: mr.branches.name,
+            member_phone: mr.phone,
+          }];
+        }
+      } else if (msg.target_type === "group" && msg.target_days_ahead) {
+        // 그룹: 만료 N일 이내
+        const { data: rows } = await db.rpc("get_bulk_notification_targets", {
+          _days_ahead: msg.target_days_ahead, _branch_id: msg.branch_id,
+        });
+        type BRow = {
+          member_id: string; membership_id: string; member_name: string;
+          plan_name: string; end_date: string; days_left: number;
+          branch_id: string; branch_name: string; member_phone: string;
+        };
+        targets = ((rows ?? []) as BRow[]).map(r => ({
+          member_id: r.member_id, membership_id: r.membership_id,
+          member_name: r.member_name, plan_name: r.plan_name,
+          end_date: r.end_date, days_left: r.days_left,
+          branch_id: r.branch_id, branch_name: r.branch_name,
+          member_phone: r.member_phone,
+        }));
+      }
+
+      const report = await dispatchToGroup(
+        db, env, targets, msg.channel as NotifyChannel, msg.content, msg.id
+      );
+
+      await db.from("scheduled_messages").update({
+        status: "sent",
+        sent_count: report.success,
+        fail_count: report.failed,
+        sent_at: new Date().toISOString(),
+      }).eq("id", msg.id);
+
+      console.log("[scheduledMsg] done:", msg.name, report);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "unknown";
+      await db.from("scheduled_messages").update({
+        status: "failed", error_message: errMsg,
+      }).eq("id", msg.id);
+      console.error("[scheduledMsg] error:", msg.name, errMsg);
+    }
+  }
 }
 
 export async function runDailyNotifications(env: Env): Promise<void> {
   const db = getServiceClient(env);
 
+  // D-7 / D-3 / D-1: 기존 카카오 알림톡 로직
   const { data, error } = await db.rpc("get_expiry_notification_targets");
-  if (error) {
-    console.error("[alimtalk] target fetch failed:", error);
-    return;
-  }
+  if (error) { console.error("[alimtalk] target fetch failed:", error); return; }
   const targets = (data ?? []) as NotificationTarget[];
   console.log("[alimtalk] targets:", targets.length);
 
-  if (targets.length === 0) return;
+  if (targets.length > 0) {
+    const { report, results } = await runExpiryNotifications(db, env, targets);
+    console.log("[alimtalk] result:", report);
 
-  const { report, results } = await runExpiryNotifications(db, env, targets);
-  console.log("[alimtalk] result:", report);
+    for (const { target, result } of results) {
+      await db.rpc("record_expiry_notification", {
+        _member_id: target.member_id, _membership_id: target.membership_id,
+        _notification_type: target.notification_type,
+        _status: result.success ? "sent" : "failed",
+        _error_message: result.success ? null : (result.error ?? null),
+        _recipient_phone: target.member_phone ?? null,
+      }).then(({ error: recErr }: { error: unknown }) => {
+        if (recErr) console.error("[alimtalk] record failed:", recErr);
+      });
+    }
+  }
 
-  // 발송 결과별 정확한 상태 기록 (성공 → sent, 실패 → failed)
-  for (const { target, result } of results) {
-    const status = result.success ? "sent" : "failed";
-    const errorMsg = result.success ? null : (result.error ?? null);
-    await db.rpc("record_expiry_notification", {
-      _member_id:         target.member_id,
-      _membership_id:     target.membership_id,
-      _notification_type: target.notification_type,
-      _status:            status,
-      _error_message:     errorMsg,
-      _recipient_phone:   target.member_phone ?? null,
-    }).then(({ error: recErr }: { error: unknown }) => {
-      if (recErr) console.error("[alimtalk] record failed:", recErr);
-    });
+  // D-0 / D+7: 지점별 notify_channel + notify_triggers 설정에 따라 SMS/카카오 발송
+  await runTriggerNotifications(env, "expiry_d0");
+  await runTriggerNotifications(env, "expiry_d_plus_7");
+}
+
+/** D-0 / D+7 트리거 처리 (지점별 채널 설정 반영) */
+async function runTriggerNotifications(env: Env, triggerType: "expiry_d0" | "expiry_d_plus_7"): Promise<void> {
+  const db = getServiceClient(env);
+
+  const { data, error } = await db.rpc("get_expiry_trigger_targets", { _trigger_type: triggerType });
+  if (error) { console.error(`[trigger:${triggerType}] fetch failed:`, error); return; }
+
+  type TRow = {
+    member_id: string; membership_id: string; member_name: string;
+    plan_name: string; end_date: string; days_left: number;
+    branch_id: string; branch_name: string; member_phone: string;
+  };
+  const rows = (data ?? []) as TRow[];
+  if (rows.length === 0) return;
+  console.log(`[trigger:${triggerType}] targets:`, rows.length);
+
+  // 지점별로 그룹핑 후 지점 설정 조회
+  const byBranch = new Map<string, TRow[]>();
+  for (const r of rows) {
+    if (!byBranch.has(r.branch_id)) byBranch.set(r.branch_id, []);
+    byBranch.get(r.branch_id)!.push(r);
+  }
+
+  for (const [branchId, branchRows] of byBranch) {
+    const { data: bRaw } = await db.from("branches")
+      .select("notify_channel,notify_triggers")
+      .eq("id", branchId).maybeSingle();
+    type BranchSettings = { notify_channel: string; notify_triggers: string[] };
+    const settings = bRaw as BranchSettings | null;
+
+    const channel = (settings?.notify_channel ?? "kakao") as NotifyChannel;
+    const triggers: string[] = settings?.notify_triggers ?? ["expiry_d7", "expiry_d3", "expiry_d1"];
+
+    if (!triggers.includes(triggerType)) continue; // 해당 트리거 비활성화
+
+    // D-0: "오늘 이용권이 만료됩니다" 기본 메시지
+    // D+7: "이용권이 만료된 지 7일이 지났습니다. 재등록을 환영합니다" 기본 메시지
+    const defaultContent = triggerType === "expiry_d0"
+      ? `[#{지점명}] #{회원명}님, 오늘(#{만료일}) 이용권이 만료됩니다. 재등록 문의: 지점에 연락주세요.`
+      : `[#{지점명}] #{회원명}님, 이용권 만료 후 7일이 지났습니다. 재등록 시 특별 혜택을 드립니다. 지점에 문의주세요.`;
+
+    // 해당 트리거에 맞는 메시지 템플릿 조회 (없으면 기본값 사용)
+    const { data: tplRaw } = await db.from("message_templates")
+      .select("content")
+      .eq("branch_id", branchId)
+      .eq("trigger_type", triggerType)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    const content = (tplRaw as { content: string } | null)?.content ?? defaultContent;
+
+    const dispatchTargets: DispatchTarget[] = branchRows.map(r => ({
+      member_id: r.member_id, membership_id: r.membership_id,
+      member_name: r.member_name, plan_name: r.plan_name,
+      end_date: r.end_date, days_left: r.days_left,
+      branch_id: r.branch_id, branch_name: r.branch_name,
+      member_phone: r.member_phone, notification_type: triggerType,
+    }));
+
+    const report = await dispatchToGroup(db, env, dispatchTargets, channel, content);
+    console.log(`[trigger:${triggerType}] branch ${branchId}:`, report);
   }
 }
+
+// substituteVars re-export for use in other modules
+export { substituteVars };
 
 export async function runQrCleanup(env: Env): Promise<void> {
   const db = getServiceClient(env);

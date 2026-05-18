@@ -18,6 +18,8 @@ import {
   Wallet,
   MessageSquare,
   SendHorizontal,
+  Clock,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -78,7 +80,9 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/staff", label: "직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
       { to: "/admin/alerts", label: "알림", icon: Bell, roles: BRANCH_AND_HQ },
       { to: "/admin/bulk-notify", label: "그룹 발송", icon: SendHorizontal, roles: BRANCH_AND_HQ },
-      { to: "/admin/notification-logs", label: "발송 이력", icon: MessageSquare, roles: BRANCH_AND_HQ },
+      { to: "/admin/scheduled-msgs", label: "예약 발송", icon: Clock, roles: BRANCH_AND_HQ },
+      { to: "/admin/msg-templates", label: "메시지 템플릿", icon: FileText, roles: BRANCH_AND_HQ },
+      { to: "/admin/send-logs", label: "발송 이력", icon: MessageSquare, roles: BRANCH_AND_HQ },
       { to: "/settings/profile", label: "설정", icon: Settings },
       { to: "/help", label: "도움말", icon: HelpCircle },
     ],
