@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Receipt,
   Tablet,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -63,7 +64,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: "성과",
     items: [
       { to: "/levels", label: "레벨", icon: Trophy },
-      { to: "/admin/revenue", label: "매출", icon: Receipt, roles: BRANCH_AND_HQ },
+      { to: "/finance", label: "수익/지출", icon: Wallet, roles: BRANCH_AND_HQ },
+      { to: "/admin/revenue", label: "매출 상세", icon: Receipt, roles: BRANCH_AND_HQ },
       { to: "/kiosk", label: "키오스크", icon: Tablet, roles: BRANCH_AND_HQ },
     ],
   },
