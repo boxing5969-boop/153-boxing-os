@@ -36,6 +36,11 @@ const FinancePage = lazy(() => import("@/pages/finance/FinancePage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const KioskHomePage = lazy(() => import("@/pages/kiosk/KioskHomePage"));
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
+// HR
+const HrStaffListPage = lazy(() => import("@/pages/hr/HrStaffListPage"));
+const HrStaffDetailPage = lazy(() => import("@/pages/hr/HrStaffDetailPage"));
+const HrContractsPage = lazy(() => import("@/pages/hr/HrContractsPage"));
+const HrPayrollPage = lazy(() => import("@/pages/hr/HrPayrollPage"));
 
 function PageFallback() {
   return (
@@ -81,6 +86,12 @@ export default function App() {
               <Route path="/admin/send-logs" element={<MessageSendLogsPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/help" element={<HelpPage />} />
+              {/* HR */}
+              <Route path="/hr/staff" element={<HrStaffListPage />} />
+              <Route path="/hr/staff/:staffId" element={<HrStaffDetailPage />} />
+              <Route path="/hr/contracts" element={<HrContractsPage />} />
+              <Route path="/hr/payroll" element={<HrPayrollPage />} />
+              <Route path="/hr/payroll/new" element={<HrPayrollPage />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFoundPage />} />
