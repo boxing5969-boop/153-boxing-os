@@ -328,6 +328,78 @@ adminRoutes.post("/notify/bulk-msg", requireJwt, async (c) => {
   return ok(c, { targets_count: targets.length, report }, `발송 완료: 성공 ${report.success}건`);
 });
 
+// ── 회원 공지 발송 (상태별 전체 발송) ────────────────────────
+const broadcastSchema = z.object({
+  channel: z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("kakao"),
+  content: z.string().min(1, "메시지 내용을 입력하세요"),
+  target_statuses: z.array(z.string()).default(["active", "trial"]),
+  branch_id: z.string().uuid().optional(),
+  dry_run: z.boolean().default(false),
+});
+
+adminRoutes.post("/notify/broadcast", requireJwt, async (c) => {
+  const parsed = broadcastSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db.from("profiles").select("role,branch_id").eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string; branch_id: string | null } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+
+  // 지점 필터: branch_owner는 자기 지점만
+  const effectiveBranchId = (profile.role === "branch_owner" || profile.role === "branch_manager")
+    ? profile.branch_id
+    : (parsed.data.branch_id ?? null);
+
+  // 대상 회원 조회: 상태 + 마케팅 동의 + 전화번호 존재
+  let query = db
+    .from("members")
+    .select("id, name, phone, branch_id, branches(name)")
+    .in("status", parsed.data.target_statuses)
+    .not("phone", "is", null);
+
+  if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
+
+  const { data: memberRows, error: memberErr } = await query;
+  if (memberErr) return fail(c, "DB_ERROR", memberErr.message, 500);
+
+  // 마케팅 동의 회원 ID 목록
+  const memberIds = (memberRows ?? []).map((m: Record<string, unknown>) => m.id as string);
+  const { data: consentRows } = await db
+    .from("consent_records")
+    .select("member_id")
+    .in("member_id", memberIds.length > 0 ? memberIds : ["_"])
+    .eq("consent_type", "marketing")
+    .eq("agreed", true)
+    .is("revoked_at", null);
+
+  const consentSet = new Set((consentRows ?? []).map((r: Record<string, unknown>) => r.member_id as string));
+
+  type MemberRow = { id: string; name: string; phone: string | null; branch_id: string; branches: { name: string } | null };
+  const targets = (memberRows ?? [] as MemberRow[])
+    .filter((m: MemberRow) => m.phone && consentSet.has(m.id))
+    .map((m: MemberRow) => ({
+      member_id: m.id,
+      member_name: m.name,
+      member_phone: m.phone as string,
+      branch_id: m.branch_id,
+      branch_name: (m.branches as { name: string } | null)?.name ?? "",
+      membership_id: "",
+      plan_name: "",
+      end_date: "",
+      days_left: 0,
+      notification_type: "broadcast",
+    }));
+
+  if (parsed.data.dry_run) {
+    return ok(c, { targets_count: targets.length }, `발송 예정: ${targets.length}명`);
+  }
+
+  const report = await dispatchToGroup(db, c.env, targets, parsed.data.channel as NotifyChannel, parsed.data.content);
+  return ok(c, { targets_count: targets.length, report }, `발송 완료: 성공 ${report.success}건`);
+});
+
 // ── 지점 알림 설정 저장 ───────────────────────────────────
 const notifySettingsSchema = z.object({
   notify_channel:  z.enum(["sms","kakao","both","kakao_sms_fallback"]).optional(),

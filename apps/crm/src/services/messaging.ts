@@ -228,3 +228,19 @@ export async function sendBulkMsg(params: BulkSendParams): Promise<BulkSendResul
     body: JSON.stringify(params),
   });
 }
+
+// ── 회원 공지 발송 (상태 기반 전체 발송) ──────────────────────
+export interface BroadcastParams {
+  channel: MsgChannel;
+  content: string;
+  target_statuses?: string[];
+  branch_id?: string;
+  dry_run?: boolean;
+}
+
+export async function broadcastMsg(params: BroadcastParams): Promise<BulkSendResult> {
+  return apiFetch("/api/admin/notify/broadcast", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}

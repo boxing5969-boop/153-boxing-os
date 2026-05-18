@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Search, Users, ChevronRight, SlidersHorizontal, CreditCard } from "lucide-react";
+import { Plus, Search, Users, ChevronRight, SlidersHorizontal, CreditCard, Megaphone } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import MemberStatusBadge, {
   memberStatusLabel,
 } from "@/components/members/MemberStatusBadge";
 import { NewMembershipDialog } from "@/components/memberships/NewMembershipDialog";
+import MemberBroadcastDialog from "@/components/members/MemberBroadcastDialog";
 import { listMembers } from "@/services/members";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatPhone, formatDate } from "@/lib/format";
@@ -60,6 +61,8 @@ export default function MembersListPage() {
 
   // 이용권 바로 등록 (목록에서 클릭)
   const [quickRegisterMember, setQuickRegisterMember] = useState<Member | null>(null);
+  // 공지 발송 다이얼로그
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
 
   const filters = useMemo(
     () => ({ q: debouncedQuery, status: statusFilter || null, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
@@ -91,12 +94,22 @@ export default function MembersListPage() {
           ) : undefined
         }
         action={
-          <Link to="/members/new">
-            <Button className="gap-2">
-              <Plus className="size-4" />
-              신규 등록
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setBroadcastOpen(true)}
+            >
+              <Megaphone className="size-4" />
+              공지 발송
             </Button>
-          </Link>
+            <Link to="/members/new">
+              <Button className="gap-2">
+                <Plus className="size-4" />
+                신규 등록
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -255,6 +268,12 @@ export default function MembersListPage() {
           member={quickRegisterMember}
         />
       )}
+
+      {/* 공지 발송 다이얼로그 */}
+      <MemberBroadcastDialog
+        open={broadcastOpen}
+        onClose={() => setBroadcastOpen(false)}
+      />
     </div>
   );
 }
