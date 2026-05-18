@@ -14,9 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Select } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getPayrollSummary, calculatePayroll, createPayroll, listStaff,
@@ -133,13 +131,11 @@ export default function HrPayrollPage() {
               <TrendingUp className="size-4 text-muted-foreground" />
               <span className="text-sm font-semibold text-foreground">월별 인건비 현황</span>
             </div>
-            <Select value={String(summaryYear)} onValueChange={v => setSummaryYear(parseInt(v))}>
-              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {[currentYear, currentYear - 1, currentYear - 2].map(y => (
-                  <SelectItem key={y} value={String(y)}>{y}년</SelectItem>
-                ))}
-              </SelectContent>
+            <Select value={String(summaryYear)} onChange={e => setSummaryYear(parseInt(e.target.value))}
+              className="w-28 h-8 text-xs">
+              {[currentYear, currentYear - 1, currentYear - 2].map(y => (
+                <option key={y} value={String(y)}>{y}년</option>
+              ))}
             </Select>
           </div>
 
@@ -212,7 +208,8 @@ export default function HrPayrollPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 space-y-1.5">
                     <Label>직원 선택</Label>
-                    <Select value={calcForm.staffId} onValueChange={v => {
+                    <Select value={calcForm.staffId} onChange={e => {
+                      const v = e.target.value;
                       const s = staffList.find(s => s.id === v);
                       setCalcForm(f => ({
                         ...f, staffId: v,
@@ -221,14 +218,12 @@ export default function HrPayrollPage() {
                         hourly_wage: s?.hourly_wage ? String(s.hourly_wage) : "",
                       }));
                     }}>
-                      <SelectTrigger><SelectValue placeholder="직원을 선택하세요" /></SelectTrigger>
-                      <SelectContent>
-                        {staffList.map(s => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name} ({EMPLOYMENT_TYPE_LABELS[s.employment_type]})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
+                      <option value="">직원을 선택하세요</option>
+                      {staffList.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({EMPLOYMENT_TYPE_LABELS[s.employment_type]})
+                        </option>
+                      ))}
                     </Select>
                   </div>
                   <div className="space-y-1.5">
@@ -237,13 +232,10 @@ export default function HrPayrollPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label>월</Label>
-                    <Select value={calcForm.month} onValueChange={v => setCalcForm(f => ({ ...f, month: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                          <SelectItem key={m} value={String(m)}>{m}월</SelectItem>
-                        ))}
-                      </SelectContent>
+                    <Select value={calcForm.month} onChange={e => setCalcForm(f => ({ ...f, month: e.target.value }))}>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                        <option key={m} value={String(m)}>{m}월</option>
+                      ))}
                     </Select>
                   </div>
                 </div>
@@ -251,13 +243,10 @@ export default function HrPayrollPage() {
                 {/* 고용 형태 */}
                 <div className="space-y-1.5">
                   <Label>고용 형태</Label>
-                  <Select value={calcForm.employment_type} onValueChange={v => setCalcForm(f => ({ ...f, employment_type: v as EmploymentType }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
+                  <Select value={calcForm.employment_type} onChange={e => setCalcForm(f => ({ ...f, employment_type: e.target.value as EmploymentType }))}>
+                    {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
                   </Select>
                 </div>
 

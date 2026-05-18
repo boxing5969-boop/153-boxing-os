@@ -152,11 +152,10 @@ export default function HrContractsPage() {
                         </div>
                       </div>
                       {c.file_url && (
-                        <Button variant="ghost" size="sm" asChild>
-                          <a href={c.file_url} target="_blank" rel="noreferrer">
-                            <Eye className="size-3.5 mr-1" />보기
-                          </a>
-                        </Button>
+                        <a href={c.file_url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 px-2.5 h-8 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                          <Eye className="size-3.5" />보기
+                        </a>
                       )}
                     </Card>
                   ))}
