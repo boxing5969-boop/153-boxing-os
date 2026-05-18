@@ -77,7 +77,7 @@ export default function ContractViewPage() {
     );
   }
 
-  const statusInfo = STATUS_INFO[contract.status] ?? STATUS_INFO["sent"];
+  const statusInfo = STATUS_INFO[contract.status] ?? { label: "검토 요청됨", icon: Clock, color: "text-blue-600" };
   const StatusIcon = statusInfo.icon;
   const contractBody = contract.content?.body ?? "";
 
