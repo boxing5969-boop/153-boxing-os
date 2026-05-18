@@ -11,13 +11,9 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Select } from "@/components/ui/select";
+import { Dialog } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   listStaff, createStaff, EMPLOYMENT_TYPE_LABELS,
@@ -35,7 +31,6 @@ const STATUS_LABELS: Record<string, string> = {
   inactive: "휴직",
   resigned: "퇴사",
 };
-
 const EMPLOYMENT_COLORS: Record<string, string> = {
   regular: "bg-blue-50 text-blue-700",
   parttime: "bg-purple-50 text-purple-700",
@@ -53,7 +48,6 @@ export default function HrStaffListPage() {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showDialog, setShowDialog] = useState(false);
 
-  // 신규 등록 폼 상태
   const [form, setForm] = useState({
     name: "", phone: "", email: "", employment_type: "regular" as EmploymentType,
     position: "", start_date: "", base_salary: "", hourly_wage: "", weekly_hours: "",
@@ -85,9 +79,8 @@ export default function HrStaffListPage() {
     (s.position ?? "").includes(search)
   );
 
-  const isSalary = form.employment_type === "regular";
+  const isSalary = form.employment_type === "regular" || form.employment_type === "owner" || form.employment_type === "freelancer";
   const isHourly = form.employment_type === "parttime";
-  const isFreelancer = form.employment_type === "freelancer";
 
   return (
     <div className="flex-1 overflow-y-auto bg-muted/30">
@@ -109,7 +102,7 @@ export default function HrStaffListPage() {
           </Button>
         </div>
 
-        {/* 통계 요약 */}
+        {/* 통계 */}
         <div className="grid grid-cols-3 gap-3">
           {[
             { label: "재직 중", count: staff.filter(s => s.status === "active").length, icon: UserCheck, color: "text-success" },
@@ -130,25 +123,13 @@ export default function HrStaffListPage() {
         <div className="flex gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="이름, 연락처, 직책 검색"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+            <Input className="pl-9" placeholder="이름, 연락처, 직책 검색" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
           <div className="flex gap-1.5">
             {[["active", "재직중"], ["inactive", "휴직"], ["resigned", "퇴사"], ["all", "전체"]].map(([val, lbl]) => (
-              <button
-                key={val}
-                onClick={() => setStatusFilter(val)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                  statusFilter === val
-                    ? "bg-brand text-white"
-                    : "bg-muted text-muted-foreground hover:bg-muted/70"
-                )}
-              >
+              <button key={val} onClick={() => setStatusFilter(val)}
+                className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                  statusFilter === val ? "bg-brand text-white" : "bg-muted text-muted-foreground hover:bg-muted/70")}>
                 {lbl}
               </button>
             ))}
@@ -169,16 +150,11 @@ export default function HrStaffListPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map(s => (
-              <Card
-                key={s.id}
-                className="px-5 py-4 flex items-center gap-4 cursor-pointer hover:bg-muted/40 transition-colors"
-                onClick={() => navigate(`/hr/staff/${s.id}`)}
-              >
-                {/* 아바타 */}
+              <Card key={s.id} className="px-5 py-4 flex items-center gap-4 cursor-pointer hover:bg-muted/40 transition-colors"
+                onClick={() => navigate(`/hr/staff/${s.id}`)}>
                 <div className="size-10 rounded-full bg-brand/10 flex items-center justify-center shrink-0">
                   <span className="text-sm font-bold text-brand">{s.name.slice(0, 1)}</span>
                 </div>
-                {/* 정보 */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-foreground">{s.name}</span>
@@ -191,28 +167,14 @@ export default function HrStaffListPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-4 mt-1">
-                    {s.phone && (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Phone className="size-3" />{s.phone}
-                      </span>
-                    )}
-                    {s.email && (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Mail className="size-3" />{s.email}
-                      </span>
-                    )}
-                    {s.start_date && (
-                      <span className="text-xs text-muted-foreground">입사 {s.start_date}</span>
-                    )}
+                    {s.phone && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="size-3" />{s.phone}</span>}
+                    {s.email && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="size-3" />{s.email}</span>}
+                    {s.start_date && <span className="text-xs text-muted-foreground">입사 {s.start_date}</span>}
                   </div>
                 </div>
-                {/* 급여 */}
                 <div className="text-right shrink-0 hidden sm:block">
-                  {s.base_salary ? (
-                    <p className="text-sm font-semibold text-foreground">{s.base_salary.toLocaleString()}원/월</p>
-                  ) : s.hourly_wage ? (
-                    <p className="text-sm font-semibold text-foreground">{s.hourly_wage.toLocaleString()}원/시</p>
-                  ) : null}
+                  {s.base_salary ? <p className="text-sm font-semibold text-foreground">{s.base_salary.toLocaleString()}원/월</p>
+                    : s.hourly_wage ? <p className="text-sm font-semibold text-foreground">{s.hourly_wage.toLocaleString()}원/시</p> : null}
                 </div>
                 <ChevronRight className="size-4 text-muted-foreground shrink-0" />
               </Card>
@@ -222,92 +184,72 @@ export default function HrStaffListPage() {
       </div>
 
       {/* 직원 등록 다이얼로그 */}
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>직원 등록</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {/* 기본 정보 */}
+      <Dialog open={showDialog} onClose={() => setShowDialog(false)} title="직원 등록" className="max-w-lg">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>이름 *</Label>
+              <Input placeholder="홍길동" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>직책</Label>
+              <Input placeholder="코치, 트레이너 등" value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>연락처</Label>
+              <Input placeholder="01012345678" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>이메일</Label>
+              <Input placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>고용 형태 *</Label>
+            <Select value={form.employment_type}
+              onChange={e => setForm(f => ({ ...f, employment_type: e.target.value as EmploymentType }))}>
+              {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>입사일</Label>
+            <Input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
+          </div>
+          {isSalary && (
+            <div className="space-y-1.5">
+              <Label>월급 (원)</Label>
+              <Input type="number" placeholder="3000000" value={form.base_salary}
+                onChange={e => setForm(f => ({ ...f, base_salary: e.target.value }))} />
+              {form.employment_type === "freelancer" && (
+                <p className="text-xs text-warning">프리랜서는 지급액의 3.3%가 원천징수됩니다.</p>
+              )}
+            </div>
+          )}
+          {isHourly && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>이름 *</Label>
-                <Input placeholder="홍길동" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                <Label>시급 (원)</Label>
+                <Input type="number" placeholder="12000" value={form.hourly_wage}
+                  onChange={e => setForm(f => ({ ...f, hourly_wage: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>직책</Label>
-                <Input placeholder="코치, 트레이너 등" value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>연락처</Label>
-                <Input placeholder="01012345678" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>이메일</Label>
-                <Input placeholder="email@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                <Label>주당 계약 시간</Label>
+                <Input type="number" placeholder="20" value={form.weekly_hours}
+                  onChange={e => setForm(f => ({ ...f, weekly_hours: e.target.value }))} />
               </div>
             </div>
-
-            {/* 고용 형태 */}
-            <div className="space-y-1.5">
-              <Label>고용 형태 *</Label>
-              <Select value={form.employment_type} onValueChange={v => setForm(f => ({ ...f, employment_type: v as EmploymentType }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>{v}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 입사일 */}
-            <div className="space-y-1.5">
-              <Label>입사일</Label>
-              <Input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
-            </div>
-
-            {/* 급여 정보 */}
-            {(isSalary || isFreelancer) && (
-              <div className="space-y-1.5">
-                <Label>월급 (원)</Label>
-                <Input
-                  type="number"
-                  placeholder="3000000"
-                  value={form.base_salary}
-                  onChange={e => setForm(f => ({ ...f, base_salary: e.target.value }))}
-                />
-                {isFreelancer && (
-                  <p className="text-xs text-warning">프리랜서는 지급액의 3.3%가 원천징수됩니다.</p>
-                )}
-              </div>
-            )}
-            {isHourly && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>시급 (원)</Label>
-                  <Input type="number" placeholder="12000" value={form.hourly_wage} onChange={e => setForm(f => ({ ...f, hourly_wage: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>주당 계약 시간</Label>
-                  <Input type="number" placeholder="20" value={form.weekly_hours} onChange={e => setForm(f => ({ ...f, weekly_hours: e.target.value }))} />
-                </div>
-              </div>
-            )}
-          </div>
+          )}
           {createMutation.error && (
             <p className="text-sm text-danger">{(createMutation.error as Error).message}</p>
           )}
-          <DialogFooter>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border mt-4">
             <Button variant="outline" onClick={() => setShowDialog(false)}>취소</Button>
-            <Button
-              onClick={() => createMutation.mutate()}
-              disabled={!form.name || !form.employment_type || createMutation.isPending}
-            >
+            <Button onClick={() => createMutation.mutate()}
+              disabled={!form.name || !form.employment_type || createMutation.isPending}>
               {createMutation.isPending ? "등록 중…" : "등록"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </div>
+        </div>
       </Dialog>
     </div>
   );
