@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, Clock, CheckCircle, XCircle, AlertTriangle, Ban,
+  Plus, Clock, CheckCircle, XCircle, Ban,
   Calendar, Users, User, MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 } from "@/services/messaging";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
+import SmsPhonePreview, { calcBytes, getMsgType } from "@/components/messaging/SmsPhonePreview";
 
 // ── 상수 ────────────────────────────────────────────────────
 const CHANNEL_LABEL: Record<MsgChannel, string> = {
@@ -188,159 +189,187 @@ export default function ScheduledMessagesPage() {
 
       {/* 예약 폼 */}
       {showForm && (
-        <div className="rounded-xl border border-primary/30 bg-card p-5 shadow-card space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-foreground">새 예약 발송</h2>
-            <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setTemplateMode(!templateMode)}>
-              <MessageSquare className="size-3.5" />
-              {templateMode ? "직접 입력" : "템플릿에서 불러오기"}
-            </Button>
-          </div>
+        <div className="rounded-xl border border-primary/30 bg-card p-5 shadow-card">
+          <div className="grid grid-cols-[1fr_auto] gap-6 items-start">
+            {/* ── 좌측: 폼 필드 ── */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-foreground">새 예약 발송</h2>
+                <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setTemplateMode(!templateMode)}>
+                  <MessageSquare className="size-3.5" />
+                  {templateMode ? "직접 입력" : "템플릿에서 불러오기"}
+                </Button>
+              </div>
 
-          {/* 템플릿 선택 */}
-          {templateMode && (
-            <div className="space-y-2">
-              {templates.filter(t => t.is_active).length === 0 ? (
-                <p className="text-xs text-muted-foreground">저장된 활성 템플릿이 없습니다.</p>
-              ) : (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {templates.filter(t => t.is_active).map(t => (
+              {/* 템플릿 선택 */}
+              {templateMode && (
+                <div className="space-y-2">
+                  {templates.filter(t => t.is_active).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">저장된 활성 템플릿이 없습니다.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {templates.filter(t => t.is_active).map(t => (
+                        <button
+                          key={t.id}
+                          onClick={() => applyTemplate(t)}
+                          className="w-full text-left rounded-lg border border-border px-3 py-2 hover:border-primary/40 hover:bg-muted/40 transition-all"
+                        >
+                          <p className="text-sm font-medium text-foreground">{t.name}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{t.content}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 이름 */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">발송 이름 (관리용)</label>
+                <input
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="예: 5월 만료 예정 회원 안내"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+
+              {/* 채널 + 대상 유형 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">발송 채널</label>
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    value={form.channel}
+                    onChange={e => setForm(f => ({ ...f, channel: e.target.value as MsgChannel }))}
+                  >
+                    {CHANNEL_OPTIONS.map(c => (
+                      <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">발송 대상</label>
+                  <div className="flex gap-2">
+                    {(["group", "member"] as const).map(type => (
+                      <button
+                        key={type}
+                        onClick={() => setForm(f => ({ ...f, target_type: type }))}
+                        className={cn(
+                          "flex-1 rounded-lg border py-2 text-xs font-medium transition-all flex items-center justify-center gap-1",
+                          form.target_type === type
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border text-muted-foreground hover:border-primary/40"
+                        )}
+                      >
+                        {type === "group" ? <Users className="size-3.5" /> : <User className="size-3.5" />}
+                        {type === "group" ? "그룹" : "개인"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 그룹: 만료 기준일 */}
+              {form.target_type === "group" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    만료 예정 기간 (발송 시점 기준 N일 이내)
+                  </label>
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    value={form.target_days_ahead}
+                    onChange={e => setForm(f => ({ ...f, target_days_ahead: e.target.value }))}
+                  >
+                    {[1,3,7,14,30].map(d => (
+                      <option key={d} value={String(d)}>{d}일 이내 만료 예정</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 내용 */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">메시지 내용</label>
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {VAR_CHIPS.map(v => (
                     <button
-                      key={t.id}
-                      onClick={() => applyTemplate(t)}
-                      className="w-full text-left rounded-lg border border-border px-3 py-2 hover:border-primary/40 hover:bg-muted/40 transition-all"
+                      key={v}
+                      type="button"
+                      onClick={() => insertVar(v)}
+                      className="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
                     >
-                      <p className="text-sm font-medium text-foreground">{t.name}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-1">{t.content}</p>
+                      {v}
                     </button>
                   ))}
                 </div>
+                <textarea
+                  rows={4}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+                  placeholder="메시지 내용을 입력하세요."
+                  value={form.content}
+                  onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
+                />
+                {/* 바이트 + 타입 배지 */}
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const b = calcBytes(form.content);
+                    const t = getMsgType(form.channel, b, false);
+                    const badge = t === "SMS" ? "bg-blue-50 text-blue-700"
+                      : t === "LMS" ? "bg-amber-50 text-amber-700"
+                      : t === "KAKAO" ? "bg-yellow-50 text-yellow-700"
+                      : "bg-purple-50 text-purple-700";
+                    return (
+                      <>
+                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", badge)}>{t}</span>
+                        <span className="text-[11px] text-muted-foreground">{b}바이트</span>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* 발송 시각 */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">발송 예정 시각</label>
+                <div className="flex items-center gap-2">
+                  <Calendar className="size-4 text-muted-foreground shrink-0" />
+                  <input
+                    type="datetime-local"
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    value={form.scheduled_at}
+                    min={toLocalIsoString(new Date())}
+                    onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  설정한 시각 이후 최대 1시간 내에 발송됩니다 (매시 정각 처리).
+                </p>
+              </div>
+
+              {createMut.error && (
+                <p className="text-xs text-danger">
+                  {createMut.error instanceof Error ? createMut.error.message : "저장 실패"}
+                </p>
               )}
-            </div>
-          )}
 
-          {/* 이름 */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">발송 이름 (관리용)</label>
-            <input
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="예: 5월 만료 예정 회원 안내"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            />
-          </div>
-
-          {/* 채널 + 대상 유형 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">발송 채널</label>
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                value={form.channel}
-                onChange={e => setForm(f => ({ ...f, channel: e.target.value as MsgChannel }))}
-              >
-                {CHANNEL_OPTIONS.map(c => (
-                  <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">발송 대상</label>
-              <div className="flex gap-2">
-                {(["group", "member"] as const).map(type => (
-                  <button
-                    key={type}
-                    onClick={() => setForm(f => ({ ...f, target_type: type }))}
-                    className={cn(
-                      "flex-1 rounded-lg border py-2 text-xs font-medium transition-all flex items-center justify-center gap-1",
-                      form.target_type === type
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    )}
-                  >
-                    {type === "group" ? <Users className="size-3.5" /> : <User className="size-3.5" />}
-                    {type === "group" ? "그룹" : "개인"}
-                  </button>
-                ))}
+              <div className="flex gap-2 pt-1">
+                <Button disabled={!canSubmit || isSaving} onClick={() => createMut.mutate()}>
+                  {isSaving ? "저장 중…" : "예약 등록"}
+                </Button>
+                <Button variant="ghost" onClick={closeForm}>취소</Button>
               </div>
             </div>
-          </div>
 
-          {/* 그룹: 만료 기준일 */}
-          {form.target_type === "group" && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">
-                만료 예정 기간 (발송 시점 기준 N일 이내)
-              </label>
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                value={form.target_days_ahead}
-                onChange={e => setForm(f => ({ ...f, target_days_ahead: e.target.value }))}
-              >
-                {[1,3,7,14,30].map(d => (
-                  <option key={d} value={String(d)}>{d}일 이내 만료 예정</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* 내용 */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">메시지 내용</label>
-            <div className="flex flex-wrap gap-1.5 mb-1.5">
-              {VAR_CHIPS.map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => insertVar(v)}
-                  className="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-            <textarea
-              rows={4}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
-              placeholder="메시지 내용을 입력하세요."
-              value={form.content}
-              onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {new TextEncoder().encode(form.content).length}바이트
-              {new TextEncoder().encode(form.content).length > 90 ? " → LMS 발송" : " → SMS 발송"}
-            </p>
-          </div>
-
-          {/* 발송 시각 */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">발송 예정 시각</label>
-            <div className="flex items-center gap-2">
-              <Calendar className="size-4 text-muted-foreground shrink-0" />
-              <input
-                type="datetime-local"
-                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                value={form.scheduled_at}
-                min={toLocalIsoString(new Date())}
-                onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))}
+            {/* ── 우측: 폰 미리보기 ── */}
+            <div className="sticky top-4 pt-6">
+              <p className="text-[11px] text-center text-muted-foreground mb-2">미리보기</p>
+              <SmsPhonePreview
+                content={form.content}
+                channel={form.channel}
+                senderName="153복싱짐"
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              설정한 시각 이후 최대 1시간 내에 발송됩니다 (매시 정각 처리).
-            </p>
-          </div>
-
-          {createMut.error && (
-            <p className="text-xs text-danger">
-              {createMut.error instanceof Error ? createMut.error.message : "저장 실패"}
-            </p>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <Button disabled={!canSubmit || isSaving} onClick={() => createMut.mutate()}>
-              {isSaving ? "저장 중…" : "예약 등록"}
-            </Button>
-            <Button variant="ghost" onClick={closeForm}>취소</Button>
           </div>
         </div>
       )}

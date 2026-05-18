@@ -4,6 +4,7 @@ import {
   Plus, Pencil, Trash2, FileText, ToggleLeft, ToggleRight,
   MessageSquare, Phone, Layers,
 } from "lucide-react";
+import SmsPhonePreview, { calcBytes, getMsgType } from "@/components/messaging/SmsPhonePreview";
 import { Button } from "@/components/ui/button";
 import {
   listTemplates,
@@ -181,106 +182,134 @@ export default function MessageTemplatesPage() {
 
       {/* 템플릿 작성 / 수정 폼 */}
       {showForm && (
-        <div className="rounded-xl border border-primary/30 bg-card p-5 shadow-card space-y-4">
-          <h2 className="text-sm font-bold text-foreground">
-            {editing ? "템플릿 수정" : "새 템플릿 작성"}
-          </h2>
+        <div className="rounded-xl border border-primary/30 bg-card p-5 shadow-card">
+          <div className="grid grid-cols-[1fr_auto] gap-6 items-start">
+            {/* ── 좌측: 폼 필드 ── */}
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold text-foreground">
+                {editing ? "템플릿 수정" : "새 템플릿 작성"}
+              </h2>
 
-          {/* 이름 */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">템플릿 이름</label>
-            <input
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="예: D-7 만료 예정 안내"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            />
-          </div>
+              {/* 이름 */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">템플릿 이름</label>
+                <input
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="예: D-7 만료 예정 안내"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                />
+              </div>
 
-          {/* 채널 + 트리거 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">발송 채널</label>
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                value={form.channel}
-                onChange={e => setForm(f => ({ ...f, channel: e.target.value as MsgChannel }))}
-              >
-                {CHANNEL_OPTIONS.map(c => (
-                  <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">자동 트리거 (선택)</label>
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                value={form.trigger_type}
-                onChange={e => setForm(f => ({ ...f, trigger_type: e.target.value }))}
-              >
-                {TRIGGER_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+              {/* 채널 + 트리거 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">발송 채널</label>
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    value={form.channel}
+                    onChange={e => setForm(f => ({ ...f, channel: e.target.value as MsgChannel }))}
+                  >
+                    {CHANNEL_OPTIONS.map(c => (
+                      <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">자동 트리거 (선택)</label>
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    value={form.trigger_type}
+                    onChange={e => setForm(f => ({ ...f, trigger_type: e.target.value }))}
+                  >
+                    {TRIGGER_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-          {/* 내용 */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">메시지 내용</label>
-            <div className="flex flex-wrap gap-1.5 mb-1.5">
-              {VAR_CHIPS.map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => insertVar(v)}
-                  className="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+              {/* 내용 */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">메시지 내용</label>
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {VAR_CHIPS.map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => insertVar(v)}
+                      className="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  rows={5}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+                  placeholder={"안녕하세요 #{회원명}님, #{지점명}입니다.\n#{플랜명} 이용권이 #{남은일수}일 후 만료됩니다.\n문의: 031-XXX-XXXX"}
+                  value={form.content}
+                  onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
+                />
+                {/* 바이트 + 타입 배지 */}
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const b = calcBytes(form.content);
+                    const t = getMsgType(form.channel, b, false);
+                    const badge = t === "SMS" ? "bg-blue-50 text-blue-700"
+                      : t === "LMS" ? "bg-amber-50 text-amber-700"
+                      : t === "KAKAO" ? "bg-yellow-50 text-yellow-700"
+                      : "bg-purple-50 text-purple-700";
+                    return (
+                      <>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>{t}</span>
+                        <span className="text-[11px] text-muted-foreground">{b}바이트</span>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* 활성화 토글 */}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={form.is_active}
+                  onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}
+                />
+                {form.is_active
+                  ? <ToggleRight className="size-5 text-primary" />
+                  : <ToggleLeft className="size-5 text-muted-foreground" />}
+                <span className="text-sm text-foreground">
+                  {form.is_active ? "활성화 상태" : "비활성화 상태"}
+                </span>
+              </label>
+
+              {saveError && (
+                <p className="text-xs text-danger">{saveError instanceof Error ? saveError.message : "저장 실패"}</p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <Button
+                  disabled={isSaving || !form.name.trim() || !form.content.trim()}
+                  onClick={handleSubmit}
                 >
-                  {v}
-                </button>
-              ))}
+                  {isSaving ? "저장 중…" : editing ? "수정 저장" : "템플릿 추가"}
+                </Button>
+                <Button variant="ghost" onClick={closeForm}>취소</Button>
+              </div>
             </div>
-            <textarea
-              rows={5}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
-              placeholder={"안녕하세요 #{회원명}님, #{지점명}입니다.\n#{플랜명} 이용권이 #{남은일수}일 후 만료됩니다.\n문의: 031-XXX-XXXX"}
-              value={form.content}
-              onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {new TextEncoder().encode(form.content).length}바이트
-              {new TextEncoder().encode(form.content).length > 90 ? " (LMS)" : " (SMS)"}
-            </p>
-          </div>
 
-          {/* 활성화 토글 */}
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={form.is_active}
-              onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}
-            />
-            {form.is_active
-              ? <ToggleRight className="size-5 text-primary" />
-              : <ToggleLeft className="size-5 text-muted-foreground" />}
-            <span className="text-sm text-foreground">
-              {form.is_active ? "활성화 상태" : "비활성화 상태"}
-            </span>
-          </label>
-
-          {saveError && (
-            <p className="text-xs text-danger">{saveError instanceof Error ? saveError.message : "저장 실패"}</p>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <Button
-              disabled={isSaving || !form.name.trim() || !form.content.trim()}
-              onClick={handleSubmit}
-            >
-              {isSaving ? "저장 중…" : editing ? "수정 저장" : "템플릿 추가"}
-            </Button>
-            <Button variant="ghost" onClick={closeForm}>취소</Button>
+            {/* ── 우측: 폰 미리보기 ── */}
+            <div className="sticky top-4 pt-6">
+              <p className="text-[11px] text-center text-muted-foreground mb-2">미리보기</p>
+              <SmsPhonePreview
+                content={form.content}
+                channel={form.channel}
+                senderName="153복싱짐"
+              />
+            </div>
           </div>
         </div>
       )}
