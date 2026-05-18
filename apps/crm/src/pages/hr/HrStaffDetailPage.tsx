@@ -18,7 +18,7 @@ import {
   getStaff, updateStaff, listContracts, createContract,
   sendContract, listPayroll, updatePayrollStatus,
   EMPLOYMENT_TYPE_LABELS, CONTRACT_TYPE_LABELS, CONTRACT_STATUS_LABELS,
-  PAYROLL_STATUS_LABELS, formatKRW, getContractTemplate,
+  PAYROLL_STATUS_LABELS, formatKRW, getContractTextTemplate,
   type ContractType, type PayrollStatus, resignStaff,
 } from "@/services/hr";
 import { cn } from "@/lib/cn";
@@ -44,7 +44,7 @@ export default function HrStaffDetailPage() {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [showContractDialog, setShowContractDialog] = useState(false);
-  const [contractForm, setContractForm] = useState({ contract_type: "employment" as ContractType, title: "", valid_from: "", valid_until: "" });
+  const [contractForm, setContractForm] = useState({ contract_type: "employment" as ContractType, title: "", valid_from: "", valid_until: "", body: "" });
   const [tab, setTab] = useState<"info" | "contracts" | "payroll">("info");
 
   const { data: staff, isLoading } = useQuery({
@@ -77,12 +77,16 @@ export default function HrStaffDetailPage() {
 
   const contractMutation = useMutation({
     mutationFn: () => createContract(staffId, {
-      ...contractForm,
-      content: staff ? getContractTemplate(contractForm.contract_type, staff, "") : {},
+      contract_type: contractForm.contract_type,
+      title: contractForm.title,
+      valid_from: contractForm.valid_from || undefined,
+      valid_until: contractForm.valid_until || undefined,
+      content: { body: contractForm.body },
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hr-contracts", staffId] });
       setShowContractDialog(false);
+      setContractForm({ contract_type: "employment", title: "", valid_from: "", valid_until: "", body: "" });
       setTab("contracts");
     },
   });
@@ -338,36 +342,62 @@ export default function HrStaffDetailPage() {
       </div>
 
       {/* 계약서 작성 다이얼로그 */}
-      <Dialog open={showContractDialog} onClose={() => setShowContractDialog(false)} title="계약서 작성">
+      <Dialog open={showContractDialog} onClose={() => setShowContractDialog(false)} title="계약서 작성" className="max-w-2xl">
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>계약서 종류</Label>
-            <Select value={contractForm.contract_type}
-              onChange={e => setContractForm(f => ({ ...f, contract_type: e.target.value as ContractType }))}>
-              {Object.entries(CONTRACT_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>계약서 제목</Label>
-            <Input placeholder="예: 2026년 근로계약서" value={contractForm.title}
-              onChange={e => setContractForm(f => ({ ...f, title: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>계약서 종류</Label>
+              <Select value={contractForm.contract_type}
+                onChange={e => {
+                  const type = e.target.value as ContractType;
+                  const autoBody = getContractTextTemplate(type, staff, "");
+                  setContractForm(f => ({ ...f, contract_type: type, body: autoBody }));
+                }}>
+                {Object.entries(CONTRACT_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>계약서 제목</Label>
+              <Input placeholder="예: 2026년 근로계약서" value={contractForm.title}
+                onChange={e => setContractForm(f => ({ ...f, title: e.target.value }))} />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>시작일</Label>
+              <Label>계약 시작일</Label>
               <Input type="date" value={contractForm.valid_from}
                 onChange={e => setContractForm(f => ({ ...f, valid_from: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>종료일</Label>
+              <Label>계약 종료일</Label>
               <Input type="date" value={contractForm.valid_until}
                 onChange={e => setContractForm(f => ({ ...f, valid_until: e.target.value }))} />
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-border mt-2">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>계약서 본문</Label>
+              <button type="button"
+                className="text-xs text-brand underline"
+                onClick={() => setContractForm(f => ({ ...f, body: getContractTextTemplate(f.contract_type, staff, "") }))}>
+                기본 양식 불러오기
+              </button>
+            </div>
+            <textarea
+              value={contractForm.body}
+              onChange={e => setContractForm(f => ({ ...f, body: e.target.value }))}
+              placeholder="계약서 내용을 입력하거나 위의 '기본 양식 불러오기'를 클릭하세요."
+              rows={16}
+              className="w-full rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-y"
+            />
+          </div>
+          {contractMutation.error && (
+            <p className="text-sm text-danger">{(contractMutation.error as Error).message}</p>
+          )}
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="outline" onClick={() => setShowContractDialog(false)}>취소</Button>
             <Button onClick={() => contractMutation.mutate()} disabled={!contractForm.title || contractMutation.isPending}>
-              {contractMutation.isPending ? "작성 중…" : "작성"}
+              {contractMutation.isPending ? "작성 중…" : "계약서 저장"}
             </Button>
           </div>
         </div>

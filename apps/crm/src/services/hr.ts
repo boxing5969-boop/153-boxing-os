@@ -342,3 +342,116 @@ export function getContractTemplate(
 
   return base;
 }
+
+/** 계약서 텍스트 기본 양식 (편집용 plain text) */
+export function getContractTextTemplate(
+  contractType: ContractType,
+  staff: Partial<Staff>,
+  branchName: string
+): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const company = `153복싱짐 ${branchName}`;
+
+  if (contractType === "employment" || contractType === "renewal") {
+    return `근로계약서
+
+갑(사업주): ${company}
+을(근로자): ${staff.name ?? "___"} (생년월일: ${staff.birth_date ?? "___"})
+
+제1조 (계약기간)
+근로계약 기간은 ${staff.start_date ?? today}부터 ${staff.end_date ?? "정함 없음"}까지로 한다.
+
+제2조 (근무장소 및 업무)
+- 근무장소: ${company}
+- 담당업무: ${staff.position ?? "피트니스 지도"}
+
+제3조 (근무시간)
+- 근무일: 월~금
+- 근무시간: 09:00 ~ 18:00 (휴게시간 12:00 ~ 13:00)
+
+제4조 (임금)
+- 기본급: 월 ${(staff.base_salary ?? 0).toLocaleString()}원
+- 지급일: 매월 25일
+
+제5조 (4대보험)
+근로기준법 및 사회보험 관련 법령에 따라 4대보험(국민연금, 건강보험, 고용보험, 산재보험)에 가입한다.
+
+제6조 (기타)
+- 퇴직금은 1년 이상 근무 시 근로기준법에 따라 지급한다.
+- 본 계약서에 명시되지 않은 사항은 근로기준법을 따른다.
+
+작성일: ${today}
+
+갑(사업주) 서명: _____________    을(근로자) 서명: _____________`;
+  }
+
+  if (contractType === "parttime") {
+    return `단시간 근로계약서
+
+갑(사업주): ${company}
+을(근로자): ${staff.name ?? "___"} (생년월일: ${staff.birth_date ?? "___"})
+
+제1조 (계약기간)
+근로계약 기간은 ${staff.start_date ?? today}부터 ${staff.end_date ?? "정함 없음"}까지로 한다.
+
+제2조 (근무장소 및 업무)
+- 근무장소: ${company}
+- 담당업무: ${staff.position ?? "피트니스 지도"}
+
+제3조 (근무시간)
+- 주당 계약 시간: ${staff.weekly_hours ?? "___"}시간
+- 근무 일정: (직접 입력)
+
+제4조 (임금)
+- 시급: ${(staff.hourly_wage ?? 0).toLocaleString()}원
+- 지급일: 매월 25일
+- 주 15시간 이상 근무 시 주휴수당이 발생한다.
+
+제5조 (기타)
+- 본 계약서에 명시되지 않은 사항은 근로기준법을 따른다.
+
+작성일: ${today}
+
+갑(사업주) 서명: _____________    을(근로자) 서명: _____________`;
+  }
+
+  if (contractType === "freelance") {
+    return `업무위탁계약서 (프리랜서)
+
+위탁인(갑): ${company}
+수탁인(을): ${staff.name ?? "___"}
+
+제1조 (계약기간)
+계약 기간은 ${staff.start_date ?? today}부터 ${staff.end_date ?? "___"}까지로 한다.
+
+제2조 (업무내용)
+피트니스 트레이닝 관련 업무 위탁
+
+제3조 (보수)
+- 월 보수: ${(staff.base_salary ?? 0).toLocaleString()}원
+- 지급일: 매월 25일
+- 원천세 3.3%를 공제 후 지급한다. (소득세 3% + 지방소득세 0.3%)
+
+제4조 (을의 지위)
+을은 갑의 독립적인 업무 수탁인으로서, 갑의 근로자가 아니다.
+
+제5조 (기타)
+- 계약 해지 시 30일 전 서면 통보를 요한다.
+- 본 계약서에 명시되지 않은 사항은 민법을 따른다.
+
+작성일: ${today}
+
+갑(위탁인) 서명: _____________    을(수탁인) 서명: _____________`;
+  }
+
+  return `계약서
+
+갑(사업주): ${company}
+을: ${staff.name ?? "___"}
+
+작성일: ${today}
+
+(내용을 직접 작성해 주세요)
+
+갑 서명: _____________    을 서명: _____________`;
+}

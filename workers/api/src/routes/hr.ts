@@ -208,6 +208,24 @@ hrRoutes.get("/staff/:staffId/contracts", requireJwt, async (c) => {
   return ok(c, data ?? []);
 });
 
+/** GET /api/hr/contracts/:contractId/view — 공개 조회 (JWT 불필요, 직원이 SMS 링크로 접근) */
+hrRoutes.get("/contracts/:contractId/view", async (c) => {
+  const { contractId } = c.req.param();
+  const db = getDb(c.env);
+  const { data, error } = await db
+    .from("staff_contracts")
+    .select("id,title,contract_type,content,valid_from,valid_until,status,sent_at,signed_at,staff:staff_id(name,position,employment_type)")
+    .eq("id", contractId)
+    .maybeSingle();
+
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  if (!data) return fail(c, "NOT_FOUND", "계약서를 찾을 수 없습니다", 404);
+  // 취소/초안 상태는 공개 불가
+  const row = data as { status: string };
+  if (row.status === "canceled") return fail(c, "NOT_AVAILABLE", "열람할 수 없는 계약서입니다", 403);
+  return ok(c, data);
+});
+
 /** GET /api/hr/contracts/:contractId */
 hrRoutes.get("/contracts/:contractId", requireJwt, async (c) => {
   const { contractId } = c.req.param();
@@ -295,17 +313,20 @@ hrRoutes.post("/contracts/:contractId/send", requireJwt, async (c) => {
   if (!contract) return fail(c, "NOT_FOUND", "계약서를 찾을 수 없습니다", 404);
 
   const row = contract as {
-    branch_id: string; title: string; file_url: string | null;
+    id: string; branch_id: string; title: string; file_url: string | null;
     staff: { name: string; phone: string | null; branch_id: string };
   };
 
   if (!canAccessBranch(caller, row.branch_id)) return fail(c, "PERMISSION_DENIED", "접근 권한 없음", 403);
   if (!row.staff?.phone) return fail(c, "INVALID_REQUEST", "직원 연락처가 등록되지 않았습니다", 400);
-  if (!row.file_url) return fail(c, "INVALID_REQUEST", "계약서 파일(URL)이 없습니다. 먼저 PDF를 업로드하세요.", 400);
 
-  // 알리고 SMS 발송
+  // 계약서 링크 생성 — PDF URL 우선, 없으면 CRM 웹 뷰 링크
+  const pagesUrl = c.env.PAGES_URL ?? "https://153-boxing-os.pages.dev";
+  const contractLink = row.file_url ?? `${pagesUrl}/contracts/view/${row.id}`;
+
+  // SMS 발송
   const { sendSms } = await import("../services/smsNotifier");
-  const smsContent = `[153복싱짐] ${row.staff.name}님 계약서 확인\n제목: ${row.title}\n링크: ${row.file_url}`;
+  const smsContent = `[153복싱짐] ${row.staff.name}님 계약서 확인 요청\n제목: ${row.title}\n아래 링크를 클릭해 계약서를 확인해 주세요.\n${contractLink}`;
   const result = await sendSms(db, c.env, row.branch_id, row.staff.phone, smsContent);
 
   if (!result.success) return fail(c, "SMS_ERROR", result.error ?? "SMS 발송 실패", 500);
