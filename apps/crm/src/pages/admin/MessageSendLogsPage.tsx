@@ -52,7 +52,7 @@ export default function MessageSendLogsPage() {
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ["msg-send-logs", branchId, statusFilter],
-    queryFn: () => listMessageSendLogs({ branchId, limit: 300 }),
+    queryFn: () => listMessageSendLogs({ branchId: branchId ?? undefined, limit: 300 }),
     staleTime: 30_000,
   });
 
