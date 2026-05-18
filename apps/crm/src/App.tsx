@@ -28,6 +28,7 @@ const EmergencyPinsPage = lazy(() => import("@/pages/admin/EmergencyPinsPage"));
 const AlertsPage = lazy(() => import("@/pages/admin/AlertsPage"));
 const RevenuePage = lazy(() => import("@/pages/admin/RevenuePage"));
 const NotificationLogsPage = lazy(() => import("@/pages/admin/NotificationLogsPage"));
+const BulkNotifyPage = lazy(() => import("@/pages/admin/BulkNotifyPage"));
 const FinancePage = lazy(() => import("@/pages/finance/FinancePage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const KioskHomePage = lazy(() => import("@/pages/kiosk/KioskHomePage"));
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="/admin/alerts" element={<AlertsPage />} />
               <Route path="/admin/revenue" element={<RevenuePage />} />
               <Route path="/admin/notification-logs" element={<NotificationLogsPage />} />
+              <Route path="/admin/bulk-notify" element={<BulkNotifyPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/help" element={<HelpPage />} />
             </Route>

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Pause, Play, X as Cancel, Receipt,
   Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
-  RotateCcw, RefreshCw, Dumbbell,
+  RotateCcw, RefreshCw, Dumbbell, Send,
 } from "lucide-react";
 import {
   PLAN_TYPE_LABELS,
@@ -31,6 +31,7 @@ import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog"
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
+import { sendMemberNotification } from "@/services/notificationSend";
 import { getAccessPreview, ACCESS_SOURCE_LABELS } from "@/services/access";
 import { formatDate, formatDateTime, formatPhone, daysUntil } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -111,6 +112,8 @@ export default function MemberDetailPage() {
 
   const [trialToCancel, setTrialToCancel] = useState<TrialPass | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [notifyMsg, setNotifyMsg] = useState<string | null>(null);
+  const [notifySending, setNotifySending] = useState(false);
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => updateMembershipState(id, { status: "canceled" }),
@@ -370,22 +373,53 @@ export default function MemberDetailPage() {
                 </div>
 
                 {/* 오른쪽: 빠른 액션 버튼들 */}
-                <div className="flex flex-wrap gap-2 shrink-0">
-                  <Button
-                    size="sm"
-                    onClick={() => { setExtendTarget(activeMembership); setOpenNewMembership(true); }}
-                    className="gap-1.5"
-                  >
-                    <RefreshCw className="size-3.5" /> 연장
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setHoldTarget(activeMembership)}
-                    className="gap-1 text-warning border-warning/30 hover:bg-warning/10"
-                  >
-                    <Pause className="size-3" /> 홀딩
-                  </Button>
+                <div className="flex flex-col gap-2 shrink-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => { setExtendTarget(activeMembership); setOpenNewMembership(true); }}
+                      className="gap-1.5"
+                    >
+                      <RefreshCw className="size-3.5" /> 연장
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setHoldTarget(activeMembership)}
+                      className="gap-1 text-warning border-warning/30 hover:bg-warning/10"
+                    >
+                      <Pause className="size-3" /> 홀딩
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={notifySending}
+                      className="gap-1.5"
+                      onClick={async () => {
+                        setNotifyMsg(null);
+                        setNotifySending(true);
+                        try {
+                          await sendMemberNotification(member.id);
+                          setNotifyMsg("알림톡 발송 완료");
+                        } catch (err) {
+                          setNotifyMsg(err instanceof Error ? err.message : "발송 실패");
+                        } finally {
+                          setNotifySending(false);
+                        }
+                      }}
+                    >
+                      {notifySending
+                        ? <><span className="size-3 rounded-full border border-current/30 border-t-current animate-spin" />발송 중…</>
+                        : <><Send className="size-3" />만료 알림</>}
+                    </Button>
+                  </div>
+                  {notifyMsg && (
+                    <p className={cn("text-xs px-1",
+                      notifyMsg === "알림톡 발송 완료" ? "text-success" : "text-danger"
+                    )}>
+                      {notifyMsg === "알림톡 발송 완료" ? "✓ " : "✗ "}{notifyMsg}
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>

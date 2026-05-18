@@ -1,12 +1,13 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { MessageCircle, Eye, EyeOff, CheckCircle2, ToggleLeft, ToggleRight } from "lucide-react";
+import { MessageCircle, Eye, EyeOff, CheckCircle2, ToggleLeft, ToggleRight, Send } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/cn";
+import { runNotificationsNow, type SendReport } from "@/services/notificationSend";
 
 interface KakaoConfig {
   kakao_pfid: string | null;
@@ -50,6 +51,20 @@ export default function BranchKakaoSettingsCard({ branchId, config, onSaved }: P
   const [showKey, setShowKey] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [testReport, setTestReport] = useState<SendReport | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  const testMutation = useMutation({
+    mutationFn: runNotificationsNow,
+    onSuccess: (report) => {
+      setTestReport(report);
+      setTestError(null);
+    },
+    onError: (err) => {
+      setTestError(err instanceof Error ? err.message : "발송 오류");
+      setTestReport(null);
+    },
+  });
 
   useEffect(() => {
     if (!config) return;
@@ -208,6 +223,47 @@ export default function BranchKakaoSettingsCard({ branchId, config, onSaved }: P
             </div>
           </div>
         </form>
+
+        {/* 즉시 발송 테스트 */}
+        <div className="mt-5 pt-5 border-t border-border">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">지금 발송 테스트</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                오늘의 자동 발송 대상(D-7/3/1 만료 예정 + 마케팅 동의 회원)에게 즉시 발송합니다.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2 shrink-0"
+              disabled={testMutation.isPending || !config?.kakao_enabled}
+              onClick={() => { setTestReport(null); setTestError(null); testMutation.mutate(); }}
+            >
+              {testMutation.isPending
+                ? <><span className="size-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />발송 중…</>
+                : <><Send className="size-3.5" />지금 발송</>}
+            </Button>
+          </div>
+          {!config?.kakao_enabled && (
+            <p className="mt-2 text-xs text-warning">카카오 알림톡이 비활성화 상태입니다. 활성화 후 사용하세요.</p>
+          )}
+          {testError && (
+            <p className="mt-2 rounded-md bg-danger/5 border border-danger/20 px-3 py-2 text-xs text-danger">{testError}</p>
+          )}
+          {testReport && (
+            <div className="mt-2 rounded-md bg-muted/50 border border-border px-3 py-2.5 text-xs space-y-1">
+              <p className="font-medium text-foreground">발송 결과</p>
+              <p className="text-muted-foreground">
+                전체 <strong>{testReport.total}</strong>건 &middot; 성공 <strong className="text-success">{testReport.sent}</strong>건 &middot; 실패 <strong className={testReport.failed > 0 ? "text-danger" : ""}>{testReport.failed}</strong>건 &middot; 스킵 {testReport.skipped}건
+              </p>
+              {testReport.total === 0 && (
+                <p className="text-muted-foreground">오늘 발송할 대상이 없습니다 (마케팅 동의 + D-7/3/1 만료 예정 회원 없음)</p>
+              )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

@@ -17,6 +17,7 @@ import {
   Tablet,
   Wallet,
   MessageSquare,
+  SendHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -76,6 +77,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
       { to: "/staff", label: "직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
       { to: "/admin/alerts", label: "알림", icon: Bell, roles: BRANCH_AND_HQ },
+      { to: "/admin/bulk-notify", label: "그룹 발송", icon: SendHorizontal, roles: BRANCH_AND_HQ },
       { to: "/admin/notification-logs", label: "발송 이력", icon: MessageSquare, roles: BRANCH_AND_HQ },
       { to: "/settings/profile", label: "설정", icon: Settings },
       { to: "/help", label: "도움말", icon: HelpCircle },

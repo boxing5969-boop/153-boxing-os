@@ -5,6 +5,11 @@ import { fail, ok } from "../lib/responses";
 import { requireJwt } from "../middleware/jwt";
 import { getServiceClient } from "../lib/supabase";
 import { appendAccessLog } from "../services/auditLogger";
+import {
+  runNotificationsNow,
+  sendMemberNotification,
+  runBulkNotification,
+} from "../services/manualNotifier";
 
 export const adminRoutes = new Hono<{ Bindings: Env }>();
 
@@ -141,4 +146,78 @@ adminRoutes.put("/branches/:id/kakao", requireJwt, async (c) => {
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   return ok(c, { branch_id: branchId }, "카카오 알림톡 설정이 저장되었습니다");
+});
+
+// ── 즉시 발송: 오늘의 자동 알림 대상 즉시 실행 ──────────────
+adminRoutes.post("/kakao/run-now", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db
+    .from("profiles").select("role")
+    .eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) {
+    return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+  }
+  try {
+    const report = await runNotificationsNow(db, c.env);
+    return ok(c, report, `발송 완료: 성공 ${report.sent}건 / 실패 ${report.failed}건 / 스킵 ${report.skipped}건`);
+  } catch (err) {
+    return fail(c, "SEND_ERROR", err instanceof Error ? err.message : "발송 오류", 500);
+  }
+});
+
+// ── 회원 개별 발송 ─────────────────────────────────────────
+adminRoutes.post("/members/:id/notify", requireJwt, async (c) => {
+  const memberId = c.req.param("id");
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db
+    .from("profiles").select("role")
+    .eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) {
+    return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+  }
+  try {
+    const result = await sendMemberNotification(db, c.env, memberId);
+    if (!result.success) {
+      return fail(c, "SEND_FAILED", result.error ?? "발송 실패", 400);
+    }
+    return ok(c, result, `${result.member_name}님께 알림톡을 발송했습니다`);
+  } catch (err) {
+    return fail(c, "SEND_ERROR", err instanceof Error ? err.message : "발송 오류", 500);
+  }
+});
+
+// ── 그룹 발송 ─────────────────────────────────────────────
+const bulkNotifySchema = z.object({
+  days_ahead: z.number().int().min(1).max(90),
+  branch_id:  z.string().uuid().optional(),
+  dry_run:    z.boolean().default(false),
+});
+
+adminRoutes.post("/notify/bulk", requireJwt, async (c) => {
+  const parsed = bulkNotifySchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  }
+  const db = getServiceClient(c.env);
+  const user = c.get("user");
+  const { data: profileRaw } = await db
+    .from("profiles").select("role")
+    .eq("auth_user_id", user.id).maybeSingle();
+  const profile = profileRaw as { role: string } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) {
+    return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
+  }
+  try {
+    const result = await runBulkNotification(db, c.env, parsed.data);
+    const msg = parsed.data.dry_run
+      ? `발송 예정 인원: ${result.targets_count}명`
+      : `발송 완료: 성공 ${result.report?.sent ?? 0}건 / 실패 ${result.report?.failed ?? 0}건`;
+    return ok(c, result, msg);
+  } catch (err) {
+    return fail(c, "SEND_ERROR", err instanceof Error ? err.message : "발송 오류", 500);
+  }
 });
