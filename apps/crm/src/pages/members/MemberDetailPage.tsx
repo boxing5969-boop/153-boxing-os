@@ -27,6 +27,8 @@ import { ResumeMembershipDialog } from "@/components/memberships/ResumeMembershi
 import { RefundMembershipDialog } from "@/components/memberships/RefundMembershipDialog";
 import { CheckInDialog } from "@/components/memberships/CheckInDialog";
 import { ConsentManagementCard } from "@/components/consent/ConsentManagementCard";
+import { BodyMeasurementsCard } from "@/components/members/BodyMeasurementsCard";
+import { WorkoutLogsCard } from "@/components/members/WorkoutLogsCard";
 import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog";
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState } from "@/services/memberships";
@@ -678,6 +680,12 @@ export default function MemberDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 체성분 기록 */}
+      <BodyMeasurementsCard memberId={member.id} />
+
+      {/* 운동 일지 */}
+      <WorkoutLogsCard memberId={member.id} />
 
       {/* 동의 관리 */}
       <ConsentManagementCard memberId={member.id} />
