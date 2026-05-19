@@ -277,7 +277,79 @@ export async function getSurveyResponseCount(templateId: string): Promise<number
 
 /** 설문 공개 URL 생성 (앱 도메인 기반) */
 export function buildSurveyUrl(slug: string): string {
-  const env = import.meta.env as Record<string, string | undefined>;
+  const env = import.meta.env as unknown as Record<string, string | undefined>;
   const base = env["VITE_SURVEY_BASE_URL"] ?? window.location.origin;
-  return `${base}/survey/${slug}`;
+  return `${base}/s/${slug}`;
+}
+
+// ── 공개 설문 (anon 접근) ─────────────────────────────────────
+
+export interface PublicSurveyQuestion {
+  id: string;
+  order_index: number;
+  question_type: QuestionType;
+  question_text: string;
+  options: unknown | null;
+  is_required: boolean;
+}
+
+export interface PublicSurveyData {
+  qr_code_id: string;
+  branch_name: string;
+  template: {
+    id: string;
+    title: string;
+    description: string | null;
+  };
+  questions: PublicSurveyQuestion[];
+}
+
+export interface PublicSurveyResult {
+  success: true;
+  data: PublicSurveyData;
+}
+
+export interface PublicSurveyError {
+  success: false;
+  error: string;
+}
+
+/** slug로 공개 설문 데이터 조회 (anon RPC) */
+export async function getPublicSurvey(
+  slug: string
+): Promise<PublicSurveyResult | PublicSurveyError> {
+  const { data, error } = await supabase.rpc(
+    "get_public_survey" as "get_survey_results_summary", // DB 타입 미갱신 우회
+    { p_slug: slug } as unknown as { p_survey_template_id: string }
+  );
+  if (error) return { success: false, error: error.message };
+  const result = data as unknown as { success: boolean; error?: string } & Partial<PublicSurveyData>;
+  if (!result.success) return { success: false, error: result.error ?? "알 수 없는 오류" };
+  return { success: true, data: result as unknown as PublicSurveyData };
+}
+
+export interface AnswerInput {
+  question_id: string;
+  answer_text?: string | null;
+  answer_score?: number | null;
+}
+
+/** 설문 응답 제출 (anon RPC) */
+export async function submitPublicSurvey(
+  qrSlug: string,
+  answers: AnswerInput[],
+  respondentPhone?: string
+): Promise<{ success: boolean; response_id?: string; error?: string }> {
+  const { data, error } = await supabase.rpc(
+    "submit_survey_response" as "get_survey_results_summary",
+    {
+      p_qr_slug: qrSlug,
+      p_answers: answers as unknown as string,
+      p_member_id: null,
+      p_respondent_phone: respondentPhone ?? null,
+    } as unknown as { p_survey_template_id: string }
+  );
+  if (error) return { success: false, error: error.message };
+  const result = data as unknown as { success: boolean; response_id?: string; error?: string };
+  return result;
 }

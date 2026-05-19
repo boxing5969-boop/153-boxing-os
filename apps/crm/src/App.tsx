@@ -51,6 +51,8 @@ const CoachDashboardPage = lazy(() => import("@/pages/coach/CoachDashboardPage")
 // 회원만족 설문
 const SurveysListPage = lazy(() => import("@/pages/surveys/SurveysListPage"));
 const SurveyDetailPage = lazy(() => import("@/pages/surveys/SurveyDetailPage"));
+// 공개 설문 응답 페이지 (로그인 불필요)
+const PublicSurveyPage = lazy(() => import("@/pages/surveys/PublicSurveyPage"));
 
 function PageFallback() {
   return (
@@ -69,6 +71,8 @@ export default function App() {
           <Route path="/signup" element={<SignupPage />} />
           {/* 공개 계약서 뷰 — 로그인 없이 접근 가능 */}
           <Route path="/contracts/view/:contractId" element={<ContractViewPage />} />
+          {/* 공개 설문 응답 페이지 — 로그인 없이 접근 가능 */}
+          <Route path="/s/:slug" element={<PublicSurveyPage />} />
           <Route element={<ProtectedRoute />}>
             {/* Kiosk: full-screen, no sidebar/header */}
             <Route path="/kiosk" element={<KioskHomePage />} />
