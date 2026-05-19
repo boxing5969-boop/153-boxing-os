@@ -24,6 +24,7 @@ import {
   FileSignature,
   BanknoteIcon,
   CalendarDays,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -94,7 +95,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "관리",
     items: [
-      { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
+      { to: "/hq",       label: "본사 현황", icon: BarChart3,  roles: ["super_admin", "hq_admin"] },
+      { to: "/branches", label: "지점",      icon: Building2, roles: ["super_admin", "hq_admin"] },
       { to: "/staff", label: "CRM 직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
       { to: "/admin/alerts", label: "알림", icon: Bell, roles: BRANCH_AND_HQ },
       { to: "/admin/bulk-notify", label: "그룹 발송", icon: SendHorizontal, roles: BRANCH_AND_HQ },

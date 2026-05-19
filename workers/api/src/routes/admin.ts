@@ -430,3 +430,24 @@ adminRoutes.put("/branches/:id/notify-settings", requireJwt, async (c) => {
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   return ok(c, { branch_id: branchId }, "알림 설정이 저장되었습니다");
 });
+
+// ── 본사 대시보드: 전 지점 통계 ─────────────────────────────
+const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
+
+adminRoutes.get("/hq-stats", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const { data: profileRaw } = await db
+    .from("profiles")
+    .select("id,role")
+    .eq("auth_user_id", c.get("user").id)
+    .maybeSingle();
+  const profile = profileRaw as { id: string; role: string } | null;
+
+  if (!profile || !HQ_ROLES.has(profile.role)) {
+    return fail(c, "PERMISSION_DENIED", "본사 권한이 필요합니다", 403);
+  }
+
+  const { data, error } = await db.rpc("get_hq_branch_stats");
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, data ?? []);
+});
