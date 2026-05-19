@@ -49,26 +49,6 @@ function getDb(env: Env) {
 }
 
 // ============================================================
-// 진단용 엔드포인트 (배포 후 삭제 예정)
-// GET /api/hr/debug/me → JWT sub + 프로필 조회 결과 반환
-// ============================================================
-hrRoutes.get("/debug/me", requireJwt, async (c) => {
-  const userId = c.get("user").id;
-  const db = getServiceClient(c.env);
-  const { data, error } = await db
-    .from("profiles")
-    .select("id,role,company_id,branch_id,name")
-    .eq("auth_user_id", userId)
-    .maybeSingle();
-  return c.json({
-    jwt_user_id: userId,
-    supabase_url: c.env.SUPABASE_URL,
-    profile: data,
-    db_error: error ? error.message : null,
-  });
-});
-
-// ============================================================
 // 직원 CRUD
 // ============================================================
 

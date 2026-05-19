@@ -36,6 +36,8 @@ const FinancePage = lazy(() => import("@/pages/finance/FinancePage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const KioskHomePage = lazy(() => import("@/pages/kiosk/KioskHomePage"));
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
+// 수업/PT
+const ClassSchedulePage = lazy(() => import("@/pages/classes/ClassSchedulePage"));
 // HR
 const ContractViewPage = lazy(() => import("@/pages/hr/ContractViewPage"));
 const HrStaffListPage = lazy(() => import("@/pages/hr/HrStaffListPage"));
@@ -89,6 +91,8 @@ export default function App() {
               <Route path="/admin/send-logs" element={<MessageSendLogsPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/help" element={<HelpPage />} />
+              {/* 수업/PT */}
+              <Route path="/classes" element={<ClassSchedulePage />} />
               {/* HR */}
               <Route path="/hr/staff" element={<HrStaffListPage />} />
               <Route path="/hr/staff/:staffId" element={<HrStaffDetailPage />} />

@@ -23,6 +23,7 @@ import {
   UserCog,
   FileSignature,
   BanknoteIcon,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -65,6 +66,12 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/access-logs", label: "출입 로그", icon: ScrollText },
       { to: "/devices", label: "장비", icon: Smartphone, roles: BRANCH_AND_HQ },
       { to: "/admin/emergency-pins", label: "비상 PIN", icon: KeyRound, roles: BRANCH_AND_HQ },
+    ],
+  },
+  {
+    label: "수업",
+    items: [
+      { to: "/classes", label: "수업 일정", icon: CalendarDays, roles: BRANCH_AND_HQ },
     ],
   },
   {

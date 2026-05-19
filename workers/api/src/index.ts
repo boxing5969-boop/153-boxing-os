@@ -9,6 +9,7 @@ import { staffRoutes } from "./routes/staff";
 import { externalRoutes } from "./routes/external";
 import { onboardingRoutes } from "./routes/onboarding";
 import { hrRoutes } from "./routes/hr";
+import { classesRoutes } from "./routes/classes";
 import {
   processNextSyncJobs,
   runDailyExpiry,
@@ -37,6 +38,7 @@ app.route("/api/staff", staffRoutes);
 app.route("/api/external", externalRoutes);
 app.route("/api/onboarding", onboardingRoutes);
 app.route("/api/hr", hrRoutes);
+app.route("/api/classes", classesRoutes);
 
 app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)
