@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>153 Boxing OS · AI 도우미</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/7.0.0/fuse.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #e63027;
+      --brand-dark: #b71c1c;
+      --bg: #0f0f10;
+      --surface: #1a1a1d;
+      --surface2: #232327;
+      --border: #2e2e33;
+      --text: #f0f0f2;
+      --text-muted: #888890;
+      --user-bubble: #e63027;
+      --bot-bubble: #232327;
+      --radius: 16px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Noto Sans KR", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header-logo {
+      width: 36px; height: 36px;
+      background: var(--brand);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 900; color: #fff; letter-spacing: -0.5px;
+      flex-shrink: 0;
+    }
+    .header-info h1 { font-size: 15px; font-weight: 800; }
+    .header-info p { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 2px rgba(34,197,94,.25);
+      animation: pulse 2s infinite;
+      margin-left: auto; flex-shrink: 0;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    /* ── Messages ───────────────────────────────────── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      scroll-behavior: smooth;
+    }
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .msg { display: flex; gap: 10px; max-width: 88%; }
+    .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .msg.bot  { align-self: flex-start; }
+
+    .avatar {
+      width: 30px; height: 30px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0; margin-top: 2px;
+      background: var(--brand); color: #fff; font-weight: 900;
+    }
+    .msg.user .avatar { background: #3a3a40; font-size: 14px; }
+
+    .bubble {
+      padding: 11px 15px;
+      border-radius: var(--radius);
+      font-size: 13.5px;
+      line-height: 1.65;
+      word-break: keep-all;
+    }
+    .msg.bot .bubble {
+      background: var(--bot-bubble);
+      border-bottom-left-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .msg.user .bubble {
+      background: var(--user-bubble);
+      border-bottom-right-radius: 4px;
+      color: #fff;
+    }
+    .bubble strong { font-weight: 700; }
+    .bubble ul { padding-left: 18px; margin-top: 6px; }
+    .bubble li { margin-bottom: 4px; }
+    .bubble .tag {
+      display: inline-block;
+      background: rgba(230,48,39,.15);
+      color: var(--brand);
+      border-radius: 6px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-right: 4px;
+      margin-bottom: 2px;
+    }
+
+    /* ── Typing indicator ───────────────────────────── */
+    .typing .bubble {
+      display: flex; align-items: center; gap: 5px;
+      padding: 14px 18px;
+    }
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--text-muted);
+      animation: bounce 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+
+    /* ── Quick chips ────────────────────────────────── */
+    .chips-wrap {
+      padding: 0 16px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+    .chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 13px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .chip:hover { border-color: var(--brand); color: var(--brand); background: rgba(230,48,39,.07); }
+
+    /* ── Input ──────────────────────────────────────── */
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .input-row input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 16px;
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color .15s;
+    }
+    .input-row input::placeholder { color: var(--text-muted); }
+    .input-row input:focus { border-color: var(--brand); }
+    .send-btn {
+      width: 40px; height: 40px;
+      background: var(--brand);
+      border: none; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: background .15s;
+      flex-shrink: 0;
+    }
+    .send-btn:hover { background: var(--brand-dark); }
+    .send-btn:disabled { background: var(--surface2); cursor: not-allowed; }
+    .send-btn svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; }
+
+    /* ── Intro card ─────────────────────────────────── */
+    .intro {
+      background: linear-gradient(135deg, rgba(230,48,39,.12), rgba(183,28,28,.06));
+      border: 1px solid rgba(230,48,39,.25);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      margin-bottom: 4px;
+    }
+    .intro h2 { font-size: 15px; font-weight: 800; margin-bottom: 6px; }
+    .intro p { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
+
+    @media(max-width:480px) {
+      .bubble { font-size: 13px; }
+      .msg { max-width: 95%; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-logo">153</div>
+  <div class="header-info">
+    <h1>153 Boxing OS AI</h1>
+    <p>무엇이든 물어보세요</p>
+  </div>
+  <div class="status-dot"></div>
+</div>
+
+<!-- Messages -->
+<div class="messages" id="msgs"></div>
+
+<!-- Quick chips -->
+<div class="chips-wrap" id="chips"></div>
+
+<!-- Input -->
+<div class="input-row">
+  <input type="text" id="inp" placeholder="궁금한 점을 입력하세요…" autocomplete="off" />
+  <button class="send-btn" id="sendBtn" onclick="handleSend()">
+    <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+  </button>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════
+// 지식 베이스 (Knowledge Base)
+// ════════════════════════════════════════════════════
+const KB = [
+  {
+    tags: ["153 boxing os", "이 앱", "이 시스템", "뭐야", "무엇", "소개", "설명", "개요"],
+    q: "153 Boxing OS가 뭔가요? 이 앱은 무엇인가요?",
+    a: `<strong>153 Boxing OS</strong>는 153복싱짐 전국 프랜차이즈 전용 통합 운영 플랫폼입니다.<br><br>단순 회원관리 프로그램이 아니라 <strong>CRM + 출입통제 + 직원관리 + 재무 + 설문</strong>을 하나로 묶은 복싱짐 전용 OS입니다.<br><br>
+    <ul>
+      <li>🥊 회원 등록·이용권 관리·출입 자동화</li>
+      <li>📷 얼굴인식 단말기 연동 (만료 회원 자동 차단)</li>
+      <li>📱 QR 코드 출입 지원</li>
+      <li>🏢 본사 → 전국 지점 통합 관리</li>
+      <li>👥 직원·코치 권한 분리</li>
+      <li>📊 실시간 대시보드·매출 통계</li>
+    </ul>`
+  },
+  {
+    tags: ["출입", "출입통제", "입장", "문 열기", "얼굴인식", "QR", "카드", "PIN", "출입 거절"],
+    q: "출입통제 시스템은 어떻게 작동하나요?",
+    a: `출입 판단은 <strong>153 CRM 서버</strong>가 합니다. 얼굴인식 단말기는 "누구인지"만 확인하고, CRM이 "들어와도 되는지"를 결정합니다.<br><br>
+    <strong>출입 가능 조건:</strong>
+    <ul>
+      <li>✅ 이용권이 유효하고 결제 완료된 회원</li>
+      <li>✅ 체험권이 유효한 회원</li>
+    </ul>
+    <strong>자동 차단 조건:</strong>
+    <ul>
+      <li>❌ 이용권 만료</li>
+      <li>❌ 미납 상태</li>
+      <li>❌ 정지·휴회 처리</li>
+      <li>❌ 체험권 소진/만료</li>
+    </ul>
+    출입 성공·거절 모든 기록이 로그에 저장되며 삭제할 수 없습니다.`
+  },
+  {
+    tags: ["얼굴인식", "안면인식", "카메라", "슈프리마", "단말기", "하드웨어"],
+    q: "얼굴인식은 어떻게 연동되나요?",
+    a: `얼굴인식 엔진은 <strong>하드웨어 단말기</strong>가 처리합니다. CRM은 얼굴 원본사진을 저장하지 않습니다.<br><br>
+    CRM이 관리하는 것:
+    <ul>
+      <li>회원 ID ↔ 단말기 사용자 ID 연결</li>
+      <li>얼굴 등록 동의 기록</li>
+      <li>동기화 상태 (성공/실패)</li>
+      <li>출입 로그</li>
+    </ul>
+    슈프리마·ZKTeco·Hikvision 등 다양한 단말기를 지원하는 어댑터 구조로 설계되어 있어, <strong>단말기가 바뀌어도 CRM은 그대로</strong> 사용할 수 있습니다.`
+  },
+  {
+    tags: ["QR", "QR코드", "큐알", "스캔", "랭킹업", "앱"],
+    q: "QR 출입은 어떻게 작동하나요?",
+    a: `QR 출입은 얼굴인식의 <strong>보조 수단</strong>으로 지원됩니다.<br><br>
+    <ul>
+      <li>회원이 앱에서 1회용 QR 토큰을 생성 (유효시간 30~60초)</li>
+      <li>1회 사용 후 자동 폐기 — 캡처 공유로 재사용 불가</li>
+      <li>QR 리더기가 스캔 → CRM이 권한 검증 → 문 오픈</li>
+    </ul>
+    QR은 출입용과 설문용이 <strong>완전히 분리</strong>되어 있어 보안상 안전합니다.`
+  },
+  {
+    tags: ["회원", "회원관리", "등록", "신규", "회원 추가", "회원 상태"],
+    q: "회원 관리는 어떻게 하나요?",
+    a: `<strong>회원 상태</strong>는 6가지로 자동 관리됩니다:<br>
+    <span class="tag">활성</span><span class="tag">체험</span><span class="tag">만료</span><span class="tag">정지</span><span class="tag">미납</span><span class="tag">퇴회</span><br><br>
+    주요 기능:
+    <ul>
+      <li>이름·전화번호·생년월일·담당 코치 관리</li>
+      <li>이용권 상태 실시간 확인</li>
+      <li>출입 가능 여부 한눈에 확인</li>
+      <li>얼굴 등록 여부·QR 사용 가능 여부</li>
+      <li>상담 메모·레벨업 현황</li>
+      <li>마케팅 동의 상태 관리</li>
+    </ul>`
+  },
+  {
+    tags: ["이용권", "회원권", "등록", "연장", "만료", "정지", "환불", "결제"],
+    q: "이용권(회원권)은 어떻게 관리하나요?",
+    a: `이용권 등록 시 <strong>출입 권한이 자동 생성</strong>되고, 만료·취소 시 자동 제거됩니다.<br><br>
+    지원 기능:
+    <ul>
+      <li>이용권 등록·연장·정지</li>
+      <li>미납 처리 (즉시 출입 차단)</li>
+      <li>환불·취소</li>
+      <li>만료 자동 처리</li>
+      <li>지점별 이용권 프리셋 설정</li>
+    </ul>
+    결제 상태: <span class="tag">결제완료</span><span class="tag">미납</span><span class="tag">부분납부</span><span class="tag">환불</span>`
+  },
+  {
+    tags: ["체험권", "체험", "1회권", "무료체험", "체험 종료"],
+    q: "체험권은 어떻게 작동하나요?",
+    a: `체험권은 <strong>기간 또는 횟수</strong>로 제한할 수 있습니다.<br><br>
+    <ul>
+      <li>1회 체험권 / 1일 체험권 발급</li>
+      <li>최대 사용 횟수 설정 가능</li>
+      <li>체험 종료 후 <strong>자동으로 출입 차단</strong></li>
+      <li>체험 종료 다음날 자동으로 만족도 설문 문자 발송 가능</li>
+    </ul>`
+  },
+  {
+    tags: ["프랜차이즈", "지점", "본사", "가맹점", "지점 관리", "전국"],
+    q: "프랜차이즈 구조는 어떻게 되나요?",
+    a: `153 Boxing OS는 처음부터 <strong>전국 프랜차이즈 확장</strong>을 고려해 설계되었습니다.<br><br>
+    <ul>
+      <li><strong>본사</strong>: 전체 지점 현황 통합 조회, 지점 추가/관리</li>
+      <li><strong>가맹점주/관장</strong>: 자기 지점 회원·매출·출입 관리</li>
+      <li><strong>코치</strong>: 담당 회원만 조회 가능</li>
+    </ul>
+    지점이 늘어나도 <strong>추가 비용 없이</strong> 동일 시스템으로 운영됩니다.`
+  },
+  {
+    tags: ["권한", "역할", "관리자", "코치", "계정", "로그인"],
+    q: "권한 구조는 어떻게 되나요?",
+    a: `6가지 권한 레벨로 운영됩니다:<br><br>
+    <span class="tag">본사 최고관리자</span> 모든 지점 전체 접근<br>
+    <span class="tag">본사 관리자</span> 전체 지점 조회·관리<br>
+    <span class="tag">가맹점주</span> 자기 지점 전체 관리<br>
+    <span class="tag">지점 관리자</span> 지점 운영 전반<br>
+    <span class="tag">코치</span> 담당 회원 정보만<br>
+    <span class="tag">회원</span> 본인 정보·QR만<br><br>
+    각 권한은 데이터베이스 레벨에서 강제 적용됩니다.`
+  },
+  {
+    tags: ["대시보드", "통계", "현황", "오늘", "실시간"],
+    q: "대시보드에서 무엇을 볼 수 있나요?",
+    a: `오늘 운영 현황을 한눈에 확인할 수 있습니다:<br><br>
+    <ul>
+      <li>📊 오늘 출입 수 / 출입 거절 수</li>
+      <li>⚠️ 만료·미납으로 거절된 건수</li>
+      <li>🎯 체험권 사용 현황</li>
+      <li>📅 만료 예정 회원 목록</li>
+      <li>🔴 단말기 동기화 실패 알림</li>
+      <li>💬 상담 필요 회원 액션 보드</li>
+      <li>🏃 방문자 전환 퍼널 현황</li>
+    </ul>`
+  },
+  {
+    tags: ["수익", "지출", "재무", "매출", "수입", "비용", "정산"],
+    q: "수익/지출 관리는 어떻게 하나요?",
+    a: `수익과 지출을 카테고리별로 기록하고 조회할 수 있습니다.<br><br>
+    <ul>
+      <li>이용권 매출 자동 집계</li>
+      <li>지출 항목 직접 입력</li>
+      <li>지점별·월별 수익 통계</li>
+      <li>매출 상세 리포트</li>
+    </ul>`
+  },
+  {
+    tags: ["직원", "급여", "계약서", "HR", "인사", "코치 관리"],
+    q: "직원/급여 관리 기능이 있나요?",
+    a: `HR 관리 기능이 내장되어 있습니다:<br><br>
+    <ul>
+      <li>👤 직원 등록·관리 (코치, 매니저 등)</li>
+      <li>📄 계약서 관리</li>
+      <li>💰 급여 명세 발행·조회</li>
+      <li>근무 시간·역할별 급여 설정</li>
+    </ul>`
+  },
+  {
+    tags: ["설문", "만족도", "설문조사", "QR 설문", "피드백"],
+    q: "회원 만족도 설문 기능은 어떻게 쓰나요?",
+    a: `설문 QR 코드를 만들어 카운터에 비치하거나 문자로 발송할 수 있습니다.<br><br>
+    <ul>
+      <li>설문 템플릿 생성 (기본 질문 5개 자동 포함)</li>
+      <li>질문 추가·수정·삭제 가능</li>
+      <li>QR 코드 발급 → 링크 복사·인쇄</li>
+      <li>응답 결과 통계 확인</li>
+      <li>체험권 종료 후 자동 설문 발송</li>
+    </ul>`
+  },
+  {
+    tags: ["메시지", "문자", "카카오", "알림", "발송", "SMS"],
+    q: "회원에게 문자·메시지를 보낼 수 있나요?",
+    a: `다양한 메시지 발송 기능을 지원합니다:<br><br>
+    <ul>
+      <li>📱 <strong>그룹 발송</strong>: 조건별 회원 선택 후 일괄 발송</li>
+      <li>⏰ <strong>예약 발송</strong>: 원하는 시간에 예약</li>
+      <li>🔄 <strong>자동 발송</strong>: 이용권 만료 D-7/D-3/D-1일 자동 알림</li>
+      <li>📋 <strong>메시지 템플릿</strong>: 자주 쓰는 메시지 저장</li>
+      <li>📊 <strong>발송 이력</strong>: 전송 결과 확인</li>
+      <li>설문 링크 자동 삽입 기능</li>
+    </ul>`
+  },
+  {
+    tags: ["출입 로그", "기록", "히스토리", "로그"],
+    q: "출입 로그는 어떻게 확인하나요?",
+    a: `<strong>출입 로그</strong>는 모든 출입 시도를 기록합니다 (성공·거절 모두).<br><br>
+    필터 기능:
+    <ul>
+      <li>성공/거절 필터</li>
+      <li>회원별 필터</li>
+      <li>지점별 필터</li>
+      <li>거절 사유별 필터 (만료/미납/정지 등)</li>
+    </ul>
+    출입 로그는 <strong>수정·삭제 불가</strong>한 감사 기록입니다.`
+  },
+  {
+    tags: ["장비", "단말기", "동기화", "장비 관리", "기기"],
+    q: "출입 장비 관리는 어떻게 하나요?",
+    a: `<strong>장비 관리</strong> 메뉴에서 연결된 단말기를 관리합니다:<br><br>
+    <ul>
+      <li>장비 등록 (얼굴인식기, QR리더기, 카드리더기 등)</li>
+      <li>마지막 통신 시간 확인</li>
+      <li>동기화 실패 이력 조회</li>
+      <li>강제 동기화 실행</li>
+    </ul>
+    단말기 동기화 실패 시 관리자 대시보드에 <strong>즉시 알림</strong>이 표시됩니다.`
+  },
+  {
+    tags: ["방문자", "상담", "견학", "신청", "체험 신청"],
+    q: "방문자/상담 관리 기능이 있나요?",
+    a: `<strong>방문자·상담 관리</strong> 기능을 제공합니다:<br><br>
+    <ul>
+      <li>시설 견학 신청 접수</li>
+      <li>상담 예약 관리</li>
+      <li>직원 승인 방문 출입 처리</li>
+      <li>상담 결과 기록 (메모)</li>
+      <li>다음 팔로업 날짜 설정</li>
+    </ul>`
+  },
+  {
+    tags: ["레벨", "레벨업", "벨트", "테스트", "급수"],
+    q: "레벨업 관리 기능은 무엇인가요?",
+    a: `복싱 실력에 따른 <strong>레벨업 시스템</strong>을 관리합니다:<br><br>
+    <ul>
+      <li>단계: <span class="tag">White</span><span class="tag">Blue</span><span class="tag">Red</span><span class="tag">Black</span></li>
+      <li>각 색상 내 Lv.1~10</li>
+      <li>레벨 테스트 결과 입력</li>
+      <li>담당 코치 승인 프로세스</li>
+      <li>회원별 레벨 이력 관리</li>
+    </ul>`
+  },
+  {
+    tags: ["비용", "가격", "요금", "구독", "서버비", "비용이 얼마"],
+    q: "이용 비용은 얼마인가요?",
+    a: `153 Boxing OS는 <strong>153복싱짐 자체 개발 시스템</strong>으로, 외부 SaaS 구독료 없이 운영됩니다.<br><br>
+    서버 비용:
+    <ul>
+      <li>🌐 Cloudflare Pages/Workers: 무료 플랜으로 운영 가능</li>
+      <li>🗄️ Supabase: 소규모 무료 플랜 → 성장 시 유료 전환</li>
+      <li>📱 SMS 발송: 건당 과금 (Solapi 기준 약 8~20원/건)</li>
+    </ul>
+    별도 라이선스 비용 없음.`
+  },
+  {
+    tags: ["보안", "안전", "개인정보", "생체정보", "데이터"],
+    q: "보안은 어떻게 관리되나요?",
+    a: `보안은 여러 레이어로 보호됩니다:<br><br>
+    <ul>
+      <li>🔐 <strong>얼굴 원본사진 CRM 미저장</strong> — 단말기에만 보관</li>
+      <li>🛡️ 데이터베이스 행 수준 보안 (RLS) 적용</li>
+      <li>🔑 장비 API는 별도 API 키 + HMAC 서명 인증</li>
+      <li>📋 안면인식 동의 기록 보관 (동의 철회 시 자동 삭제)</li>
+      <li>🚫 출입 로그 삭제·수정 불가</li>
+      <li>🔒 권한별 데이터 격리 (코치는 담당 회원만)</li>
+    </ul>`
+  },
+  {
+    tags: ["기술", "스택", "React", "TypeScript", "Cloudflare", "Supabase", "개발"],
+    q: "어떤 기술로 만들어졌나요?",
+    a: `최신 클라우드 네이티브 기술 스택으로 구축되었습니다:<br><br>
+    <ul>
+      <li>🖥️ <strong>프론트엔드</strong>: React + TypeScript + Tailwind CSS</li>
+      <li>⚡ <strong>API</strong>: Cloudflare Workers (전 세계 엣지 배포)</li>
+      <li>🗄️ <strong>DB</strong>: PostgreSQL (Supabase)</li>
+      <li>📦 <strong>스토리지</strong>: Cloudflare R2</li>
+      <li>🔐 <strong>인증</strong>: Supabase Auth</li>
+      <li>🌐 <strong>배포</strong>: Cloudflare Pages (CDN)</li>
+    </ul>`
+  },
+  {
+    tags: ["검색", "Cmd+K", "단축키", "빠른 검색"],
+    q: "앱 안에서 빠른 검색은 어떻게 하나요?",
+    a: `<strong>Cmd+K (Mac) / Ctrl+K (Windows)</strong> 를 누르면 전역 검색창이 열립니다.<br><br>
+    <ul>
+      <li>회원 이름·전화번호 실시간 검색</li>
+      <li>메뉴 빠른 이동 (회원 목록, 이용권, 출입 로그 등)</li>
+      <li>키보드 ↑↓ 탐색, Enter 선택, Esc 닫기</li>
+    </ul>`
+  },
+  {
+    tags: ["도입", "시작", "설치", "사용 시작", "가입"],
+    q: "어떻게 도입하나요?",
+    a: `153 Boxing OS는 현재 <strong>153복싱짐 전용</strong> 시스템입니다.<br><br>
+    도입 문의는 아래로 연락해주세요:<br>
+    📧 boxing5969@gmail.com<br><br>
+    도입 시 제공되는 것:
+    <ul>
+      <li>지점 계정 생성 및 초기 설정</li>
+      <li>얼굴인식 단말기 연동 지원</li>
+      <li>사용 방법 교육</li>
+    </ul>`
+  },
+  {
+    tags: ["모바일", "핸드폰", "스마트폰", "앱", "아이폰", "안드로이드"],
+    q: "모바일에서도 사용할 수 있나요?",
+    a: `CRM 관리자 앱은 <strong>웹 브라우저 기반</strong>으로 모바일에서도 접속 가능합니다.<br><br>
+    <ul>
+      <li>PC/태블릿: 최적화된 UI 제공</li>
+      <li>스마트폰: 반응형으로 기본 기능 사용 가능</li>
+      <li>회원용 QR 출입: 랭킹업 앱 연동 예정</li>
+    </ul>`
+  },
+  {
+    tags: ["키오스크", "무인", "태블릿"],
+    q: "키오스크 기능이 있나요?",
+    a: `<strong>키오스크 모드</strong>를 지원합니다.<br><br>태블릿을 프론트 데스크에 설치하여 회원이 직접 체크인하거나 방문 신청을 할 수 있는 셀프 서비스 화면으로 활용할 수 있습니다.`
+  },
+  {
+    tags: ["수업", "클래스", "스케줄", "일정", "예약"],
+    q: "수업 일정 관리가 되나요?",
+    a: `<strong>수업 일정</strong> 메뉴에서 수업을 등록하고 관리할 수 있습니다.<br><br>
+    <ul>
+      <li>수업 일정 등록·수정</li>
+      <li>담당 코치 지정</li>
+      <li>수업별 정원 관리</li>
+    </ul>`
+  },
+  {
+    tags: ["랭킹업", "회원 앱", "고객 앱", "멤버 앱"],
+    q: "회원용 앱(랭킹업)과 연동되나요?",
+    a: `153 Boxing OS는 <strong>랭킹업 앱과 별도 시스템</strong>으로 운영됩니다.<br><br>
+    현재: 두 시스템은 독립적으로 운영<br>
+    예정: API를 통해 아래 기능 연동 계획
+    <ul>
+      <li>회원 이용권 조회</li>
+      <li>QR 출입 코드 생성</li>
+      <li>출입 로그 확인</li>
+      <li>레벨 조회</li>
+    </ul>`
+  },
+];
+
+// ════════════════════════════════════════════════════
+// Fuse.js 초기화
+// ════════════════════════════════════════════════════
+const fuse = new Fuse(KB, {
+  keys: [
+    { name: 'q',    weight: 0.4 },
+    { name: 'tags', weight: 0.6 },
+  ],
+  threshold: 0.45,
+  includeScore: true,
+  minMatchCharLength: 1,
+});
+
+// ════════════════════════════════════════════════════
+// 빠른 질문 칩
+// ════════════════════════════════════════════════════
+const QUICK = [
+  "이 앱이 뭔가요?",
+  "출입통제 어떻게 작동?",
+  "이용권 관리",
+  "프랜차이즈 구조",
+  "보안은 안전한가요?",
+  "비용이 얼마예요?",
+  "설문 기능",
+  "문자 발송",
+];
+
+// ════════════════════════════════════════════════════
+// 폴백 응답
+// ════════════════════════════════════════════════════
+const FALLBACKS = [
+  "죄송해요, 정확히 이해하지 못했어요. 다른 방식으로 질문해주시겠어요? 예: <strong>출입통제</strong>, <strong>이용권 관리</strong>, <strong>프랜차이즈 구조</strong> 등을 물어보실 수 있어요.",
+  "제가 그 질문에 대한 정보를 찾지 못했어요. 아래 빠른 질문을 눌러보시거나, 더 구체적으로 질문해주세요.",
+  "음… 잘 모르겠어요. <strong>도입 문의</strong>나 <strong>기능 설명</strong> 관련해서 다시 질문해주시면 도와드릴게요!",
+];
+
+// ════════════════════════════════════════════════════
+// UI 유틸
+// ════════════════════════════════════════════════════
+const msgsEl  = document.getElementById('msgs');
+const inpEl   = document.getElementById('inp');
+const chipsEl = document.getElementById('chips');
+let   busy    = false;
+
+function renderChips(show = true) {
+  chipsEl.innerHTML = '';
+  if (!show) return;
+  QUICK.forEach(text => {
+    const c = document.createElement('button');
+    c.className = 'chip';
+    c.textContent = text;
+    c.onclick = () => { inpEl.value = text; handleSend(); };
+    chipsEl.appendChild(c);
+  });
+}
+
+function addMsg(html, role) {
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
+
+  const av = document.createElement('div');
+  av.className = 'avatar';
+  av.textContent = role === 'bot' ? '🤖' : '나';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = html;
+
+  wrap.appendChild(av);
+  wrap.appendChild(bubble);
+  msgsEl.appendChild(wrap);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+  return wrap;
+}
+
+function showTyping() {
+  const el = addMsg('', 'bot typing');
+  el.querySelector('.bubble').innerHTML =
+    '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+  return el;
+}
+
+function answer(query) {
+  const results = fuse.search(query);
+  if (results.length === 0 || results[0].score > 0.6) {
+    return FALLBACKS[Math.floor(Math.random() * FALLBACKS.length)];
+  }
+  // 최고 점수 항목 반환
+  return results[0].item.a;
+}
+
+async function handleSend() {
+  const q = inpEl.value.trim();
+  if (!q || busy) return;
+  busy = true;
+  inpEl.value = '';
+  renderChips(false);
+
+  addMsg(q, 'user');
+
+  const typingEl = showTyping();
+
+  // 짧은 지연으로 자연스러운 응답감
+  await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+  typingEl.remove();
+
+  const resp = answer(q);
+  addMsg(resp, 'bot');
+
+  busy = false;
+  renderChips(true);
+  inpEl.focus();
+}
+
+// Enter 키 처리
+inpEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleSend();
+});
+
+// ════════════════════════════════════════════════════
+// 초기화
+// ════════════════════════════════════════════════════
+(function init() {
+  // 인트로 메시지
+  const intro = document.createElement('div');
+  intro.className = 'intro';
+  intro.innerHTML = `
+    <h2>👋 안녕하세요! 153 Boxing OS AI입니다.</h2>
+    <p>출입통제, 회원관리, 이용권, 프랜차이즈 구조, 기능 사용법 등<br>153 Boxing OS에 대해 무엇이든 물어보세요.</p>
+  `;
+  msgsEl.appendChild(intro);
+
+  addMsg(
+    '안녕하세요! 저는 <strong>153 Boxing OS</strong> 전용 AI 도우미예요. 🥊<br><br>출입통제 시스템, 회원·이용권 관리, 프랜차이즈 구조, 각종 기능에 대해 자세히 알려드릴 수 있어요. 아래 빠른 질문을 눌러보거나 직접 입력해보세요!',
+    'bot'
+  );
+  renderChips(true);
+  inpEl.focus();
+})();
+</script>
+</body>
+</html>

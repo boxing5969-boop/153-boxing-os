@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import GlobalSearch from "@/components/GlobalSearch";
+import AiHelpWidget from "@/components/AiHelpWidget";
 
 export default function AppLayout() {
   return (
@@ -17,6 +18,8 @@ export default function AppLayout() {
       </div>
       {/* 글로벌 검색 오버레이 (Cmd+K) */}
       <GlobalSearch />
+      {/* AI 도우미 플로팅 위젯 */}
+      <AiHelpWidget />
     </div>
   );
 }
