@@ -51,6 +51,26 @@ export async function listExpiringMemberships(
   });
 }
 
+// ── 이탈 위험 회원 (AtRiskMembersCard + ContactActionBoard 공유) ──
+export type AtRiskType = "unpaid" | "expired" | "absent";
+
+export interface AtRiskMember {
+  member_id: string;
+  member_name: string;
+  member_phone: string | null;
+  risk_type: AtRiskType;
+  detail: string;
+  since_date: string;
+}
+
+export async function getAtRiskMembers(branchId: string): Promise<AtRiskMember[]> {
+  const { data, error } = await supabase.rpc("get_at_risk_members", {
+    _branch_id: branchId,
+  });
+  if (error) throw error;
+  return (data ?? []) as AtRiskMember[];
+}
+
 export interface DeniedReasonStat {
   denied_reason: DeniedReason | string;
   count: number;

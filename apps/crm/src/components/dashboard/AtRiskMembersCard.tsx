@@ -5,34 +5,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { UserX, AlertCircle, Clock3, Wifi } from "lucide-react";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { getAtRiskMembers, type AtRiskType } from "@/services/dashboardWidgets";
 import { cn } from "@/lib/cn";
 
-type RiskType = "unpaid" | "expired" | "absent";
-
-interface AtRiskMember {
-  member_id: string;
-  member_name: string;
-  member_phone: string | null;
-  risk_type: RiskType;
-  detail: string;
-  since_date: string;
-}
-
-const RISK_META: Record<RiskType, { label: string; color: string; icon: typeof AlertCircle }> = {
+const RISK_META: Record<AtRiskType, { label: string; color: string; icon: typeof AlertCircle }> = {
   unpaid:  { label: "미납",   color: "text-danger  bg-danger/10",  icon: AlertCircle },
   expired: { label: "만료",   color: "text-warning bg-warning/10", icon: Clock3 },
   absent:  { label: "미출석", color: "text-blue-500 bg-blue-50",   icon: Wifi },
 };
-
-async function fetchAtRiskMembers(branchId: string): Promise<AtRiskMember[]> {
-  const { data, error } = await supabase.rpc("get_at_risk_members", {
-    _branch_id: branchId,
-  });
-  if (error) throw error;
-  return (data ?? []) as AtRiskMember[];
-}
 
 function daysSince(dateStr: string): number {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -45,7 +26,7 @@ export function AtRiskMembersCard() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["at-risk-members", branchId],
-    queryFn: () => fetchAtRiskMembers(branchId!),
+    queryFn: () => getAtRiskMembers(branchId!),
     enabled: !!branchId,
     staleTime: 5 * 60_000,
   });
@@ -90,7 +71,7 @@ export function AtRiskMembersCard() {
           </p>
         ) : (
           members.map((m) => {
-            const meta = RISK_META[m.risk_type];
+            const meta = RISK_META[m.risk_type as AtRiskType];
             const Icon = meta.icon;
             const days = daysSince(m.since_date);
             return (

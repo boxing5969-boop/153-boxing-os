@@ -18,6 +18,7 @@ import { DeniedReasonsCard } from "@/components/dashboard/DeniedReasonsCard";
 import { RevenueSnapshotCard } from "@/components/dashboard/RevenueSnapshotCard";
 import { AtRiskMembersCard } from "@/components/dashboard/AtRiskMembersCard";
 import { TodayActionStrip } from "@/components/dashboard/TodayActionStrip";
+import { ContactActionBoard } from "@/components/dashboard/ContactActionBoard";
 import { cn } from "@/lib/cn";
 
 interface KpiSpec {
@@ -198,6 +199,9 @@ export default function DashboardPage() {
           dueFollowupsCount={data?.dueFollowupsCount ?? 0}
         />
       )}
+
+      {/* 오늘 연락할 회원 액션보드 */}
+      <ContactActionBoard />
 
       {/* 하단 카드 4종 (기존 유지) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
