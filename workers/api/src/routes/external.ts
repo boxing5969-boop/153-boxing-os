@@ -167,3 +167,67 @@ externalRoutes.get("/me/levels", requirePartnerAuth, async (c) => {
 
   return ok(c, { levels: data ?? [] });
 });
+
+// ── Phase 8 추가 엔드포인트 ────────────────────────────────
+
+/** GET /api/external/me/profile — 회원 기본 프로필 */
+externalRoutes.get("/me/profile", requirePartnerAuth, async (c) => {
+  const db = getServiceClient(c.env);
+  const member = await loadMember(db, c.get("rankingUserId"));
+  if (!member) return fail(c, "NOT_REGISTERED", "회원 미연결", 404);
+
+  const { data } = await db
+    .from("members")
+    .select("id,name,phone,birth_date,gender,status,created_at,branches(name)")
+    .eq("id", member.id)
+    .maybeSingle();
+
+  return ok(c, data ?? {});
+});
+
+/** GET /api/external/me/body-measurements — 체성분 기록 */
+externalRoutes.get("/me/body-measurements", requirePartnerAuth, async (c) => {
+  const db = getServiceClient(c.env);
+  const member = await loadMember(db, c.get("rankingUserId"));
+  if (!member) return fail(c, "NOT_REGISTERED", "회원 미연결", 404);
+
+  const rawLimit = parseInt(c.req.query("limit") ?? "20", 10);
+  const limit = Math.min(Math.max(Number.isNaN(rawLimit) ? 20 : rawLimit, 1), 50);
+
+  const { data } = await db
+    .from("body_measurements")
+    .select("id,measured_at,weight_kg,body_fat_pct,muscle_mass_kg,bmi")
+    .eq("member_id", member.id)
+    .order("measured_at", { ascending: false })
+    .limit(limit);
+
+  return ok(c, { measurements: data ?? [] });
+});
+
+/** GET /api/external/me/workouts — 운동 일지 */
+externalRoutes.get("/me/workouts", requirePartnerAuth, async (c) => {
+  const db = getServiceClient(c.env);
+  const member = await loadMember(db, c.get("rankingUserId"));
+  if (!member) return fail(c, "NOT_REGISTERED", "회원 미연결", 404);
+
+  const rawLimit = parseInt(c.req.query("limit") ?? "20", 10);
+  const limit = Math.min(Math.max(Number.isNaN(rawLimit) ? 20 : rawLimit, 1), 50);
+
+  const { data } = await db
+    .from("workout_logs")
+    .select("id,logged_date,duration_min,intensity,note")
+    .eq("member_id", member.id)
+    .order("logged_date", { ascending: false })
+    .limit(limit);
+
+  return ok(c, { workouts: data ?? [] });
+});
+
+/** GET /api/external/health — 연결 상태 확인 (인증 불필요) */
+externalRoutes.get("/health", async (c) => {
+  return ok(c, {
+    ok: true,
+    version: "1.0",
+    timestamp: new Date().toISOString(),
+  });
+});

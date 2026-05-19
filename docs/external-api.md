@@ -143,6 +143,98 @@ CRM `/members/:id` → 기본정보 카드 → "랭킹업 연결" → 랭킹업 
 
 ---
 
+### GET /api/external/me/profile
+회원의 기본 프로필 (이름, 전화, 생년월일, 성별, 상태, 지점명).
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "...",
+    "name": "김복싱",
+    "phone": "010-1234-5678",
+    "birth_date": "1995-06-15",
+    "gender": "male",
+    "status": "active",
+    "created_at": "2025-01-10T09:00:00Z",
+    "branches": { "name": "강남점" }
+  }
+}
+```
+
+---
+
+### GET /api/external/me/body-measurements?limit=20
+체성분 기록 (최신순).
+
+**Query**: `limit` (1~50, 기본 20)
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "measurements": [
+      {
+        "id": "...",
+        "measured_at": "2026-05-01T10:00:00Z",
+        "weight_kg": 72.5,
+        "body_fat_pct": 18.3,
+        "muscle_mass_kg": 55.2,
+        "bmi": 23.1
+      }
+    ]
+  }
+}
+```
+
+---
+
+### GET /api/external/me/workouts?limit=20
+운동 일지 (최신순).
+
+**Query**: `limit` (1~50, 기본 20)
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "workouts": [
+      {
+        "id": "...",
+        "logged_date": "2026-05-15",
+        "duration_min": 60,
+        "intensity": "moderate",
+        "note": "스파링 위주"
+      }
+    ]
+  }
+}
+```
+
+`intensity` 가능 값: `light` / `moderate` / `intense`
+
+---
+
+### GET /api/external/health
+인증 불필요. 연결 상태 확인용.
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "ok": true,
+    "version": "1.0",
+    "timestamp": "2026-05-19T10:00:00Z"
+  }
+}
+```
+
+---
+
 ## 4. 호출 예시 (랭킹업앱 server-side)
 
 ```ts
