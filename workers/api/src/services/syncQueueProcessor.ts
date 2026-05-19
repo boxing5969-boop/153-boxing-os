@@ -469,6 +469,98 @@ async function runTriggerNotifications(env: Env, triggerType: "expiry_d0" | "exp
   }
 }
 
+// ── 체험권 종료 설문 발송 (trial_end 트리거) ──────────────────
+/**
+ * 어제 만료된 체험권 소지자에게 설문 링크를 발송한다.
+ * - trial_passes.status = 'expired' AND end_at::date = yesterday
+ * - 마케팅 동의 + 전화번호 필수
+ * - 지점의 trial_end 템플릿을 사용하고 #{설문링크}를 치환한다.
+ *   템플릿이 없으면 기본 메시지를 사용한다.
+ * - 지점의 대표 설문 QR(가장 최근 활성 QR)의 slug로 URL을 구성한다.
+ */
+export async function runTrialEndSurvey(env: Env): Promise<void> {
+  const db = getServiceClient(env);
+
+  // 어제 만료된 체험권 소지자 조회 (RPC)
+  const { data: rows, error } = await db.rpc(
+    "get_trial_end_survey_targets" as "get_survey_response_list",
+    {} as unknown as { p_survey_template_id: string }
+  );
+
+  if (error) {
+    console.error("[trial_end] fetch failed:", error);
+    return;
+  }
+
+  type TrialRow = {
+    member_id: string; member_name: string; member_phone: string;
+    branch_id: string; branch_name: string;
+  };
+  const targets = (rows ?? []) as TrialRow[];
+  if (targets.length === 0) return;
+
+  console.log(`[trial_end] targets: ${targets.length}`);
+
+  // 지점별 그룹핑
+  const byBranch = new Map<string, TrialRow[]>();
+  for (const r of targets) {
+    if (!byBranch.has(r.branch_id)) byBranch.set(r.branch_id, []);
+    byBranch.get(r.branch_id)!.push(r);
+  }
+
+  const surveyBase = env.PAGES_URL ?? "";
+
+  for (const [branchId, branchRows] of byBranch) {
+    // 지점 설정 + trial_end 트리거 활성화 여부 확인
+    const { data: bRaw } = await db
+      .from("branches")
+      .select("notify_channel,notify_triggers")
+      .eq("id", branchId)
+      .maybeSingle();
+    type BranchSettings = { notify_channel: string; notify_triggers: string[] };
+    const settings = bRaw as BranchSettings | null;
+    const channel = (settings?.notify_channel ?? "sms") as NotifyChannel;
+    const triggers: string[] = settings?.notify_triggers ?? [];
+    if (!triggers.includes("trial_end")) continue;
+
+    // 지점의 대표 설문 QR URL 조회 (가장 최근 활성 QR)
+    const { data: qrRaw } = await db
+      .from("survey_qr_codes" as "members")
+      .select("slug")
+      .eq("branch_id" as "name", branchId)
+      .eq("status" as "name", "active")
+      .order("created_at" as "name", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const slug = (qrRaw as { slug: string } | null)?.slug ?? "";
+    const surveyUrl = slug ? `${surveyBase}/s/${slug}` : "";
+
+    // 지점 trial_end 템플릿 조회 (없으면 기본값)
+    const { data: tplRaw } = await db
+      .from("message_templates" as "members")
+      .select("content")
+      .eq("branch_id" as "name", branchId)
+      .eq("trigger_type" as "name", "trial_end")
+      .eq("is_active" as "name", true)
+      .limit(1)
+      .maybeSingle();
+    const defaultContent = surveyUrl
+      ? `[#{지점명}] #{회원명}님, 체험 이용이 종료되었습니다. 소중한 의견을 남겨주세요 👉 #{설문링크}`
+      : `[#{지점명}] #{회원명}님, 체험 이용이 종료되었습니다. 등록 문의는 지점에 연락주세요.`;
+    const content = (tplRaw as { content: string } | null)?.content ?? defaultContent;
+
+    const dispatchTargets: DispatchTarget[] = branchRows.map(r => ({
+      member_id: r.member_id, member_name: r.member_name,
+      member_phone: r.member_phone, branch_id: r.branch_id,
+      branch_name: r.branch_name, notification_type: "trial_end",
+      survey_url: surveyUrl,
+    }));
+
+    const report = await dispatchToGroup(db, env, dispatchTargets, channel, content);
+    console.log(`[trial_end] branch ${branchId}:`, report);
+  }
+}
+
 // substituteVars re-export for use in other modules
 export { substituteVars };
 

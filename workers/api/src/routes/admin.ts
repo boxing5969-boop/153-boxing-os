@@ -226,8 +226,9 @@ adminRoutes.post("/notify/bulk", requireJwt, async (c) => {
 
 // ── 채널 선택 포함 회원 개별 발송 ────────────────────────────
 const memberSendSchema = z.object({
-  channel: z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
-  content: z.string().optional(),
+  channel:    z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
+  content:    z.string().optional(),
+  survey_url: z.string().optional(), // #{설문링크} 치환용
 });
 
 adminRoutes.post("/members/:id/send", requireJwt, async (c) => {
@@ -280,6 +281,7 @@ adminRoutes.post("/members/:id/send", requireJwt, async (c) => {
     end_date: ms?.end_date, days_left: daysLeft,
     branch_id: member.branch_id, branch_name: member.branches.name,
     member_phone: member.phone, notification_type: notifType,
+    survey_url: parsed.data.survey_url,
   }, parsed.data.channel as NotifyChannel, content);
 
   if (!result.overall_success) {
@@ -292,10 +294,11 @@ adminRoutes.post("/members/:id/send", requireJwt, async (c) => {
 // ── 채널 선택 포함 그룹 발송 ──────────────────────────────
 const bulkMsgSchema = z.object({
   days_ahead: z.number().int().min(1).max(90),
-  channel: z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
-  content: z.string().min(1),
-  branch_id: z.string().uuid().optional(),
-  dry_run: z.boolean().default(false),
+  channel:    z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
+  content:    z.string().min(1),
+  branch_id:  z.string().uuid().optional(),
+  dry_run:    z.boolean().default(false),
+  survey_url: z.string().optional(), // #{설문링크} 치환용
 });
 
 adminRoutes.post("/notify/bulk-msg", requireJwt, async (c) => {
@@ -320,6 +323,7 @@ adminRoutes.post("/notify/bulk-msg", requireJwt, async (c) => {
     end_date: r.end_date, days_left: r.days_left,
     branch_id: r.branch_id, branch_name: r.branch_name,
     member_phone: r.member_phone,
+    survey_url: parsed.data.survey_url,
   }));
 
   if (parsed.data.dry_run) return ok(c, { targets_count: targets.length }, `발송 예정: ${targets.length}명`);
@@ -330,11 +334,12 @@ adminRoutes.post("/notify/bulk-msg", requireJwt, async (c) => {
 
 // ── 회원 공지 발송 (상태별 전체 발송) ────────────────────────
 const broadcastSchema = z.object({
-  channel: z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("kakao"),
-  content: z.string().min(1, "메시지 내용을 입력하세요"),
+  channel:         z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("kakao"),
+  content:         z.string().min(1, "메시지 내용을 입력하세요"),
   target_statuses: z.array(z.string()).default(["active", "trial"]),
-  branch_id: z.string().uuid().optional(),
-  dry_run: z.boolean().default(false),
+  branch_id:       z.string().uuid().optional(),
+  dry_run:         z.boolean().default(false),
+  survey_url:      z.string().optional(), // #{설문링크} 치환용
 });
 
 adminRoutes.post("/notify/broadcast", requireJwt, async (c) => {
@@ -390,6 +395,7 @@ adminRoutes.post("/notify/broadcast", requireJwt, async (c) => {
       end_date: "",
       days_left: 0,
       notification_type: "broadcast",
+      survey_url: parsed.data.survey_url,
     }));
 
   if (parsed.data.dry_run) {

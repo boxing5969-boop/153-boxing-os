@@ -215,6 +215,7 @@ export interface BulkSendParams {
   content?: string;
   branch_id?: string;
   dry_run?: boolean;
+  survey_url?: string; // #{설문링크} 치환용
 }
 
 export interface BulkSendResult {
@@ -236,6 +237,7 @@ export interface BroadcastParams {
   target_statuses?: string[];
   branch_id?: string;
   dry_run?: boolean;
+  survey_url?: string; // #{설문링크} 치환용
 }
 
 export async function broadcastMsg(params: BroadcastParams): Promise<BulkSendResult> {

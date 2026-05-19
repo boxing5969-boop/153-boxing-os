@@ -33,17 +33,18 @@ const CHANNEL_COLOR: Record<MsgChannel, string> = {
 
 // ── 트리거 유형 ─────────────────────────────────────────────
 const TRIGGER_OPTIONS = [
-  { value: "",          label: "수동 (자동 트리거 없음)" },
-  { value: "expiry_d7", label: "만료 7일 전 (D-7)" },
-  { value: "expiry_d3", label: "만료 3일 전 (D-3)" },
-  { value: "expiry_d1", label: "만료 1일 전 (D-1)" },
-  { value: "expiry_d0", label: "만료 당일 (D-0)" },
-  { value: "expiry_dp7","label": "만료 후 7일 (D+7)" },
+  { value: "",           label: "수동 (자동 트리거 없음)" },
+  { value: "expiry_d7",  label: "만료 7일 전 (D-7)" },
+  { value: "expiry_d3",  label: "만료 3일 전 (D-3)" },
+  { value: "expiry_d1",  label: "만료 1일 전 (D-1)" },
+  { value: "expiry_d0",  label: "만료 당일 (D-0)" },
+  { value: "expiry_dp7", label: "만료 후 7일 (D+7)" },
+  { value: "trial_end",  label: "체험권 종료 다음날 (설문 발송)" },
 ];
 
 // ── 변수 치환자 ─────────────────────────────────────────────
 const VAR_CHIPS = [
-  "#{회원명}", "#{만료일}", "#{남은일수}", "#{지점명}", "#{플랜명}",
+  "#{회원명}", "#{만료일}", "#{남은일수}", "#{지점명}", "#{플랜명}", "#{설문링크}",
 ];
 
 // ── 채널 옵션 ────────────────────────────────────────────────

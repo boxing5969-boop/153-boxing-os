@@ -21,6 +21,7 @@ export interface DispatchTarget {
   branch_name: string;
   member_phone: string;
   notification_type?: string;
+  survey_url?: string; // #{설문링크} 치환용
 }
 
 export interface DispatchResult {
@@ -45,6 +46,7 @@ export async function dispatchMessage(
     days_left:    target.days_left,
     branch_name:  target.branch_name,
     plan_name:    target.plan_name,
+    survey_url:   target.survey_url,
   });
 
   if (channel === "sms") {

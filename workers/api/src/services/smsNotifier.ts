@@ -69,7 +69,7 @@ async function getBranchSmsConfig(
   return { apiKey, userId, senderPhone };
 }
 
-/** 변수 치환: #{회원명} #{만료일} #{남은일수} #{지점명} #{플랜명} */
+/** 변수 치환: #{회원명} #{만료일} #{남은일수} #{지점명} #{플랜명} #{설문링크} */
 export function substituteVars(
   content: string,
   vars: {
@@ -78,6 +78,7 @@ export function substituteVars(
     days_left?: number;
     branch_name?: string;
     plan_name?: string;
+    survey_url?: string;
   }
 ): string {
   return content
@@ -85,7 +86,8 @@ export function substituteVars(
     .replace(/#{만료일}/g, vars.end_date ? vars.end_date.replace(/-/g, ".") : "")
     .replace(/#{남은일수}/g, vars.days_left != null ? String(vars.days_left) : "")
     .replace(/#{지점명}/g, vars.branch_name ?? "")
-    .replace(/#{플랜명}/g, vars.plan_name ?? "");
+    .replace(/#{플랜명}/g, vars.plan_name ?? "")
+    .replace(/#{설문링크}/g, vars.survey_url ?? "");
 }
 
 /** 알리고 SMS/LMS 발송 */

@@ -1,8 +1,13 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Send, Users, AlertTriangle } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Send, Users, AlertTriangle, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sendBulkMsg } from "@/services/messaging";
+import {
+  listSurveyTemplates, listSurveyQrCodes, buildSurveyUrl,
+  type SurveyTemplate, type SurveyQrCode,
+} from "@/services/surveys";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
 import MessageComposerPanel, {
   createDefaultComposer,
@@ -23,9 +28,133 @@ interface SendReport {
   skipped: number;
 }
 
+// ── 설문 QR 선택 패널 ─────────────────────────────────────
+function SurveySelector({
+  branchId,
+  selectedUrl,
+  onSelect,
+  onClear,
+}: {
+  branchId: string;
+  selectedUrl: string | null;
+  onSelect: (url: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+
+  const { data: templates = [] } = useQuery<SurveyTemplate[]>({
+    queryKey: ["survey-templates", branchId],
+    queryFn: () => listSurveyTemplates(branchId),
+    enabled: !!branchId && open,
+    staleTime: 30_000,
+  });
+
+  const activeTemplates = templates.filter(t => t.status === "active");
+
+  const { data: qrCodes = [] } = useQuery<SurveyQrCode[]>({
+    queryKey: ["survey-qr-codes", selectedTemplateId],
+    queryFn: () => listSurveyQrCodes(selectedTemplateId),
+    enabled: !!selectedTemplateId,
+    staleTime: 30_000,
+  });
+
+  const activeQrs = qrCodes.filter(q => q.status === "active");
+
+  if (selectedUrl) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+        <Link2 className="size-3.5 text-primary shrink-0" />
+        <span className="text-xs text-primary font-medium flex-1 truncate">{selectedUrl}</span>
+        <button
+          onClick={onClear}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+        >
+          <Link2 className="size-3.5" />
+          설문 링크 첨부 (#{설문링크} 변수 자동 치환)
+        </button>
+      ) : (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+          <p className="text-xs font-semibold text-foreground">설문 선택</p>
+
+          {/* 설문 템플릿 선택 */}
+          {activeTemplates.length === 0 ? (
+            <p className="text-xs text-muted-foreground">활성 설문이 없습니다.</p>
+          ) : (
+            <select
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              value={selectedTemplateId}
+              onChange={e => setSelectedTemplateId(e.target.value)}
+            >
+              <option value="">설문 선택…</option>
+              {activeTemplates.map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </select>
+          )}
+
+          {/* QR 선택 */}
+          {selectedTemplateId && (
+            activeQrs.length === 0 ? (
+              <p className="text-xs text-muted-foreground">활성 QR이 없습니다. 설문 상세에서 QR을 먼저 발급하세요.</p>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-muted-foreground">QR 선택</p>
+                {activeQrs.map(qr => {
+                  const url = buildSurveyUrl(qr.slug);
+                  return (
+                    <button
+                      key={qr.id}
+                      type="button"
+                      onClick={() => { onSelect(url); setOpen(false); }}
+                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-left hover:border-primary/50 hover:bg-primary/5 transition-all"
+                    >
+                      <p className="text-xs font-medium text-foreground">
+                        {qr.label || "기본 QR"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground truncate">{url}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          )}
+
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            취소
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 메인 컴포넌트 ────────────────────────────────────────────
 export default function BulkNotifyPage() {
+  const { profile } = useAuth();
+  const branchId = profile?.branch_id ?? "";
+
   const [daysAhead, setDaysAhead] = useState(7);
   const [composer, setComposer] = useState<ComposerState>(createDefaultComposer("kakao"));
+  const [surveyUrl, setSurveyUrl] = useState<string | null>(null);
   const [report, setReport] = useState<SendReport | null>(null);
   const [targetsCount, setTargetsCount] = useState<number | null>(null);
   const [step, setStep] = useState<"ready" | "previewed" | "done">("ready");
@@ -37,6 +166,7 @@ export default function BulkNotifyPage() {
         days_ahead: daysAhead,
         channel: composer.channel,
         content: composer.content || undefined,
+        survey_url: surveyUrl ?? undefined,
         dry_run: true,
       }),
     onSuccess: (res) => {
@@ -53,6 +183,7 @@ export default function BulkNotifyPage() {
         days_ahead: daysAhead,
         channel: composer.channel,
         content: composer.content || undefined,
+        survey_url: surveyUrl ?? undefined,
       }),
     onSuccess: (res) => {
       setReport(res.report ?? null);
@@ -121,6 +252,28 @@ export default function BulkNotifyPage() {
             ))}
           </div>
         </div>
+
+        {/* 설문 링크 첨부 */}
+        {branchId && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">설문 링크 (선택)</p>
+            <SurveySelector
+              branchId={branchId}
+              selectedUrl={surveyUrl}
+              onSelect={(url) => {
+                setSurveyUrl(url);
+                // 내용에 #{설문링크}가 없으면 자동 삽입 제안용 상태만 저장 (직접 수정은 안 함)
+                reset();
+              }}
+              onClear={() => { setSurveyUrl(null); reset(); }}
+            />
+            {surveyUrl && !composer.content.includes("#{설문링크}") && (
+              <p className="text-[11px] text-warning">
+                메시지 내용에 <code className="font-mono">#{"{설문링크}"}</code> 변수를 넣어야 링크가 삽입됩니다.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* 메시지 작성 패널 (채널 + 내용 + 폰 미리보기) */}
         <MessageComposerPanel
