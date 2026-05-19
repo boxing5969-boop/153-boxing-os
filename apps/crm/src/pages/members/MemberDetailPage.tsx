@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Pause, Play, X as Cancel, Receipt,
   Phone, Calendar, User2, Link2, ShieldCheck, ShieldX,
-  RotateCcw, RefreshCw, Dumbbell, Send,
+  RotateCcw, RefreshCw, Dumbbell, Send, BanknoteIcon, CheckCircle2,
 } from "lucide-react";
 import {
   PLAN_TYPE_LABELS,
@@ -31,7 +31,7 @@ import { BodyMeasurementsCard } from "@/components/members/BodyMeasurementsCard"
 import { WorkoutLogsCard } from "@/components/members/WorkoutLogsCard";
 import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog";
 import { getMember, getMemberRelated } from "@/services/members";
-import { updateMembershipState } from "@/services/memberships";
+import { updateMembershipState, markMembershipUnpaid, markMembershipPaid } from "@/services/memberships";
 import { cancelTrialPass } from "@/services/trialPasses";
 import { sendMemberNotification } from "@/services/notificationSend";
 import { getAccessPreview, ACCESS_SOURCE_LABELS } from "@/services/access";
@@ -113,6 +113,8 @@ export default function MemberDetailPage() {
   const [pendingCancel, setPendingCancel] = useState<PendingSimpleAction | null>(null);
 
   const [trialToCancel, setTrialToCancel] = useState<TrialPass | null>(null);
+  const [pendingUnpaid, setPendingUnpaid] = useState<Membership | null>(null);
+  const [pendingPaid, setPendingPaid] = useState<Membership | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notifyMsg, setNotifyMsg] = useState<string | null>(null);
   const [notifySending, setNotifySending] = useState(false);
@@ -127,6 +129,38 @@ export default function MemberDetailPage() {
       setActionError(null);
     },
     onError: (err) => setActionError(err instanceof Error ? err.message : "처리 실패"),
+  });
+
+  // 미납 처리
+  const unpaidMutation = useMutation({
+    mutationFn: (m: Membership) => markMembershipUnpaid(m.id, memberId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["member", memberId] });
+      void qc.invalidateQueries({ queryKey: ["member-related", memberId] });
+      void qc.invalidateQueries({ queryKey: ["memberships"] });
+      void qc.invalidateQueries({ queryKey: ["access-preview", memberId] });
+      setPendingUnpaid(null);
+      setActionError(null);
+    },
+    onError: (err) => setActionError(err instanceof Error ? err.message : "미납 처리 실패"),
+  });
+
+  // 납부 확인 (미납 해제)
+  const paidMutation = useMutation({
+    mutationFn: (m: Membership) => {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const stillActive = m.status === "active" && m.end_date >= todayStr;
+      return markMembershipPaid(m.id, memberId, stillActive);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["member", memberId] });
+      void qc.invalidateQueries({ queryKey: ["member-related", memberId] });
+      void qc.invalidateQueries({ queryKey: ["memberships"] });
+      void qc.invalidateQueries({ queryKey: ["access-preview", memberId] });
+      setPendingPaid(null);
+      setActionError(null);
+    },
+    onError: (err) => setActionError(err instanceof Error ? err.message : "납부 처리 실패"),
   });
 
   const trialCancelMutation = useMutation({
@@ -392,6 +426,26 @@ export default function MemberDetailPage() {
                     >
                       <Pause className="size-3" /> 홀딩
                     </Button>
+                    {/* 미납 처리 / 납부 확인 (요약 카드) */}
+                    {activeMembership.payment_status === "unpaid" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPendingPaid(activeMembership)}
+                        className="gap-1 text-success border-success/30 hover:bg-success/10"
+                      >
+                        <CheckCircle2 className="size-3.5" /> 납부 확인
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPendingUnpaid(activeMembership)}
+                        className="gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                      >
+                        <BanknoteIcon className="size-3.5" /> 미납 처리
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
@@ -546,7 +600,7 @@ export default function MemberDetailPage() {
 
                     {/* 이용권 액션 버튼들 */}
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {/* 활성 이용권: 출석체크(횟수권) + 연장 + 홀딩 + 환불 + 취소 */}
+                      {/* 활성 이용권: 출석체크(횟수권) + 연장 + 홀딩 + 미납/납부 + 환불 + 취소 */}
                       {m.status === "active" && (
                         <>
                           {/* 횟수권 계열만 출석 체크 버튼 표시 */}
@@ -575,6 +629,26 @@ export default function MemberDetailPage() {
                           >
                             <Pause className="size-3" /> 홀딩
                           </Button>
+                          {/* 미납 처리 / 납부 확인 */}
+                          {m.payment_status === "unpaid" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setPendingPaid(m)}
+                              className="gap-1 text-success border-success/30 hover:bg-success/10"
+                            >
+                              <CheckCircle2 className="size-3" /> 납부 확인
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setPendingUnpaid(m)}
+                              className="gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                            >
+                              <BanknoteIcon className="size-3" /> 미납
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -752,6 +826,34 @@ export default function MemberDetailPage() {
         variant="destructive"
         onConfirm={() => { if (pendingCancel) cancelMutation.mutate(pendingCancel.membership.id); }}
         pending={cancelMutation.isPending}
+      />
+
+      {/* 미납 처리 확인 */}
+      <ConfirmDialog
+        open={!!pendingUnpaid}
+        onClose={() => { if (!unpaidMutation.isPending) setPendingUnpaid(null); }}
+        title="미납 처리"
+        description={pendingUnpaid
+          ? <span><strong>{pendingUnpaid.plan_name}</strong> 이용권을 <strong>미납</strong> 처리합니다. 출입이 즉시 차단됩니다. 계속할까요?</span>
+          : ""}
+        confirmLabel="미납 처리"
+        variant="destructive"
+        onConfirm={() => { if (pendingUnpaid) unpaidMutation.mutate(pendingUnpaid); }}
+        pending={unpaidMutation.isPending}
+      />
+
+      {/* 납부 확인 */}
+      <ConfirmDialog
+        open={!!pendingPaid}
+        onClose={() => { if (!paidMutation.isPending) setPendingPaid(null); }}
+        title="납부 확인"
+        description={pendingPaid
+          ? <span><strong>{pendingPaid.plan_name}</strong> 이용권 납부를 확인합니다. 회원 상태가 활성으로 복원됩니다. 계속할까요?</span>
+          : ""}
+        confirmLabel="납부 확인"
+        variant="default"
+        onConfirm={() => { if (pendingPaid) paidMutation.mutate(pendingPaid); }}
+        pending={paidMutation.isPending}
       />
 
       {/* 체험권 취소 확인 */}

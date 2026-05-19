@@ -145,6 +145,35 @@ export async function refundMembership(input: RefundMembershipInput): Promise<vo
   if (error) throw new Error(error.message);
 }
 
+// ── 미납 처리 (payment_status → unpaid + member status → unpaid)
+export async function markMembershipUnpaid(
+  membershipId: string,
+  memberId: string,
+): Promise<void> {
+  await updateMembershipState(membershipId, { payment_status: "unpaid" });
+  const { error } = await supabase
+    .from("members")
+    .update({ status: "unpaid" })
+    .eq("id", memberId);
+  if (error) throw new Error(error.message);
+}
+
+// ── 납부 확인 (payment_status → paid + member status → active 복원)
+export async function markMembershipPaid(
+  membershipId: string,
+  memberId: string,
+  membershipStillActive: boolean,
+): Promise<void> {
+  await updateMembershipState(membershipId, { payment_status: "paid" });
+  if (membershipStillActive) {
+    const { error } = await supabase
+      .from("members")
+      .update({ status: "active" })
+      .eq("id", memberId);
+    if (error) throw new Error(error.message);
+  }
+}
+
 // ── 메모 저장
 export async function saveMembershipNotes(id: string, notes: string): Promise<void> {
   const { error } = await supabase
