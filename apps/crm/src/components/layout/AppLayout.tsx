@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import GlobalSearch from "@/components/GlobalSearch";
 
 export default function AppLayout() {
   return (
@@ -14,6 +15,8 @@ export default function AppLayout() {
           </div>
         </main>
       </div>
+      {/* 글로벌 검색 오버레이 (Cmd+K) */}
+      <GlobalSearch />
     </div>
   );
 }

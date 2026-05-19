@@ -1,7 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { roleLabel } from "@/lib/roleLabels";
-import { LogOut, Bell, FlaskConical } from "lucide-react";
+import { LogOut, Bell, FlaskConical, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -64,8 +64,18 @@ export default function Header() {
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-6">
-      {/* 왼쪽: 페이지 컨텍스트용 공간 (추후 breadcrumb) */}
-      <div />
+      {/* 왼쪽: 검색 버튼 */}
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
+        className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:bg-muted hover:text-foreground"
+      >
+        <Search className="size-3.5" />
+        <span className="hidden sm:inline">검색…</span>
+        <kbd className="hidden sm:flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-mono">
+          <span className="text-[11px]">⌘</span>K
+        </kbd>
+      </button>
 
       {/* 오른쪽: 알림 + 사용자 */}
       <div className="flex items-center gap-3">
