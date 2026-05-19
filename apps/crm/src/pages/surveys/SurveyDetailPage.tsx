@@ -37,15 +37,108 @@ const Q_TYPE_LABELS: Record<QuestionType, string> = {
 type Tab = "questions" | "qr";
 
 // ════════════════════════════════════════════════════════════
-// 질문 행
+// 질문 행 (인라인 편집 포함)
 // ════════════════════════════════════════════════════════════
 function QuestionRow({
   q,
+  templateId,
   onDelete,
 }: {
   q: SurveyQuestion;
+  templateId: string;
   onDelete: (id: string) => void;
 }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    text: q.question_text,
+    type: q.question_type,
+    required: q.is_required,
+  });
+  const [err, setErr] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      upsertSurveyQuestion({
+        id: q.id,
+        survey_template_id: templateId,
+        order_index: q.order_index,
+        question_type: draft.type,
+        question_text: draft.text.trim(),
+        options:
+          draft.type === "rating"
+            ? { min: 1, max: 5, labels: { "1": "매우 불만족", "5": "매우 만족" } }
+            : null,
+        is_required: draft.required,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["survey-questions", templateId] });
+      setEditing(false);
+      setErr(null);
+    },
+    onError: (e) => setErr(e instanceof Error ? e.message : "저장 실패"),
+  });
+
+  // ── 편집 모드 ─────────────────────────────────────────────
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-primary/30 bg-muted/20 px-4 py-3 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">질문 유형</span>
+            <select
+              value={draft.type}
+              onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as QuestionType }))}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {(Object.keys(Q_TYPE_LABELS) as QuestionType[]).map((k) => (
+                <option key={k} value={k}>{Q_TYPE_LABELS[k]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">
+              질문 내용 <span className="text-danger">*</span>
+            </span>
+            <input
+              autoFocus
+              value={draft.text}
+              onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <input
+            type="checkbox"
+            checked={draft.required}
+            onChange={(e) => setDraft((d) => ({ ...d, required: e.target.checked }))}
+            className="rounded"
+          />
+          필수 질문
+        </label>
+        {err && <p className="text-xs text-danger">{err}</p>}
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            disabled={!draft.text.trim() || saveMutation.isPending}
+            onClick={() => saveMutation.mutate()}
+          >
+            {saveMutation.isPending ? "저장 중…" : "저장"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => { setEditing(false); setErr(null); }}
+          >
+            취소
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 보기 모드 ─────────────────────────────────────────────
   return (
     <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 group">
       <GripVertical className="size-4 mt-0.5 text-muted-foreground/30 shrink-0" />
@@ -60,13 +153,25 @@ function QuestionRow({
         </div>
         <p className="mt-1 text-sm font-medium text-foreground">{q.question_text}</p>
       </div>
-      <button
-        onClick={() => onDelete(q.id)}
-        className="shrink-0 p-1 rounded text-muted-foreground/40 hover:text-danger transition-colors opacity-0 group-hover:opacity-100"
-        title="질문 삭제"
-      >
-        <Trash2 className="size-3.5" />
-      </button>
+      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={() => {
+            setDraft({ text: q.question_text, type: q.question_type, required: q.is_required });
+            setEditing(true);
+          }}
+          className="p-1 rounded text-muted-foreground/40 hover:text-primary transition-colors"
+          title="질문 수정"
+        >
+          <PencilLine className="size-3.5" />
+        </button>
+        <button
+          onClick={() => onDelete(q.id)}
+          className="p-1 rounded text-muted-foreground/40 hover:text-danger transition-colors"
+          title="질문 삭제"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -540,6 +645,7 @@ export default function SurveyDetailPage() {
                 <QuestionRow
                   key={q.id}
                   q={q}
+                  templateId={id!}
                   onDelete={(qid) => {
                     if (confirm("이 질문을 삭제하시겠습니까?")) {
                       deleteQMutation.mutate(qid);
