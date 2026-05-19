@@ -61,7 +61,9 @@ export default function ClassSchedulePage() {
 
   const [baseDate, setBaseDate] = useState(new Date());
   const weekDates = getWeekDates(baseDate);
-  const weekLabel = `${fmt(weekDates[0])} ~ ${fmt(weekDates[6])}`;
+  // weekDates는 항상 7개 원소를 가짐 (non-null assertion 안전)
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const weekLabel = `${fmt(weekDates[0]!)} ~ ${fmt(weekDates[6]!)}`;
 
   // 세션 추가 다이얼로그
   const [showAddSession, setShowAddSession] = useState(false);
@@ -82,8 +84,10 @@ export default function ClassSchedulePage() {
   });
 
   const { data: sessions = [], isLoading } = useQuery({
-    queryKey: ["class-sessions", branchId, fmt(weekDates[0])],
-    queryFn: () => listSessions(branchId, fmt(weekDates[0]), true),
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    queryKey: ["class-sessions", branchId, fmt(weekDates[0]!)],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    queryFn: () => listSessions(branchId, fmt(weekDates[0]!), true),
     enabled: !!branchId,
   });
 
@@ -95,7 +99,7 @@ export default function ClassSchedulePage() {
 
   const { data: members = [] } = useQuery({
     queryKey: ["members", branchId],
-    queryFn: () => listMembers({ branchId }),
+    queryFn: () => listMembers({ branch_id: branchId }).then((r) => r.rows),
     enabled: !!branchId && showAddBooking,
   });
 

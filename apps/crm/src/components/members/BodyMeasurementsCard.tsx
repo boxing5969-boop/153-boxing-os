@@ -211,7 +211,7 @@ export function BodyMeasurementsCard({ memberId }: Props) {
                   <YAxis yAxisId="fat" orientation="right" tick={{ fontSize: 11 }} domain={["auto", "auto"]} unit="%" />
                   <Tooltip
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                    formatter={(value, name) =>
+                    formatter={(value: number, name: string) =>
                       name === "체지방%" ? [`${value}%`, name] : [`${value}kg`, name]
                     }
                   />
