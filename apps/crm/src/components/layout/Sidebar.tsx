@@ -25,6 +25,7 @@ import {
   BanknoteIcon,
   CalendarDays,
   BarChart3,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +53,12 @@ const BRANCH_AND_HQ: UserRole[] = [
 ];
 
 const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "내 업무",
+    items: [
+      { to: "/coach", label: "업무보드", icon: ClipboardList, roles: ["coach"] },
+    ],
+  },
   {
     label: "운영",
     items: [

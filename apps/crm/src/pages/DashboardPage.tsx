@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Navigate } from "react-router-dom";
 import {
   LogIn,
   LogOut,
@@ -118,12 +119,20 @@ function WelcomeBanner({ name, role }: { name?: string; role?: string }) {
 
 export default function DashboardPage() {
   const { profile } = useAuth();
+
+  const isCoach = profile?.role === "coach";
+
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: getDashboardStats,
     staleTime: 30_000,
     refetchInterval: 60_000,
+    // 코치는 이 쿼리를 사용하지 않으므로 비활성화
+    enabled: !isCoach,
   });
+
+  // 코치 역할은 전용 업무보드로 리다이렉트
+  if (isCoach) return <Navigate to="/coach" replace />;
 
   const kpis: KpiSpec[] = [
     {
