@@ -85,7 +85,7 @@ function SurveySelector({
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
         >
           <Link2 className="size-3.5" />
-          설문 링크 첨부 (#{설문링크} 변수 자동 치환)
+          {"설문 링크 첨부 (#{설문링크} 변수 자동 치환)"}
         </button>
       ) : (
         <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
@@ -269,7 +269,7 @@ export default function BulkNotifyPage() {
             />
             {surveyUrl && !composer.content.includes("#{설문링크}") && (
               <p className="text-[11px] text-warning">
-                메시지 내용에 <code className="font-mono">#{"{설문링크}"}</code> 변수를 넣어야 링크가 삽입됩니다.
+                {"메시지 내용에 #{설문링크} 변수를 넣어야 링크가 삽입됩니다."}
               </p>
             )}
           </div>
