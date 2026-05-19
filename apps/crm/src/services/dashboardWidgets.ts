@@ -154,3 +154,29 @@ export async function getVisitorFunnelStats(): Promise<VisitorFunnelStats> {
     weekCompletedCount: weekCompleted.count ?? 0,
   };
 }
+
+// ── 손실방지 리포트 (최근 30일 핵심 거절 사유 집계) ────────────
+export interface LossPreventionStats {
+  expired_membership: number; // 만료회원 출입 차단
+  unpaid: number;             // 미납회원 출입 차단
+  trial_blocked: number;      // 체험권 종료·초과 (trial_expired + trial_max_used)
+  no_valid_grant: number;     // 유효 권한 없음
+  unknown_user: number;       // 미등록/미연결 사용자
+  total: number;              // 5개 합산
+}
+
+export async function getLossPreventionStats(): Promise<LossPreventionStats> {
+  // 기존 RPC 재사용 — 30일 범위
+  const stats = await getDeniedReasonStats(30);
+  const find = (key: string) =>
+    stats.find((s) => s.denied_reason === key)?.count ?? 0;
+
+  const expired_membership = find("expired_membership");
+  const unpaid = find("unpaid");
+  const trial_blocked = find("trial_expired") + find("trial_max_used");
+  const no_valid_grant = find("no_valid_grant");
+  const unknown_user = find("unknown_user");
+  const total = expired_membership + unpaid + trial_blocked + no_valid_grant + unknown_user;
+
+  return { expired_membership, unpaid, trial_blocked, no_valid_grant, unknown_user, total };
+}

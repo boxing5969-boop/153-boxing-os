@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ScrollText, RotateCcw, ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -17,8 +17,20 @@ import {
 } from "@/components/access/AccessResultBadge";
 import { listAccessLogs } from "@/services/accessLogs";
 import { formatDateTime } from "@/lib/format";
-import { DENIED_REASON_LABELS, type AccessResult, type CredentialType } from "@153/shared";
+import { DENIED_REASON_LABELS, type AccessResult, type CredentialType, type DeniedReason } from "@153/shared";
 import { cn } from "@/lib/cn";
+
+// 손실방지 리포트에서 딥링크로 넘어올 때 표시할 핵심 거절 사유
+const LOSS_PREVENTION_REASONS: DeniedReason[] = [
+  "expired_membership",
+  "unpaid",
+  "trial_expired",
+  "trial_max_used",
+  "no_valid_grant",
+  "unknown_user",
+  "suspended",
+  "consent_revoked",
+];
 
 const PAGE_SIZE = 20;
 
@@ -43,23 +55,30 @@ function SkeletonRow() {
 
 export default function AccessLogsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // 손실방지 리포트 딥링크 지원: ?denied_reason=expired_membership
+  const initialDeniedReason = searchParams.get("denied_reason") ?? "";
+
   const [result, setResult] = useState<"" | AccessResult>("");
   const [credential, setCredential] = useState<"" | CredentialType>("");
+  const [deniedReason, setDeniedReason] = useState<string>(initialDeniedReason);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(0);
-  const hasFilter = !!(result || credential || from || to);
+  const hasFilter = !!(result || credential || deniedReason || from || to);
 
   const filters = useMemo(
     () => ({
       result: result || null,
       credential_type: credential || null,
+      denied_reason: deniedReason || null,
       from: from ? new Date(from).toISOString() : null,
       to: to ? new Date(`${to}T23:59:59`).toISOString() : null,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [result, credential, from, to, page]
+    [result, credential, deniedReason, from, to, page]
   );
 
   const { data, isLoading, isError } = useQuery({
@@ -74,7 +93,7 @@ export default function AccessLogsPage() {
   const rows = data?.rows ?? [];
 
   function resetFilters() {
-    setResult(""); setCredential(""); setFrom(""); setTo(""); setPage(0);
+    setResult(""); setCredential(""); setDeniedReason(""); setFrom(""); setTo(""); setPage(0);
   }
 
   return (
@@ -101,6 +120,12 @@ export default function AccessLogsPage() {
           <Select value={credential} onChange={(e) => { setCredential(e.target.value as CredentialType | ""); setPage(0); }} className="min-w-[130px]">
             <option value="">자격 전체</option>
             {CREDENTIAL_TYPE_VALUES.map((c) => <option key={c} value={c}>{credentialLabel(c)}</option>)}
+          </Select>
+          <Select value={deniedReason} onChange={(e) => { setDeniedReason(e.target.value); setPage(0); }} className="min-w-[180px]">
+            <option value="">거절 사유 전체</option>
+            {LOSS_PREVENTION_REASONS.map((r) => (
+              <option key={r} value={r}>{DENIED_REASON_LABELS[r]}</option>
+            ))}
           </Select>
           <div className="flex items-center gap-2">
             <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0); }} className="w-36" />
