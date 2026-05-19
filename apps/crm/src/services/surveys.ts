@@ -334,6 +334,207 @@ export interface AnswerInput {
   answer_score?: number | null;
 }
 
+// ── 결과 분석 (CRM 내부 — authenticated) ────────────────────
+
+export interface ResponseAnswer {
+  question_id: string;
+  question_text: string;
+  question_type: QuestionType;
+  order_index: number;
+  options: unknown | null;
+  answer_text: string | null;
+  answer_score: number | null;
+}
+
+export interface ResponseFollowup {
+  id: string;
+  status: FollowupStatus;
+  notes: string | null;
+  assigned_to: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SurveyResponseDetail {
+  id: string;
+  submitted_at: string;
+  respondent_phone: string | null;
+  answers: ResponseAnswer[];
+  followup: ResponseFollowup | null;
+}
+
+export interface SurveyResponseListResult {
+  total: number;
+  responses: SurveyResponseDetail[];
+}
+
+/** 설문 응답 목록 조회 (RPC) */
+export async function getSurveyResponseList(
+  templateId: string,
+  limit = 200
+): Promise<SurveyResponseListResult> {
+  const { data, error } = await supabase.rpc(
+    "get_survey_response_list" as "get_survey_results_summary",
+    {
+      p_survey_template_id: templateId,
+      p_limit: limit,
+    } as unknown as { p_survey_template_id: string }
+  );
+  if (error) throw error;
+  const result = data as unknown as { success: boolean; error?: string; total?: number; responses?: SurveyResponseDetail[] };
+  if (!result.success) throw new Error(result.error ?? "응답 목록 조회 실패");
+  return { total: result.total ?? 0, responses: result.responses ?? [] };
+}
+
+// ── 후속관리 CRUD ─────────────────────────────────────────────
+
+export interface CreateFollowupInput {
+  response_id: string;
+  branch_id: string;
+  notes?: string;
+  assigned_to?: string | null;
+}
+
+export async function createFollowup(input: CreateFollowupInput): Promise<ResponseFollowup> {
+  const { data, error } = await supabase
+    .from("survey_followups" as "members")
+    .insert({
+      response_id: input.response_id,
+      branch_id: input.branch_id,
+      notes: input.notes ?? null,
+      assigned_to: input.assigned_to ?? null,
+      status: "pending",
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as unknown as ResponseFollowup;
+}
+
+export async function updateFollowup(
+  id: string,
+  body: Partial<Pick<ResponseFollowup, "status" | "notes" | "assigned_to" | "resolved_at">>
+): Promise<ResponseFollowup> {
+  const patch: Record<string, unknown> = { ...body };
+  if (body.status === "resolved" && !body.resolved_at) {
+    patch["resolved_at"] = new Date().toISOString();
+  }
+  const { data, error } = await supabase
+    .from("survey_followups" as "members")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as unknown as ResponseFollowup;
+}
+
+// ── 분석 헬퍼 함수 ────────────────────────────────────────────
+
+/** 평점 질문 평균 계산 */
+export function calcAvgScore(
+  responses: SurveyResponseDetail[],
+  questionType: QuestionType,
+  maxScore = 10
+): number | null {
+  const scores: number[] = [];
+  for (const r of responses) {
+    for (const a of r.answers) {
+      if (a.question_type === questionType && a.answer_score != null) {
+        const opts = a.options as { max?: number } | null;
+        const qMax = opts?.max ?? 5;
+        if (qMax <= maxScore) scores.push(a.answer_score);
+      }
+    }
+  }
+  if (scores.length === 0) return null;
+  return Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10;
+}
+
+/** 특정 question_text 키워드로 평균 계산 */
+export function calcAvgByKeyword(
+  responses: SurveyResponseDetail[],
+  keyword: string
+): number | null {
+  const scores: number[] = [];
+  for (const r of responses) {
+    for (const a of r.answers) {
+      if (a.question_text.includes(keyword) && a.answer_score != null) {
+        scores.push(a.answer_score);
+      }
+    }
+  }
+  if (scores.length === 0) return null;
+  return Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10;
+}
+
+/** NPS 계산 (0~10 척도 질문) */
+export interface NpsResult {
+  score: number;      // -100 ~ 100
+  promoters: number;  // 9~10
+  passives: number;   // 7~8
+  detractors: number; // 0~6
+  total: number;
+}
+
+export function calcNps(responses: SurveyResponseDetail[]): NpsResult | null {
+  const scores: number[] = [];
+  for (const r of responses) {
+    for (const a of r.answers) {
+      if (a.answer_score != null) {
+        const opts = a.options as { max?: number } | null;
+        const qMax = opts?.max ?? 5;
+        if (qMax >= 10) scores.push(a.answer_score); // NPS 척도
+      }
+    }
+  }
+  if (scores.length === 0) return null;
+  const promoters  = scores.filter((s) => s >= 9).length;
+  const passives   = scores.filter((s) => s >= 7 && s <= 8).length;
+  const detractors = scores.filter((s) => s <= 6).length;
+  const total = scores.length;
+  const nps = Math.round(((promoters - detractors) / total) * 100);
+  return { score: nps, promoters, passives, detractors, total };
+}
+
+/** 낮은 점수 응답 필터 (rating ≤ 2/5 또는 NPS ≤ 6) */
+export function filterLowScoreResponses(
+  responses: SurveyResponseDetail[],
+  ratingThreshold = 2,
+  npsThreshold = 6
+): SurveyResponseDetail[] {
+  return responses.filter((r) =>
+    r.answers.some((a) => {
+      if (a.answer_score == null) return false;
+      const opts = a.options as { max?: number } | null;
+      const qMax = opts?.max ?? 5;
+      if (qMax >= 10) return a.answer_score <= npsThreshold;
+      return a.answer_score <= ratingThreshold;
+    })
+  );
+}
+
+/** 주관식 텍스트 답변 추출 */
+export function extractTextAnswers(
+  responses: SurveyResponseDetail[]
+): { responseId: string; submittedAt: string; text: string; questionText: string }[] {
+  const result: { responseId: string; submittedAt: string; text: string; questionText: string }[] = [];
+  for (const r of responses) {
+    for (const a of r.answers) {
+      if (a.question_type === "text" && a.answer_text?.trim()) {
+        result.push({
+          responseId: r.id,
+          submittedAt: r.submitted_at,
+          text: a.answer_text.trim(),
+          questionText: a.question_text,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 /** 설문 응답 제출 (anon RPC) */
 export async function submitPublicSurvey(
   qrSlug: string,

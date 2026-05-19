@@ -51,6 +51,7 @@ const CoachDashboardPage = lazy(() => import("@/pages/coach/CoachDashboardPage")
 // 회원만족 설문
 const SurveysListPage = lazy(() => import("@/pages/surveys/SurveysListPage"));
 const SurveyDetailPage = lazy(() => import("@/pages/surveys/SurveyDetailPage"));
+const SurveyResultsPage = lazy(() => import("@/pages/surveys/SurveyResultsPage"));
 // 공개 설문 응답 페이지 (로그인 불필요)
 const PublicSurveyPage = lazy(() => import("@/pages/surveys/PublicSurveyPage"));
 
@@ -117,6 +118,7 @@ export default function App() {
               {/* 회원만족 설문 */}
               <Route path="/surveys" element={<SurveysListPage />} />
               <Route path="/surveys/:id" element={<SurveyDetailPage />} />
+              <Route path="/surveys/:id/results" element={<SurveyResultsPage />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFoundPage />} />
