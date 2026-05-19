@@ -126,8 +126,8 @@ export default function GlobalSearch() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (cursor < filteredMenus.length) {
-        navigate(filteredMenus[cursor].to);
-        setOpen(false);
+        const menu = filteredMenus[cursor];
+        if (menu) { navigate(menu.to); setOpen(false); }
       } else {
         const member = members[cursor - filteredMenus.length];
         if (member) {
