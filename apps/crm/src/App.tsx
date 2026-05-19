@@ -36,6 +36,12 @@ const FinancePage = lazy(() => import("@/pages/finance/FinancePage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const KioskHomePage = lazy(() => import("@/pages/kiosk/KioskHomePage"));
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
+// HR
+const ContractViewPage = lazy(() => import("@/pages/hr/ContractViewPage"));
+const HrStaffListPage = lazy(() => import("@/pages/hr/HrStaffListPage"));
+const HrStaffDetailPage = lazy(() => import("@/pages/hr/HrStaffDetailPage"));
+const HrContractsPage = lazy(() => import("@/pages/hr/HrContractsPage"));
+const HrPayrollPage = lazy(() => import("@/pages/hr/HrPayrollPage"));
 
 function PageFallback() {
   return (
@@ -52,6 +58,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          {/* 공개 계약서 뷰 — 로그인 없이 접근 가능 */}
+          <Route path="/contracts/view/:contractId" element={<ContractViewPage />} />
           <Route element={<ProtectedRoute />}>
             {/* Kiosk: full-screen, no sidebar/header */}
             <Route path="/kiosk" element={<KioskHomePage />} />
@@ -81,6 +89,12 @@ export default function App() {
               <Route path="/admin/send-logs" element={<MessageSendLogsPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/help" element={<HelpPage />} />
+              {/* HR */}
+              <Route path="/hr/staff" element={<HrStaffListPage />} />
+              <Route path="/hr/staff/:staffId" element={<HrStaffDetailPage />} />
+              <Route path="/hr/contracts" element={<HrContractsPage />} />
+              <Route path="/hr/payroll" element={<HrPayrollPage />} />
+              <Route path="/hr/payroll/new" element={<HrPayrollPage />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFoundPage />} />

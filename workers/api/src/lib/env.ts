@@ -17,4 +17,5 @@ export interface Env {
   KAKAO_EXPIRY_TPL_D7?: string;
   KAKAO_EXPIRY_TPL_D3?: string;
   KAKAO_EXPIRY_TPL_D1?: string;
+  PAGES_URL?: string;  // CRM 프론트엔드 URL (계약서 링크 생성용)
 }
