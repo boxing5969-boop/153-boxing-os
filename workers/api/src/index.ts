@@ -47,8 +47,7 @@ app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)
 );
 
-const DAILY_EXPIRY_CRON      = "5 15 * * *";   // 00:05 KST = 15:05 UTC
-const DAILY_REPORT_CRON      = "0 0 * * *";    // 09:00 KST = 00:00 UTC — 일일 리포트
+const DAILY_EXPIRY_CRON      = "5 15 * * *";   // 00:05 KST — 만료 처리 + 알림 + 일일 리포트
 const QR_CLEANUP_CRON        = "*/10 * * * *";
 const ALERT_CHECK_CRON       = "*/5 * * * *";
 const SCHEDULED_MSG_CRON     = "0 * * * *";    // 매시간 정각 — 예약 발송 처리
@@ -58,16 +57,15 @@ async function handleScheduled(
   env: Env,
   ctx: ExecutionContext
 ): Promise<void> {
-  if (controller.cron === DAILY_REPORT_CRON) {
+  if (controller.cron === DAILY_EXPIRY_CRON) {
+    // 만료 처리 + 알림톡 + 일일 리포트 SMS (순차)
     ctx.waitUntil(
-      runDailyReport(env).then(() =>
-        console.log("[scheduled:dailyReport] done")
+      runDailyExpiry(env).then(() =>
+        runDailyReport(env).then(() =>
+          console.log("[scheduled:dailyReport] done")
+        )
       )
     );
-    return;
-  }
-  if (controller.cron === DAILY_EXPIRY_CRON) {
-    ctx.waitUntil(runDailyExpiry(env));
     return;
   }
   if (controller.cron === QR_CLEANUP_CRON) {
