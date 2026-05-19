@@ -187,7 +187,7 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
         {groups.map((group) => (
           <div key={group.label}>
-            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/30">
+            <p className="mb-1.5 px-3 text-[11px] font-bold tracking-wider text-sidebar-foreground/65">
               {group.label}
             </p>
             <div className="space-y-0.5">
