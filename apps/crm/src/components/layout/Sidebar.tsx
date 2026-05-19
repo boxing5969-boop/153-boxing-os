@@ -26,6 +26,7 @@ import {
   CalendarDays,
   BarChart3,
   ClipboardList,
+  SmilePlus,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -85,6 +86,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "성과",
     items: [
+      { to: "/surveys", label: "회원만족", icon: SmilePlus, roles: BRANCH_AND_HQ },
       { to: "/levels", label: "레벨", icon: Trophy },
       { to: "/finance", label: "수익/지출", icon: Wallet, roles: BRANCH_AND_HQ },
       { to: "/admin/revenue", label: "매출 상세", icon: Receipt, roles: BRANCH_AND_HQ },

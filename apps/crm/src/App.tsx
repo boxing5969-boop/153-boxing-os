@@ -48,6 +48,9 @@ const HrContractsPage = lazy(() => import("@/pages/hr/HrContractsPage"));
 const HrPayrollPage = lazy(() => import("@/pages/hr/HrPayrollPage"));
 // 코치 업무보드
 const CoachDashboardPage = lazy(() => import("@/pages/coach/CoachDashboardPage"));
+// 회원만족 설문
+const SurveysListPage = lazy(() => import("@/pages/surveys/SurveysListPage"));
+const SurveyDetailPage = lazy(() => import("@/pages/surveys/SurveyDetailPage"));
 
 function PageFallback() {
   return (
@@ -107,6 +110,9 @@ export default function App() {
               <Route path="/hr/payroll/new" element={<HrPayrollPage />} />
               {/* 코치 업무보드 */}
               <Route path="/coach" element={<CoachDashboardPage />} />
+              {/* 회원만족 설문 */}
+              <Route path="/surveys" element={<SurveysListPage />} />
+              <Route path="/surveys/:id" element={<SurveyDetailPage />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFoundPage />} />
