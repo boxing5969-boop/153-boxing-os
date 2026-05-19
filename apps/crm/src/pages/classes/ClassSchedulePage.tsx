@@ -6,7 +6,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Users,
-  CheckCircle2, Clock, X, Building2, ArrowLeft,
+  Building2, ArrowLeft,
+  Settings2, Pencil, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -18,9 +19,12 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBranchesWithStats } from "@/services/branches";
 import {
-  listClasses, listSessions, createSession, updateSessionStatus,
+  listClasses, createClass, updateClass,
+  listSessions, createSession, updateSessionStatus,
   createBooking, updateBookingStatus,
-  CLASS_TYPE_LABELS, SESSION_STATUS_LABELS, BOOKING_STATUS_LABELS,
+  CLASS_TYPE_LABELS, CLASS_TYPE_COLORS,
+  SESSION_STATUS_LABELS, BOOKING_STATUS_LABELS,
+  type GymClass, type ClassType,
   type ClassSession, type SessionStatus, type BookingStatus,
 } from "@/services/classes";
 import { listMembers } from "@/services/members";
@@ -65,7 +69,57 @@ export default function ClassSchedulePage() {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const weekLabel = `${fmt(weekDates[0]!)} ~ ${fmt(weekDates[6]!)}`;
 
-  // 세션 추가 다이얼로그
+  // ── 수업 관리 다이얼로그 ───────────────────────────────────
+  const [showManageClasses, setShowManageClasses] = useState(false);
+  const [editingClass, setEditingClass] = useState<GymClass | null>(null);
+  const [showClassForm, setShowClassForm] = useState(false); // 생성/수정 폼
+  const emptyClassForm = { name: "", class_type: "group" as ClassType, capacity: 10, description: "" };
+  const [classForm, setClassForm] = useState(emptyClassForm);
+
+  const createClassMutation = useMutation({
+    mutationFn: () => createClass(branchId!, {
+      ...classForm,
+      capacity: Number(classForm.capacity),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["classes", branchId] });
+      setShowClassForm(false);
+      setClassForm(emptyClassForm);
+    },
+  });
+
+  const updateClassMutation = useMutation({
+    mutationFn: ({ classId, body }: { classId: string; body: Partial<GymClass> }) =>
+      updateClass(classId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["classes", branchId] });
+      setEditingClass(null);
+      setShowClassForm(false);
+      setClassForm(emptyClassForm);
+    },
+  });
+
+  function openCreateForm() {
+    setEditingClass(null);
+    setClassForm(emptyClassForm);
+    setShowClassForm(true);
+  }
+
+  function openEditForm(c: GymClass) {
+    setEditingClass(c);
+    setClassForm({ name: c.name, class_type: c.class_type, capacity: c.capacity, description: c.description ?? "" });
+    setShowClassForm(true);
+  }
+
+  function submitClassForm() {
+    if (editingClass) {
+      updateClassMutation.mutate({ classId: editingClass.id, body: { ...classForm, capacity: Number(classForm.capacity) } });
+    } else {
+      createClassMutation.mutate();
+    }
+  }
+
+  // ── 세션 추가 다이얼로그 ──────────────────────────────────
   const [showAddSession, setShowAddSession] = useState(false);
   const [sessionForm, setSessionForm] = useState({
     class_id: "", session_date: fmt(new Date()),
@@ -163,9 +217,14 @@ export default function ClassSchedulePage() {
               <p className="text-xs text-muted-foreground">주간 수업 / 예약 / 출석 관리</p>
             </div>
           </div>
-          <Button onClick={() => setShowAddSession(true)} disabled={!branchId} className="gap-2">
-            <Plus className="size-4" /> 수업 추가
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setShowManageClasses(true)} disabled={!branchId} className="gap-2">
+              <Settings2 className="size-4" /> 수업 관리
+            </Button>
+            <Button onClick={() => setShowAddSession(true)} disabled={!branchId || classes.filter(c => c.is_active).length === 0} className="gap-2">
+              <Plus className="size-4" /> 수업 추가
+            </Button>
+          </div>
         </div>
 
         {/* 본사 지점 선택 */}
@@ -186,6 +245,20 @@ export default function ClassSchedulePage() {
           </Card>
         ) : (
           <>
+            {/* 수업 없을 때 안내 */}
+            {classes.filter(c => c.is_active).length === 0 && (
+              <Card className="px-5 py-4 flex items-center gap-4 border-warning/40 bg-warning/5">
+                <Settings2 className="size-5 text-warning shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-foreground">등록된 수업이 없습니다</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">먼저 수업을 만들어야 일정을 추가할 수 있습니다.</p>
+                </div>
+                <Button size="sm" onClick={() => setShowManageClasses(true)} className="gap-1.5 shrink-0">
+                  <Plus className="size-3.5" /> 수업 만들기
+                </Button>
+              </Card>
+            )}
+
             {/* 주간 네비게이션 */}
             <div className="flex items-center gap-3">
               <Button variant="outline" size="sm" onClick={prevWeek}><ChevronLeft className="size-4" /></Button>
@@ -247,6 +320,137 @@ export default function ClassSchedulePage() {
           </>
         )}
       </div>
+
+      {/* 수업 관리 다이얼로그 */}
+      <Dialog open={showManageClasses} onClose={() => { setShowManageClasses(false); setShowClassForm(false); setEditingClass(null); setClassForm(emptyClassForm); }}
+        title="수업 관리" className="max-w-lg">
+        <div className="space-y-4">
+
+          {/* 수업 목록 */}
+          {!showClassForm && (
+            <>
+              {classes.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground text-sm">
+                  아직 등록된 수업이 없습니다.<br />아래 버튼을 눌러 첫 수업을 만들어보세요.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {classes.map(c => (
+                    <div key={c.id} className={cn(
+                      "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+                      c.is_active ? "border-border bg-card" : "border-border/50 bg-muted/30 opacity-60"
+                    )}>
+                      {/* 타입 배지 */}
+                      <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0", CLASS_TYPE_COLORS[c.class_type])}>
+                        {CLASS_TYPE_LABELS[c.class_type]}
+                      </span>
+                      {/* 이름 + 정원 */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">정원 {c.capacity}명{c.description ? ` · ${c.description}` : ""}</p>
+                      </div>
+                      {/* 버튼 */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          title="수정"
+                          onClick={() => openEditForm(c)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          title={c.is_active ? "비활성화" : "활성화"}
+                          onClick={() => updateClassMutation.mutate({ classId: c.id, body: { is_active: !c.is_active } })}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                          {c.is_active
+                            ? <ToggleRight className="size-4 text-success" />
+                            : <ToggleLeft className="size-4 text-muted-foreground" />}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="pt-2 border-t border-border">
+                <Button onClick={openCreateForm} className="w-full gap-2">
+                  <Plus className="size-4" /> 새 수업 만들기
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* 수업 생성/수정 폼 */}
+          {showClassForm && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <button onClick={() => { setShowClassForm(false); setEditingClass(null); setClassForm(emptyClassForm); }}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground">
+                  <ArrowLeft className="size-4" />
+                </button>
+                <span className="text-sm font-semibold text-foreground">
+                  {editingClass ? "수업 수정" : "새 수업 만들기"}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>수업 이름 *</Label>
+                <Input
+                  placeholder="예: 복싱 기초반, 월요 그룹 PT"
+                  value={classForm.name}
+                  onChange={e => setClassForm(f => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>수업 종류 *</Label>
+                  <Select value={classForm.class_type} onChange={e => setClassForm(f => ({ ...f, class_type: e.target.value as ClassType }))}>
+                    {(Object.entries(CLASS_TYPE_LABELS) as [ClassType, string][]).map(([v, l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>최대 정원 *</Label>
+                  <Input
+                    type="number" min={1} max={200}
+                    value={classForm.capacity}
+                    onChange={e => setClassForm(f => ({ ...f, capacity: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>설명 (선택)</Label>
+                <Input
+                  placeholder="수업에 대한 간단한 설명"
+                  value={classForm.description}
+                  onChange={e => setClassForm(f => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+
+              {(createClassMutation.error ?? updateClassMutation.error) && (
+                <p className="text-sm text-danger">
+                  {(createClassMutation.error as Error | null)?.message ??
+                   (updateClassMutation.error as Error | null)?.message}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                <Button variant="outline" onClick={() => { setShowClassForm(false); setEditingClass(null); }}>
+                  취소
+                </Button>
+                <Button
+                  onClick={submitClassForm}
+                  disabled={!classForm.name || createClassMutation.isPending || updateClassMutation.isPending}>
+                  {createClassMutation.isPending || updateClassMutation.isPending
+                    ? "저장 중…"
+                    : editingClass ? "수정 완료" : "수업 만들기"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Dialog>
 
       {/* 세션 추가 다이얼로그 */}
       <Dialog open={showAddSession} onClose={() => setShowAddSession(false)} title="수업 추가" className="max-w-md">
