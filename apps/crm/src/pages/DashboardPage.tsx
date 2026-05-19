@@ -5,6 +5,7 @@ import {
   Clock,
   AlertTriangle,
   TrendingUp,
+  BanknoteIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,6 +14,7 @@ import { getDashboardStats } from "@/services/dashboardStats";
 import { ExpiringMembersCard } from "@/components/dashboard/ExpiringMembersCard";
 import { DeniedReasonsCard } from "@/components/dashboard/DeniedReasonsCard";
 import { RevenueSnapshotCard } from "@/components/dashboard/RevenueSnapshotCard";
+import { AtRiskMembersCard } from "@/components/dashboard/AtRiskMembersCard";
 import { cn } from "@/lib/cn";
 
 interface KpiSpec {
@@ -146,6 +148,13 @@ export default function DashboardPage() {
       icon: AlertTriangle,
       tone: (data?.failedSyncJobsCount ?? 0) > 0 ? "danger" : "default",
     },
+    {
+      label: "미납 회원",
+      value: isLoading ? "…" : (data?.unpaidMembersCount ?? 0),
+      hint: "즉시 연락 필요",
+      icon: BanknoteIcon,
+      tone: (data?.unpaidMembersCount ?? 0) > 0 ? "danger" : "default",
+    },
   ];
 
   return (
@@ -157,15 +166,16 @@ export default function DashboardPage() {
       />
 
       {/* KPI 카드 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {kpis.map((spec) => (
           <KpiCard key={spec.label} spec={spec} loading={isLoading} />
         ))}
       </div>
 
-      {/* 하단 카드 3열 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* 하단 카드 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
         <ExpiringMembersCard days={7} />
+        <AtRiskMembersCard />
         <DeniedReasonsCard days={7} />
         <RevenueSnapshotCard />
       </div>

@@ -17,6 +17,7 @@ import {
   runScheduledMessages,
 } from "./services/syncQueueProcessor";
 import { runAlertCheck } from "./services/alertChecker";
+import { runDailyReport } from "./services/dailyReporter";
 import type { Env } from "./lib/env";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -45,6 +46,7 @@ app.notFound((c) =>
 );
 
 const DAILY_EXPIRY_CRON      = "5 15 * * *";   // 00:05 KST = 15:05 UTC
+const DAILY_REPORT_CRON      = "0 0 * * *";    // 09:00 KST = 00:00 UTC — 일일 리포트
 const QR_CLEANUP_CRON        = "*/10 * * * *";
 const ALERT_CHECK_CRON       = "*/5 * * * *";
 const SCHEDULED_MSG_CRON     = "0 * * * *";    // 매시간 정각 — 예약 발송 처리
@@ -54,6 +56,14 @@ async function handleScheduled(
   env: Env,
   ctx: ExecutionContext
 ): Promise<void> {
+  if (controller.cron === DAILY_REPORT_CRON) {
+    ctx.waitUntil(
+      runDailyReport(env).then(() =>
+        console.log("[scheduled:dailyReport] done")
+      )
+    );
+    return;
+  }
   if (controller.cron === DAILY_EXPIRY_CRON) {
     ctx.waitUntil(runDailyExpiry(env));
     return;

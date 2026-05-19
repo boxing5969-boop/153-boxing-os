@@ -5,6 +5,7 @@ export interface DashboardStats {
   todayDeniedCount: number;
   expiringMembershipsCount: number; // 다음 7일 (오늘 포함)
   failedSyncJobsCount: number;
+  unpaidMembersCount: number;        // 미납 회원 수
 }
 
 function startOfTodayIso(): string {
@@ -23,7 +24,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const in7 = new Date();
   in7.setDate(in7.getDate() + 7);
 
-  const [success, denied, expiring, failed] = await Promise.all([
+  const [success, denied, expiring, failed, unpaid] = await Promise.all([
     supabase
       .from("access_logs")
       .select("id", { count: "exact", head: true })
@@ -44,6 +45,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       .from("device_sync_jobs")
       .select("id", { count: "exact", head: true })
       .eq("status", "failed"),
+    supabase
+      .from("members")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "unpaid"),
   ]);
 
   return {
@@ -51,5 +56,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     todayDeniedCount: denied.count ?? 0,
     expiringMembershipsCount: expiring.count ?? 0,
     failedSyncJobsCount: failed.count ?? 0,
+    unpaidMembersCount: unpaid.count ?? 0,
   };
 }
