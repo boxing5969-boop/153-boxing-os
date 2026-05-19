@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   TrendingUp,
   BanknoteIcon,
+  UserPlus,
+  CalendarClock,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,6 +17,7 @@ import { ExpiringMembersCard } from "@/components/dashboard/ExpiringMembersCard"
 import { DeniedReasonsCard } from "@/components/dashboard/DeniedReasonsCard";
 import { RevenueSnapshotCard } from "@/components/dashboard/RevenueSnapshotCard";
 import { AtRiskMembersCard } from "@/components/dashboard/AtRiskMembersCard";
+import { TodayActionStrip } from "@/components/dashboard/TodayActionStrip";
 import { cn } from "@/lib/cn";
 
 interface KpiSpec {
@@ -155,24 +158,48 @@ export default function DashboardPage() {
       icon: BanknoteIcon,
       tone: (data?.unpaidMembersCount ?? 0) > 0 ? "danger" : "default",
     },
+    // ── Phase 1 추가 ──────────────────────────────────────
+    {
+      label: "오늘 신규 등록",
+      value: isLoading ? "…" : (data?.todayNewMembersCount ?? 0),
+      hint: "오늘 등록된 신규 회원",
+      icon: UserPlus,
+      tone: (data?.todayNewMembersCount ?? 0) > 0 ? "success" : "default",
+    },
+    {
+      label: "방문 신청 대기",
+      value: isLoading ? "…" : (data?.pendingVisitorCount ?? 0),
+      hint: "승인 대기 중인 방문 요청",
+      icon: CalendarClock,
+      tone: (data?.pendingVisitorCount ?? 0) > 0 ? "warning" : "default",
+    },
   ];
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-5">
       {/* 웰컴 배너 */}
       <WelcomeBanner
         name={profile?.name}
         role={roleLabel(profile?.role)}
       />
 
-      {/* KPI 카드 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* KPI 카드 (7종) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
         {kpis.map((spec) => (
           <KpiCard key={spec.label} spec={spec} loading={isLoading} />
         ))}
       </div>
 
-      {/* 하단 카드 */}
+      {/* 오늘의 할 일 띠 */}
+      {!isLoading && (
+        <TodayActionStrip
+          pendingVisitorCount={data?.pendingVisitorCount ?? 0}
+          pendingScheduledMessagesCount={data?.pendingScheduledMessagesCount ?? 0}
+          dueFollowupsCount={data?.dueFollowupsCount ?? 0}
+        />
+      )}
+
+      {/* 하단 카드 4종 (기존 유지) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
         <ExpiringMembersCard days={7} />
         <AtRiskMembersCard />
