@@ -3,6 +3,7 @@
  * - coach 역할 전용. 담당 회원 중심의 오늘 할 일 & 현황을 한 눈에 보여줌.
  * - 모든 데이터는 RLS(is_coach_of)에 의해 담당 회원만 자동 필터됨.
  */
+import { type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -43,7 +44,7 @@ function SectionCard({
   title: string;
   count?: number;
   countTone?: "default" | "warning" | "danger" | "success";
-  children: React.ReactNode;
+  children: ReactNode;
   emptyText: string;
   loading: boolean;
 }) {
