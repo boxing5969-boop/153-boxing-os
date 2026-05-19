@@ -20,9 +20,6 @@ import {
   SendHorizontal,
   Clock,
   FileText,
-  UserCog,
-  FileSignature,
-  BanknoteIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -77,18 +74,10 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "인사/급여",
-    items: [
-      { to: "/hr/staff", label: "직원 관리", icon: UserCog, roles: BRANCH_AND_HQ },
-      { to: "/hr/contracts", label: "계약서", icon: FileSignature, roles: BRANCH_AND_HQ },
-      { to: "/hr/payroll", label: "급여 명세", icon: BanknoteIcon, roles: BRANCH_AND_HQ },
-    ],
-  },
-  {
     label: "관리",
     items: [
       { to: "/branches", label: "지점", icon: Building2, roles: ["super_admin", "hq_admin"] },
-      { to: "/staff", label: "CRM 직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
+      { to: "/staff", label: "직원", icon: ShieldCheck, roles: ["super_admin", "hq_admin"] },
       { to: "/admin/alerts", label: "알림", icon: Bell, roles: BRANCH_AND_HQ },
       { to: "/admin/bulk-notify", label: "그룹 발송", icon: SendHorizontal, roles: BRANCH_AND_HQ },
       { to: "/admin/scheduled-msgs", label: "예약 발송", icon: Clock, roles: BRANCH_AND_HQ },
