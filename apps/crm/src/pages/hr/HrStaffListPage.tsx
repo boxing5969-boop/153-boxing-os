@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   UserCog, Plus, Phone, Mail, Search, ChevronRight,
-  UserCheck, UserX, Briefcase, Building2,
+  UserCheck, UserX, Briefcase, Building2, ArrowLeft,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -112,6 +112,10 @@ export default function HrStaffListPage() {
         {/* 헤더 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="gap-1.5 text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="size-4" />
+              뒤로
+            </Button>
             <div className="flex size-9 items-center justify-center rounded-lg bg-brand/10">
               <UserCog className="size-5 text-brand" />
             </div>

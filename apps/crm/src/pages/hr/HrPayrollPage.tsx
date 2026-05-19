@@ -115,6 +115,10 @@ export default function HrPayrollPage() {
 
         {/* 헤더 */}
         <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="gap-1.5 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" />
+            뒤로
+          </Button>
           <div className="flex size-9 items-center justify-center rounded-lg bg-brand/10">
             <BanknoteIcon className="size-5 text-brand" />
           </div>
@@ -188,7 +192,7 @@ export default function HrPayrollPage() {
             </Card>
           ) : (
             <Card className="h-36 flex items-center justify-center text-muted-foreground text-sm">
-              불러오는 중…
+              {!branchId ? "직원을 등록하면 인건비 현황이 표시됩니다" : "급여 명세 데이터가 없습니다"}
             </Card>
           )}
         </div>

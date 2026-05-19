@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { FileSignature, Search, Eye, ExternalLink } from "lucide-react";
+import { FileSignature, Search, Eye, ExternalLink, ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,10 @@ export default function HrContractsPage() {
 
         {/* 헤더 */}
         <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="gap-1.5 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4" />
+            뒤로
+          </Button>
           <div className="flex size-9 items-center justify-center rounded-lg bg-brand/10">
             <FileSignature className="size-5 text-brand" />
           </div>
@@ -112,7 +116,13 @@ export default function HrContractsPage() {
         </div>
 
         {/* 계약서 목록 */}
-        {isLoading ? (
+        {!branchId ? (
+          <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
+            <FileSignature className="size-9 opacity-30" />
+            <p className="text-sm">직원 관리에서 지점을 선택하면 계약서 목록이 표시됩니다</p>
+            <Button variant="outline" size="sm" onClick={() => navigate("/hr/staff")}>직원 관리로 이동</Button>
+          </Card>
+        ) : isLoading ? (
           <div className="text-center py-16 text-muted-foreground text-sm">불러오는 중…</div>
         ) : filtered.length === 0 ? (
           <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
