@@ -9,17 +9,28 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, ClipboardCheck, ChevronRight,
-  ToggleLeft, ToggleRight, ArchiveX,
+  ToggleLeft, ToggleRight, ArchiveX, Building2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   listSurveyTemplates, createSurveyWithDefaults, updateSurveyTemplate,
   getSurveyResponseCount,
   type SurveyTemplate,
 } from "@/services/surveys";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/cn";
+
+// ── 지점 목록 조회 (본사 계정용) ──────────────────────────────
+async function listBranches(): Promise<{ id: string; name: string }[]> {
+  const { data } = await supabase
+    .from("branches")
+    .select("id,name")
+    .eq("status", "active")
+    .order("name");
+  return (data ?? []) as { id: string; name: string }[];
+}
 
 // ── 상태 뱃지 ────────────────────────────────────────────────
 const STATUS_MAP = {
@@ -122,26 +133,38 @@ export default function SurveysListPage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("");
 
-  const branchId = profile?.branch_id ?? "";
   const profileId = profile?.id ?? "";
+  const isHq = profile?.role === "super_admin" || profile?.role === "hq_admin";
+
+  // 본사 계정이면 지점 목록 로드
+  const { data: branches = [] } = useQuery({
+    queryKey: ["branches-list"],
+    queryFn: listBranches,
+    enabled: isHq,
+    staleTime: 5 * 60_000,
+  });
+
+  // 실제 사용할 branch_id: 지점 계정은 profile 값, 본사는 선택값
+  const effectiveBranchId = isHq ? selectedBranchId : (profile?.branch_id ?? "");
 
   const { data: templates = [], isLoading } = useQuery({
-    queryKey: ["survey-templates", branchId],
-    queryFn: () => listSurveyTemplates(branchId),
-    enabled: !!branchId,
+    queryKey: ["survey-templates", effectiveBranchId],
+    queryFn: () => listSurveyTemplates(effectiveBranchId),
+    enabled: !!effectiveBranchId,
     staleTime: 60_000,
   });
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: SurveyTemplate["status"] }) =>
       updateSurveyTemplate(id, { status }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["survey-templates", branchId] }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["survey-templates", effectiveBranchId] }),
   });
 
   const archiveMutation = useMutation({
     mutationFn: (id: string) => updateSurveyTemplate(id, { status: "archived" }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["survey-templates", branchId] }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["survey-templates", effectiveBranchId] }),
   });
 
   return (
@@ -157,23 +180,54 @@ export default function SurveysListPage() {
             QR 코드로 회원 만족도를 수집하세요
           </p>
         </div>
-        <Button onClick={() => setShowCreate((v) => !v)} className="gap-1.5">
+        <Button
+          onClick={() => setShowCreate((v) => !v)}
+          className="gap-1.5"
+          disabled={isHq && !selectedBranchId}
+        >
           <Plus className="size-4" />
           새 설문
         </Button>
       </div>
 
+      {/* 본사 계정용 지점 선택 */}
+      {isHq && (
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+          <Building2 className="size-4 text-muted-foreground shrink-0" />
+          <span className="text-sm text-muted-foreground shrink-0">지점 선택</span>
+          <select
+            value={selectedBranchId}
+            onChange={(e) => {
+              setSelectedBranchId(e.target.value);
+              setShowCreate(false);
+            }}
+            className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">— 지점을 선택하세요 —</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* 생성 폼 */}
-      {showCreate && (
+      {showCreate && effectiveBranchId && (
         <CreateForm
-          branchId={branchId}
+          branchId={effectiveBranchId}
           profileId={profileId}
           onDone={() => setShowCreate(false)}
         />
       )}
 
       {/* 목록 */}
-      {isLoading ? (
+      {isHq && !selectedBranchId ? (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-muted-foreground">
+            위에서 지점을 선택하면 해당 지점의 설문 목록이 표시됩니다.
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-20 w-full animate-pulse rounded-xl bg-muted" />
