@@ -55,8 +55,8 @@ export async function getHqKpiDashboard(): Promise<HqKpiDashboard> {
     {} as unknown as { p_survey_template_id: string }
   );
   if (error) throw new Error(error.message);
-  const r = data as unknown as { success: boolean; error?: string } & HqKpiDashboard;
-  if (!r.success) throw new Error(r.error ?? "본사 KPI 조회 실패");
+  const r = data as unknown as ({ success: boolean; error?: string } & HqKpiDashboard) | null;
+  if (!r || !r.success) throw new Error(r?.error ?? "본사 KPI 조회 실패");
   return r;
 }
 
@@ -67,7 +67,7 @@ export async function getBranchOpsDashboard(branchId?: string): Promise<BranchOp
     (branchId ? { p_branch_id: branchId } : {}) as unknown as { p_survey_template_id: string }
   );
   if (error) throw new Error(error.message);
-  const r = data as unknown as { success: boolean; error?: string } & BranchOpsDashboard;
-  if (!r.success) throw new Error(r.error ?? "지점 운영 KPI 조회 실패");
+  const r = data as unknown as ({ success: boolean; error?: string } & BranchOpsDashboard) | null;
+  if (!r || !r.success) throw new Error(r?.error ?? "지점 운영 KPI 조회 실패");
   return r;
 }

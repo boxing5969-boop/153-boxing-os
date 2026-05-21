@@ -82,20 +82,25 @@ fcRoutes.post("/generate-message", requireJwt, async (c) => {
   const db = getServiceClient(c.env);
 
   // 회원·지점·스냅샷 맥락 수집
-  const { data: member } = await db
+  const { data: member, error: memberErr } = await db
     .from("members")
     .select("name,branch_id,branches(name)")
     .eq("id", sug.member_id)
     .maybeSingle();
+  // 회원 조회가 DB 오류로 실패하면, 기본값("회원")으로 엉뚱한 메시지를
+  // 만들지 않도록 여기서 중단한다. (조회 실패와 "데이터 없음"을 구분)
+  if (memberErr) return fail(c, "DB_ERROR", memberErr.message, 500);
   const m = member as { name: string; branches: { name: string } | null } | null;
 
-  const { data: snap } = await db
+  const { data: snap, error: snapErr } = await db
     .from("member_status_snapshots")
     .select("product_type,lifecycle_stage,days_since_last_visit,days_until_expiry")
     .eq("member_id", sug.member_id)
     .order("snapshot_date", { ascending: false })
     .limit(1)
     .maybeSingle();
+  // 스냅샷은 없을 수도 있는 선택 맥락이라 실패해도 진행하되, DB 오류는 로그를 남긴다.
+  if (snapErr) console.error("[fc/generate-message] 스냅샷 조회 실패", snapErr);
   const s = snap as {
     product_type: string | null; lifecycle_stage: string | null;
     days_since_last_visit: number | null; days_until_expiry: number | null;

@@ -73,10 +73,14 @@ export default function StaffRolesPage() {
     mutationFn: (v: { id: string; status: "active" | "inactive" }) =>
       setStaffRoleStatus(v.id, v.status),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["staff-roles", companyId] }),
+    onError: (e) =>
+      window.alert(e instanceof Error ? e.message : "상태 변경에 실패했습니다"),
   });
   const removeM = useMutation({
     mutationFn: (id: string) => removeStaffRole(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["staff-roles", companyId] }),
+    onError: (e) =>
+      window.alert(e instanceof Error ? e.message : "배정 해제에 실패했습니다"),
   });
 
   if (!canManage) {
