@@ -9,6 +9,12 @@ const STYLES: Record<UserRole, string> = {
   branch_manager: "bg-teal-100 text-teal-700",
   coach: "bg-purple-100 text-purple-700",
   member: "bg-gray-100 text-gray-700",
+  // Phase B 멀티테넌트 역할 확장
+  owner: "bg-indigo-100 text-indigo-700",
+  brand_manager: "bg-cyan-100 text-cyan-700",
+  staff: "bg-amber-100 text-amber-700",
+  accountant: "bg-emerald-100 text-emerald-700",
+  viewer: "bg-slate-100 text-slate-700",
 };
 
 export function RoleBadge({ role }: { role: UserRole }) {
