@@ -18,4 +18,6 @@ export interface Env {
   KAKAO_EXPIRY_TPL_D3?: string;
   KAKAO_EXPIRY_TPL_D1?: string;
   PAGES_URL?: string;  // CRM 프론트엔드 URL (계약서 링크 생성용)
+  // FC AI 메시지 생성용 LLM 키 (미설정 시 규칙 기반으로 자동 폴백)
+  ANTHROPIC_API_KEY?: string;
 }

@@ -13,6 +13,8 @@ export type TrialPassStatus = "active" | "used" | "expired" | "canceled";
 export interface Member {
   id: string;
   company_id: string;
+  /** 멀티테넌트: 소속 브랜드. INSERT 시 branch_id로부터 DB 트리거가 자동 채움 */
+  brand_id?: string;
   branch_id: string;
   name: string;
   phone: string | null;
@@ -23,6 +25,7 @@ export interface Member {
   ranking_app_user_id: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export type PlanType = 'period' | 'session' | 'pt' | 'class';
@@ -30,6 +33,9 @@ export type PlanType = 'period' | 'session' | 'pt' | 'class';
 export interface Membership {
   id: string;
   member_id: string;
+  /** 멀티테넌트: INSERT 시 branch_id로부터 DB 트리거가 자동 채움 */
+  company_id?: string;
+  brand_id?: string;
   branch_id: string;
   plan_name: string;
   plan_type?: PlanType | null;
@@ -54,6 +60,7 @@ export interface Membership {
   notes?: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface TrialPass {

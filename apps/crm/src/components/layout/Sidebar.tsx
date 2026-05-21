@@ -27,6 +27,8 @@ import {
   BarChart3,
   ClipboardList,
   SmilePlus,
+  Inbox,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -53,17 +55,30 @@ const BRANCH_AND_HQ: UserRole[] = [
   "branch_manager",
 ];
 
+// FC(상담) 케어 메뉴 노출 대상 — 운영진 + 상담직원/코치
+const FC_ROLES: UserRole[] = [
+  ...BRANCH_AND_HQ,
+  "owner",
+  "brand_manager",
+  "staff",
+  "coach",
+];
+
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "내 업무",
     items: [
       { to: "/coach", label: "업무보드", icon: ClipboardList, roles: ["coach"] },
+      { to: "/fc/tasks", label: "FC 업무함", icon: Inbox, roles: FC_ROLES },
+      { to: "/fc/revenue-board", label: "매출 기회 보드", icon: TrendingUp, roles: FC_ROLES },
     ],
   },
   {
     label: "운영",
     items: [
       { to: "/", label: "대시보드", icon: LayoutDashboard },
+      { to: "/kpi", label: "KPI 대시보드", icon: BarChart3, roles: BRANCH_AND_HQ },
+      { to: "/staff/roles", label: "역할 배정", icon: ShieldCheck, roles: ["super_admin", "hq_admin", "owner"] },
       { to: "/members", label: "회원", icon: Users },
       { to: "/memberships", label: "이용권", icon: CreditCard, roles: BRANCH_AND_HQ },
       { to: "/visitors", label: "방문자", icon: UserCheck, roles: BRANCH_AND_HQ },

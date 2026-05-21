@@ -296,6 +296,26 @@ export async function runDailyExpiry(env: Env): Promise<void> {
   await runDailyNotifications(env);
 }
 
+/**
+ * FC AI Care Center 일배치 (매일 00:05 KST)
+ * compute_member_snapshots() → run_playbooks() 를 순차 실행한다.
+ * - 회원 상태 스냅샷·세그먼트를 재계산하고
+ * - 활성 플레이북을 평가해 message_suggestions(draft)·tasks 를 생성한다.
+ * 생성된 메시지는 draft 상태이며 FC 승인 전에는 절대 발송되지 않는다.
+ */
+export async function runFcDailyRun(env: Env): Promise<void> {
+  const db = getServiceClient(env);
+  // fc_daily_run 은 생성 타입에 미포함 — 인자 없는 RPC 명으로 캐스팅
+  const { data, error } = await db.rpc(
+    "fc_daily_run" as "expire_outdated_memberships",
+  );
+  if (error) {
+    console.error("[fcDailyRun]", error);
+    return;
+  }
+  console.log("[fcDailyRun]", data);
+}
+
 /** 예약 발송 실행 (매시간 cron) */
 export async function runScheduledMessages(env: Env): Promise<void> {
   const db = getServiceClient(env);

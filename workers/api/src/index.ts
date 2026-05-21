@@ -11,9 +11,12 @@ import { onboardingRoutes } from "./routes/onboarding";
 import { hrRoutes } from "./routes/hr";
 import { classesRoutes } from "./routes/classes";
 import { fitnessRoutes } from "./routes/fitness";
+import { surveysRoutes } from "./routes/surveys";
+import { fcRoutes } from "./routes/fc";
 import {
   processNextSyncJobs,
   runDailyExpiry,
+  runFcDailyRun,
   runQrCleanup,
   runScheduledMessages,
 } from "./services/syncQueueProcessor";
@@ -35,6 +38,7 @@ app.get("/health", (c) =>
 
 app.route("/api/access", accessRoutes);
 app.route("/api/devices", devicesRoutes);
+app.route("/api/admin/surveys", surveysRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/staff", staffRoutes);
 app.route("/api/external", externalRoutes);
@@ -42,6 +46,7 @@ app.route("/api/onboarding", onboardingRoutes);
 app.route("/api/hr", hrRoutes);
 app.route("/api/classes", classesRoutes);
 app.route("/api/fitness", fitnessRoutes);
+app.route("/api/fc", fcRoutes);
 
 app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)
@@ -58,13 +63,17 @@ async function handleScheduled(
   ctx: ExecutionContext
 ): Promise<void> {
   if (controller.cron === DAILY_EXPIRY_CRON) {
-    // 만료 처리 + 알림톡 + 일일 리포트 SMS (순차)
+    // 만료 처리 + 알림톡 + 일일 리포트 SMS + FC 일배치 (순차)
     ctx.waitUntil(
-      runDailyExpiry(env).then(() =>
-        runDailyReport(env).then(() =>
-          console.log("[scheduled:dailyReport] done")
-        )
-      )
+      runDailyExpiry(env)
+        .then(() => runDailyReport(env))
+        .then(() => {
+          console.log("[scheduled:dailyReport] done");
+        })
+        .then(() => runFcDailyRun(env))
+        .then(() => {
+          console.log("[scheduled:fcDailyRun] done");
+        })
     );
     return;
   }

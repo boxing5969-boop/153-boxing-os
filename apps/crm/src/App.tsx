@@ -24,6 +24,7 @@ const LevelsListPage = lazy(() => import("@/pages/levels/LevelsListPage"));
 const MemberLevelsPage = lazy(() => import("@/pages/levels/MemberLevelsPage"));
 const ProfilePage = lazy(() => import("@/pages/settings/ProfilePage"));
 const StaffListPage = lazy(() => import("@/pages/staff/StaffListPage"));
+const StaffRolesPage = lazy(() => import("@/pages/staff/StaffRolesPage"));
 const EmergencyPinsPage = lazy(() => import("@/pages/admin/EmergencyPinsPage"));
 const AlertsPage = lazy(() => import("@/pages/admin/AlertsPage"));
 const RevenuePage = lazy(() => import("@/pages/admin/RevenuePage"));
@@ -48,9 +49,15 @@ const HrContractsPage = lazy(() => import("@/pages/hr/HrContractsPage"));
 const HrPayrollPage = lazy(() => import("@/pages/hr/HrPayrollPage"));
 // 코치 업무보드
 const CoachDashboardPage = lazy(() => import("@/pages/coach/CoachDashboardPage"));
+// KPI 대시보드
+const KpiDashboardPage = lazy(() => import("@/pages/kpi/KpiDashboardPage"));
+// FC AI Care Center
+const FcTaskInboxPage = lazy(() => import("@/pages/fc/FcTaskInboxPage"));
+const RevenueBoardPage = lazy(() => import("@/pages/fc/RevenueBoardPage"));
 // 회원만족 설문
 const SurveysListPage = lazy(() => import("@/pages/surveys/SurveysListPage"));
 const SurveyDetailPage = lazy(() => import("@/pages/surveys/SurveyDetailPage"));
+const SurveySendPage = lazy(() => import("@/pages/surveys/SurveySendPage"));
 const SurveyResultsPage = lazy(() => import("@/pages/surveys/SurveyResultsPage"));
 // 공개 설문 응답 페이지 (로그인 불필요)
 const PublicSurveyPage = lazy(() => import("@/pages/surveys/PublicSurveyPage"));
@@ -79,6 +86,10 @@ export default function App() {
             <Route path="/kiosk" element={<KioskHomePage />} />
             <Route element={<AppLayout />}>
               <Route path="/" element={<DashboardPage />} />
+              <Route path="/kpi" element={<KpiDashboardPage />} />
+              {/* FC AI Care Center */}
+              <Route path="/fc/tasks" element={<FcTaskInboxPage />} />
+              <Route path="/fc/revenue-board" element={<RevenueBoardPage />} />
               <Route path="/members" element={<MembersListPage />} />
               <Route path="/members/new" element={<MemberNewPage />} />
               <Route path="/members/:id" element={<MemberDetailPage />} />
@@ -93,6 +104,7 @@ export default function App() {
               <Route path="/levels/:id" element={<MemberLevelsPage />} />
               <Route path="/settings/profile" element={<ProfilePage />} />
               <Route path="/staff" element={<StaffListPage />} />
+              <Route path="/staff/roles" element={<StaffRolesPage />} />
               <Route path="/admin/emergency-pins" element={<EmergencyPinsPage />} />
               <Route path="/admin/alerts" element={<AlertsPage />} />
               <Route path="/admin/revenue" element={<RevenuePage />} />
@@ -118,6 +130,7 @@ export default function App() {
               {/* 회원만족 설문 */}
               <Route path="/surveys" element={<SurveysListPage />} />
               <Route path="/surveys/:id" element={<SurveyDetailPage />} />
+              <Route path="/surveys/:id/send" element={<SurveySendPage />} />
               <Route path="/surveys/:id/results" element={<SurveyResultsPage />} />
             </Route>
           </Route>

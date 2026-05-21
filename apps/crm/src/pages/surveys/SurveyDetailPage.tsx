@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Trash2, GripVertical,
   QrCode, Copy, Check, Printer, ExternalLink,
-  ToggleLeft, ToggleRight, PencilLine, Save, X, BarChart2,
+  ToggleLeft, ToggleRight, PencilLine, Save, X, BarChart2, Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -531,8 +531,15 @@ export default function SurveyDetailPage() {
           <ArrowLeft className="size-4" />
         </button>
         <div className="flex-1 min-w-0">
-          {/* 결과 보기 버튼 */}
-          <div className="flex justify-end mb-2">
+          {/* 발송 / 결과 보기 버튼 */}
+          <div className="flex justify-end gap-2 mb-2">
+            <Link
+              to={`/surveys/${id}/send`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary/90 transition-colors"
+            >
+              <Send className="size-3.5" />
+              설문 발송
+            </Link>
             <Link
               to={`/surveys/${id}/results`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -673,7 +680,7 @@ export default function SurveyDetailPage() {
 
           {showAddQr && (
             <CreateQrForm
-              branchId={branchId}
+              branchId={template.branch_id}
               templateId={id!}
               profileId={profileId}
               onDone={() => setShowAddQr(false)}

@@ -4,7 +4,13 @@ export type UserRole =
   | "branch_owner"
   | "branch_manager"
   | "coach"
-  | "member";
+  | "member"
+  // Phase B 멀티테넌트 역할 확장
+  | "owner"
+  | "brand_manager"
+  | "staff"
+  | "accountant"
+  | "viewer";
 
 export interface Profile {
   id: string;

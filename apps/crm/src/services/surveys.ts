@@ -234,6 +234,10 @@ export interface CreateQrInput {
 }
 
 export async function createSurveyQrCode(input: CreateQrInput): Promise<SurveyQrCode> {
+  // 지점 정보 누락 방어 — 빈 문자열이 UUID 컬럼에 들어가면 발급 실패
+  if (!input.branch_id) {
+    throw new Error("지점 정보를 찾을 수 없어 QR을 발급할 수 없습니다.");
+  }
   const { data, error } = await supabase
     .from("survey_qr_codes" as "members")
     .insert({
@@ -241,7 +245,7 @@ export async function createSurveyQrCode(input: CreateQrInput): Promise<SurveyQr
       survey_template_id: input.survey_template_id,
       label: input.label ?? null,
       valid_until: input.valid_until ?? null,
-      created_by: input.created_by ?? null,
+      created_by: input.created_by || null,
       status: "active",
     })
     .select()
@@ -553,4 +557,176 @@ export async function submitPublicSurvey(
   if (error) return { success: false, error: error.message };
   const result = data as unknown as { success: boolean; response_id?: string; error?: string };
   return result;
+}
+
+// ════════════════════════════════════════════════════════════
+// 설문 발송 (초대) — Phase 5.5
+// ════════════════════════════════════════════════════════════
+
+const SURVEY_API_BASE = import.meta.env.VITE_API_BASE_URL as string;
+
+/** Workers API 호출 (인증 헤더 포함) */
+async function surveyApiPost<T>(path: string, body: unknown): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const res = await fetch(`${SURVEY_API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json()) as {
+    success: boolean; data: T; message?: string; error?: { message?: string };
+  };
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message ?? json.message ?? `HTTP ${res.status}`);
+  }
+  return json.data;
+}
+
+export type SurveyChannel =
+  | "sms" | "kakao" | "both" | "kakao_sms_fallback"
+  | "app_push" | "email" | "manual";
+
+export type InviteStatus = "pending" | "sent" | "opened" | "responded" | "failed";
+
+/** 채널별 한글 레이블 */
+export const SURVEY_CHANNEL_LABELS: Record<SurveyChannel, string> = {
+  sms: "문자(SMS/LMS)",
+  kakao: "카카오 알림톡",
+  both: "문자 + 알림톡",
+  kakao_sms_fallback: "알림톡 우선 (실패 시 문자)",
+  app_push: "앱 푸시 (링크 생성만)",
+  email: "이메일 (링크 생성만)",
+  manual: "직접 전달 (링크 생성만)",
+};
+
+/** 발송 기본 안내 문구 (#{회원명} #{지점명} #{설문링크} 치환 지원) */
+export const DEFAULT_SURVEY_MESSAGE =
+  "[#{지점명}] #{회원명}님, 안녕하세요!\n" +
+  "더 나은 서비스를 위해 짧은 설문을 준비했습니다.\n" +
+  "1분이면 충분해요. 참여해 주시면 큰 힘이 됩니다 🙏\n" +
+  "▶ #{설문링크}";
+
+export interface SurveySendParams {
+  qr_code_id: string;
+  member_ids: string[];
+  channel: SurveyChannel;
+  content: string;
+  dry_run?: boolean;
+}
+
+export interface SurveySendLink {
+  member_id: string;
+  member_name: string;
+  url: string;
+  status: string;
+  error?: string;
+}
+
+export interface SurveySendReport {
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  links: SurveySendLink[];
+}
+
+export interface SurveySendDryRun {
+  targets_count: number;
+}
+
+/** 설문 발송 (Workers API) — dry_run이면 대상 수만 반환 */
+export async function sendSurvey(
+  params: SurveySendParams
+): Promise<SurveySendReport | SurveySendDryRun> {
+  return surveyApiPost<SurveySendReport | SurveySendDryRun>(
+    "/api/admin/surveys/send",
+    params
+  );
+}
+
+// ── 발송/응답 추적 통계 ───────────────────────────────────────
+
+export interface SurveyInviteCounts {
+  total: number;
+  sent: number;
+  opened: number;
+  responded: number;
+  failed: number;
+}
+
+export interface SurveyInviteRow {
+  id: string;
+  channel: SurveyChannel;
+  status: InviteStatus;
+  sent_at: string | null;
+  opened_at: string | null;
+  responded_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  member_name: string;
+  recipient_phone: string | null;
+}
+
+export interface SurveyInviteStats {
+  counts: SurveyInviteCounts;
+  recent: SurveyInviteRow[];
+}
+
+/** 설문별 발송/열람/응답 통계 (RPC) */
+export async function getSurveyInviteStats(templateId: string): Promise<SurveyInviteStats> {
+  const { data, error } = await supabase.rpc(
+    "get_survey_invite_stats" as "get_survey_results_summary",
+    { p_survey_template_id: templateId } as unknown as { p_survey_template_id: string }
+  );
+  if (error) throw error;
+  const result = data as unknown as {
+    success: boolean; error?: string;
+    counts?: SurveyInviteCounts; recent?: SurveyInviteRow[];
+  };
+  if (!result.success) throw new Error(result.error ?? "발송 통계 조회 실패");
+  return {
+    counts: result.counts ?? { total: 0, sent: 0, opened: 0, responded: 0, failed: 0 },
+    recent: result.recent ?? [],
+  };
+}
+
+// ── 공개 설문 — 개인 토큰(초대) 기반 ──────────────────────────
+
+export interface InviteSurveyData extends PublicSurveyData {
+  invite_token: string;
+  member_name: string | null;
+  already_responded: boolean;
+}
+
+/** 개인 토큰으로 설문 조회 (anon RPC) — 최초 열람 시 자동 기록 */
+export async function getSurveyInvite(
+  token: string
+): Promise<{ success: true; data: InviteSurveyData } | { success: false; error: string }> {
+  const { data, error } = await supabase.rpc(
+    "get_survey_invite" as "get_survey_results_summary",
+    { p_token: token } as unknown as { p_survey_template_id: string }
+  );
+  if (error) return { success: false, error: error.message };
+  const result = data as unknown as { success: boolean; error?: string } & Partial<InviteSurveyData>;
+  if (!result.success) return { success: false, error: result.error ?? "알 수 없는 오류" };
+  return { success: true, data: result as unknown as InviteSurveyData };
+}
+
+/** 개인 토큰으로 설문 응답 제출 (anon RPC) — 회원에 자동 귀속 */
+export async function submitSurveyViaInvite(
+  token: string,
+  answers: AnswerInput[]
+): Promise<{ success: boolean; response_id?: string; error?: string }> {
+  const { data, error } = await supabase.rpc(
+    "submit_survey_via_invite" as "get_survey_results_summary",
+    { p_token: token, p_answers: answers as unknown as string } as unknown as {
+      p_survey_template_id: string;
+    }
+  );
+  if (error) return { success: false, error: error.message };
+  return data as unknown as { success: boolean; response_id?: string; error?: string };
 }

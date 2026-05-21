@@ -26,6 +26,9 @@ PAGES_URL = "https://153-boxing-os.pages.dev"
 # - KAKAO_EXPIRY_TPL_D7           : D-7 알림톡 템플릿 ID (KA01TP...)
 # - KAKAO_EXPIRY_TPL_D3           : D-3 알림톡 템플릿 ID
 # - KAKAO_EXPIRY_TPL_D1           : D-1 알림톡 템플릿 ID
+#
+# 선택 시크릿 — FC AI 메시지 생성:
+# - ANTHROPIC_API_KEY             : Anthropic 콘솔 API Key (미설정 시 규칙 기반 폴백)
 
 [dev]
 port = 8787
