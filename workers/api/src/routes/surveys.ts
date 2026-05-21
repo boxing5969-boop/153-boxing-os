@@ -33,6 +33,13 @@ surveysRoutes.post("/send", requireJwt, async (c) => {
     return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
   }
 
+  // 설문 링크 누락 방어 — 자동 발송 채널은 본문에 #{설문링크} 치환자가 반드시 있어야 한다.
+  // 없으면 링크 없는 문자가 발송되어 발송 비용만 나가고 회원은 설문에 접근할 수 없다.
+  // (프론트 검증만으로는 API 직접 호출·우회 시 막지 못하므로 서버에서 한 번 더 막는다.)
+  if (parsed.data.channel !== "manual" && !parsed.data.content.includes("#{설문링크}")) {
+    return fail(c, "INVALID_REQUEST", "메시지 본문에 #{설문링크} 를 포함해야 합니다", 400);
+  }
+
   const db = getServiceClient(c.env);
   const user = c.get("user");
 

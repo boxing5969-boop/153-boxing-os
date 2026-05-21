@@ -160,17 +160,32 @@ fcRoutes.post("/send-message", requireJwt, async (c) => {
   const phone = (member as { phone: string | null } | null)?.phone;
   if (!phone) return fail(c, "INVALID_STATE", "회원 전화번호가 없습니다", 422);
 
+  // 원자적 발송 권한 확보 — status 를 approved → sent 로 조건부 전환한다.
+  // eq("status","approved") 덕분에 같은 메시지로 동시 요청이 들어와도
+  // 이 UPDATE 는 한 요청에서만 row 를 반영하고, 나머지는 빈 결과를 받는다.
+  // 따라서 SMS 가 두 번 발송되는 일이 차단된다.
+  const { data: claimed, error: claimErr } = await db
+    .from("message_suggestions")
+    .update({ status: "sent", sent_at: new Date().toISOString() })
+    .eq("id", sug.id)
+    .eq("status", "approved")
+    .select("id");
+  if (claimErr) return fail(c, "DB_ERROR", claimErr.message, 500);
+  if (!claimed || claimed.length === 0) {
+    return fail(c, "ALREADY_SENT", "이미 발송되었거나 다른 요청이 발송 처리 중입니다", 409);
+  }
+
   const result = await sendSms(db, c.env, sug.branch_id, phone, sug.generated_body);
   if (!result.success) {
+    // 발송 실패 — 상태를 approved 로 되돌려 재시도할 수 있게 한다.
+    await db.from("message_suggestions")
+      .update({ status: "approved", sent_at: null })
+      .eq("id", sug.id);
     return fail(c, "SEND_FAILED", result.error ?? "발송 실패", 500);
   }
 
-  // 발송 성공 — 상태 갱신 + 연락기록
-  await db.from("message_suggestions")
-    .update({ status: "sent", sent_at: new Date().toISOString() })
-    .eq("id", sug.id);
-
-  await db.from("contact_logs").insert({
+  // 연락 기록 — 발송은 이미 완료이므로, 기록 실패는 막지 않고 로그만 남긴다.
+  const { error: logErr } = await db.from("contact_logs").insert({
     branch_id: sug.branch_id,
     member_id: sug.member_id,
     fc_task_id: sug.fc_task_id,
@@ -179,6 +194,7 @@ fcRoutes.post("/send-message", requireJwt, async (c) => {
     message_body: sug.generated_body,
     result: "sent",
   });
+  if (logErr) console.error("[fc/send-message] contact_logs 기록 실패", logErr);
 
   return ok(c, { sent: true });
 });
