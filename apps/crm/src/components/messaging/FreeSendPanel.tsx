@@ -3,10 +3,11 @@
  * 수신자: 개인 / 유효회원(active·trial) / 전체(탈퇴 제외)
  * 메시지 유형: 정보성(동의·시간 제약 없음) / 광고성(마케팅 동의자 + 08~21시)
  * 백엔드: 개인 → /api/admin/members/:id/send, 그룹 → /api/admin/notify/broadcast
+ * 디자인: 153os-design 스킬 기준 (아이폰풍 — 그룹 카드·넉넉한 여백·부드러운 모서리)
  */
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Send, User, Users, Search, X, Info, Megaphone } from "lucide-react";
+import { Send, User, Users, Search, X, Info, Megaphone, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { sendMemberMsg, broadcastMsg, type MsgType } from "@/services/messaging";
@@ -23,6 +24,8 @@ interface SendReport { total: number; success: number; failed: number; }
 
 const ACTIVE_STATUSES = ["active", "trial"];
 const ALL_STATUSES = ["active", "trial", "expired", "unpaid", "suspended"];
+
+const SECTION_LABEL = "text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 
 // ── 회원 검색 (개인 발송용) ──────────────────────────────────
 function MemberSearch({ selected, onSelect, onClear }: {
@@ -47,23 +50,25 @@ function MemberSearch({ selected, onSelect, onClear }: {
 
   if (selected) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-        <User className="size-3.5 text-primary shrink-0" />
-        <span className="text-sm text-foreground flex-1 truncate">
+      <div className="flex items-center gap-2.5 rounded-xl border border-primary/30 bg-primary/5 px-3.5 py-3">
+        <div className="flex size-7 items-center justify-center rounded-full bg-primary/10">
+          <User className="size-3.5 text-primary" />
+        </div>
+        <span className="flex-1 truncate text-sm font-medium text-foreground">
           {selected.name}
-          <span className="ml-1.5 text-xs text-muted-foreground">{selected.phone ?? "전화번호 없음"}</span>
+          <span className="ml-1.5 text-xs font-normal text-muted-foreground">{selected.phone ?? "전화번호 없음"}</span>
         </span>
-        <button onClick={onClear} className="text-muted-foreground hover:text-foreground">
-          <X className="size-3.5" />
+        <button onClick={onClear} className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <X className="size-4" />
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
-        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3.5 py-3">
+        <Search className="size-4 shrink-0 text-muted-foreground" />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -72,21 +77,21 @@ function MemberSearch({ selected, onSelect, onClear }: {
         />
       </div>
       {q.trim().length >= 1 && (
-        <div className="max-h-56 divide-y divide-border/50 overflow-y-auto rounded-lg border border-border bg-card">
+        <div className="max-h-56 divide-y divide-border/60 overflow-y-auto rounded-xl border border-border bg-card">
           {isFetching ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">검색 중…</p>
+            <p className="px-3.5 py-3 text-xs text-muted-foreground">검색 중…</p>
           ) : hits.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">검색 결과가 없습니다.</p>
+            <p className="px-3.5 py-3 text-xs text-muted-foreground">검색 결과가 없습니다.</p>
           ) : (
             hits.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 onClick={() => onSelect(m)}
-                className="w-full px-3 py-2 text-left transition-colors hover:bg-muted/50"
+                className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-muted/50"
               >
-                <span className="text-sm text-foreground">{m.name}</span>
-                <span className="ml-1.5 text-xs text-muted-foreground">{m.phone ?? "전화번호 없음"}</span>
+                <span className="text-sm font-medium text-foreground">{m.name}</span>
+                <span className="text-xs text-muted-foreground">{m.phone ?? "전화번호 없음"}</span>
               </button>
             ))
           )}
@@ -96,7 +101,7 @@ function MemberSearch({ selected, onSelect, onClear }: {
   );
 }
 
-// ── 작은 선택 버튼 ───────────────────────────────────────────
+// ── 선택 버튼 (수신자·메시지 유형 공용) ──────────────────────
 function PickButton({ active, onClick, title, desc }: {
   active: boolean; onClick: () => void; title: string; desc: string;
 }) {
@@ -104,12 +109,19 @@ function PickButton({ active, onClick, title, desc }: {
     <button
       onClick={onClick}
       className={cn(
-        "rounded-lg border p-3 text-left transition-all",
-        active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40 hover:bg-muted/50"
+        "relative rounded-xl border p-3.5 text-left transition-all",
+        active
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-primary/40 hover:bg-muted/40"
       )}
     >
+      {active && (
+        <span className="absolute right-2.5 top-2.5 flex size-4 items-center justify-center rounded-full bg-primary">
+          <Check className="size-2.5 text-primary-foreground" strokeWidth={3} />
+        </span>
+      )}
       <p className={cn("text-sm font-bold", active ? "text-primary" : "text-foreground")}>{title}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{desc}</p>
     </button>
   );
 }
@@ -173,40 +185,43 @@ export default function FreeSendPanel() {
 
   return (
     <div className="space-y-5">
-      {/* 수신자 */}
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">수신자</p>
-        <div className="grid grid-cols-3 gap-2">
-          <PickButton active={mode === "individual"} onClick={() => { setMode("individual"); reset(); }}
-            title="개인" desc="회원 1명 검색 발송" />
-          <PickButton active={mode === "active"} onClick={() => { setMode("active"); reset(); }}
-            title="유효회원" desc="이용·체험 중 회원" />
-          <PickButton active={mode === "all"} onClick={() => { setMode("all"); reset(); }}
-            title="전체" desc="탈퇴 제외 전 회원" />
+      {/* 발송 설정 — iOS 그룹 카드 */}
+      <div className="space-y-6 rounded-2xl border border-border bg-card p-5 shadow-card">
+        {/* 수신자 */}
+        <div className="space-y-2.5">
+          <p className={SECTION_LABEL}>수신자</p>
+          <div className="grid grid-cols-3 gap-2">
+            <PickButton active={mode === "individual"} onClick={() => { setMode("individual"); reset(); }}
+              title="개인" desc="회원 1명 검색 발송" />
+            <PickButton active={mode === "active"} onClick={() => { setMode("active"); reset(); }}
+              title="유효회원" desc="이용·체험 중 회원" />
+            <PickButton active={mode === "all"} onClick={() => { setMode("all"); reset(); }}
+              title="전체" desc="탈퇴 제외 전 회원" />
+          </div>
+          {mode === "individual" && (
+            <MemberSearch
+              selected={member}
+              onSelect={(m) => { setMember(m); reset(); }}
+              onClear={() => { setMember(null); reset(); }}
+            />
+          )}
         </div>
-        {mode === "individual" && (
-          <MemberSearch
-            selected={member}
-            onSelect={(m) => { setMember(m); reset(); }}
-            onClear={() => { setMember(null); reset(); }}
-          />
-        )}
-      </div>
 
-      {/* 메시지 유형 */}
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">메시지 유형</p>
-        <div className="grid grid-cols-2 gap-2">
-          <PickButton active={msgType === "info"} onClick={() => { setMsgType("info"); reset(); }}
-            title="정보성 공지" desc="휴관·일정 등 안내 (동의·시간 제약 없음)" />
-          <PickButton active={msgType === "ad"} onClick={() => { setMsgType("ad"); reset(); }}
-            title="광고성" desc="할인·프로모션 (동의 회원만·08~21시)" />
+        {/* 메시지 유형 */}
+        <div className="space-y-2.5">
+          <p className={SECTION_LABEL}>메시지 유형</p>
+          <div className="grid grid-cols-2 gap-2">
+            <PickButton active={msgType === "info"} onClick={() => { setMsgType("info"); reset(); }}
+              title="정보성 공지" desc="휴관·일정 등 안내 (동의·시간 제약 없음)" />
+            <PickButton active={msgType === "ad"} onClick={() => { setMsgType("ad"); reset(); }}
+              title="광고성" desc="할인·프로모션 (동의 회원만·08~21시)" />
+          </div>
+          <div className="flex items-start gap-2 rounded-xl bg-muted/50 px-3.5 py-2.5">
+            {msgType === "info"
+              ? <><Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" /><span className="text-[11px] leading-relaxed text-muted-foreground">순수 안내만 정보성입니다. 광고 문구가 섞이면 광고성으로 발송해야 합니다(정보통신망법).</span></>
+              : <><Megaphone className="mt-0.5 size-3.5 shrink-0 text-warning" /><span className="text-[11px] leading-relaxed text-muted-foreground">마케팅 수신 동의 회원에게만, 08~21시에만 발송됩니다.</span></>}
+          </div>
         </div>
-        <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-          {msgType === "info"
-            ? <><Info className="mt-0.5 size-3 shrink-0" /><span>순수 안내만 정보성입니다. 광고 문구가 섞이면 광고성으로 발송해야 합니다(정보통신망법).</span></>
-            : <><Megaphone className="mt-0.5 size-3 shrink-0" /><span>마케팅 수신 동의 회원에게만, 08~21시에만 발송됩니다.</span></>}
-        </p>
       </div>
 
       {/* 메시지 작성 + 발송 */}
@@ -217,9 +232,12 @@ export default function FreeSendPanel() {
         senderName="153복싱짐"
       >
         {composer.channel !== "sms" && (
-          <p className="text-[11px] text-warning">
-            카카오 알림톡은 사전 승인 템플릿이 필요합니다. 자유 문구는 SMS/LMS 채널을 권장합니다.
-          </p>
+          <div className="flex items-start gap-2 rounded-xl bg-warning/5 px-3.5 py-2.5">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-warning" />
+            <span className="text-[11px] leading-relaxed text-warning/90">
+              카카오 알림톡은 사전 승인 템플릿이 필요합니다. 자유 문구는 SMS/LMS 채널을 권장합니다.
+            </span>
+          </div>
         )}
 
         {/* 개인: 바로 발송 / 그룹: 미리보기 후 발송 */}
@@ -248,7 +266,7 @@ export default function FreeSendPanel() {
         )}
 
         {step === "previewed" && targetsCount !== null && (
-          <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-4">
+          <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-4">
             <div className="flex items-center gap-2">
               <Users className="size-4 text-primary" />
               <span className="text-sm font-semibold">
@@ -275,19 +293,19 @@ export default function FreeSendPanel() {
 
       {/* 결과 */}
       {step === "done" && (
-        <div className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-card">
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-5 shadow-card">
           <p className="text-sm font-semibold text-foreground">발송 완료</p>
           {sentMsg && <p className="text-sm text-success">{sentMsg}</p>}
           {report && (
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "전체", value: report.total, tone: "" },
+                { label: "전체", value: report.total, tone: "text-foreground" },
                 { label: "성공", value: report.success, tone: "text-success" },
-                { label: "실패", value: report.failed, tone: report.failed > 0 ? "text-danger" : "" },
+                { label: "실패", value: report.failed, tone: report.failed > 0 ? "text-danger" : "text-foreground" },
               ].map((b) => (
-                <div key={b.label} className="rounded-lg bg-muted/50 p-3 text-center">
+                <div key={b.label} className="rounded-xl bg-muted/50 p-3 text-center">
                   <p className="text-xs text-muted-foreground">{b.label}</p>
-                  <p className={cn("text-2xl font-black", b.tone)}>{b.value}</p>
+                  <p className={cn("text-2xl font-black tabular", b.tone)}>{b.value}</p>
                 </div>
               ))}
             </div>
