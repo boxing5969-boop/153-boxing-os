@@ -59,11 +59,11 @@ function KpiCard({ spec, loading }: { spec: KpiSpec; loading: boolean }) {
   }[spec.tone];
 
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-card flex flex-col gap-4">
+    <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-card">
       {/* 상단: 라벨 + 아이콘 */}
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-muted-foreground">{spec.label}</p>
-        <div className={cn("flex size-9 items-center justify-center rounded-lg", toneStyles.icon)}>
+        <div className={cn("flex size-9 items-center justify-center rounded-xl", toneStyles.icon)}>
           <Icon className="size-4" />
         </div>
       </div>
@@ -71,7 +71,7 @@ function KpiCard({ spec, loading }: { spec: KpiSpec; loading: boolean }) {
       {/* 숫자 */}
       <div>
         {loading ? (
-          <div className="h-9 w-16 animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-16 animate-pulse rounded-lg bg-muted" />
         ) : (
           <p className={cn("text-3xl font-black tabular", toneStyles.value)}>
             {spec.value}
@@ -80,14 +80,15 @@ function KpiCard({ spec, loading }: { spec: KpiSpec; loading: boolean }) {
         <p className="mt-1.5 text-xs text-muted-foreground">{spec.hint}</p>
       </div>
 
-      {/* 상태 인디케이터 */}
+      {/* 상태 칩 — 깜빡임 없이 차분하게 */}
       {spec.tone !== "default" && !loading && Number(spec.value) > 0 && (
-        <div className="flex items-center gap-1.5">
-          <div className={cn("size-1.5 rounded-full animate-pulse", toneStyles.dot)} />
-          <span className="text-xs text-muted-foreground">
-            {spec.tone === "danger" ? "즉시 확인 필요" : "확인 필요"}
-          </span>
-        </div>
+        <span className={cn(
+          "inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+          toneStyles.icon
+        )}>
+          <span className={cn("size-1.5 rounded-full", toneStyles.dot)} />
+          {spec.tone === "danger" ? "즉시 확인 필요" : "확인 필요"}
+        </span>
       )}
     </div>
   );
@@ -108,10 +109,10 @@ function WelcomeBanner({ name, role }: { name?: string; role?: string }) {
           {role} · 오늘의 운영 현황을 확인하세요
         </p>
       </div>
-      <div className="hidden sm:flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-card">
+      <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 shadow-card">
         <TrendingUp className="size-4 text-primary" />
         <span className="text-sm font-semibold text-foreground">실시간 현황</span>
-        <div className="size-2 rounded-full bg-success animate-pulse" />
+        <span className="size-2 rounded-full bg-success" />
       </div>
     </div>
   );
@@ -188,7 +189,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* 웰컴 배너 */}
       <WelcomeBanner
         name={profile?.name}
@@ -196,7 +197,7 @@ export default function DashboardPage() {
       />
 
       {/* KPI 카드 (7종) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
         {kpis.map((spec) => (
           <KpiCard key={spec.label} spec={spec} loading={isLoading} />
         ))}
