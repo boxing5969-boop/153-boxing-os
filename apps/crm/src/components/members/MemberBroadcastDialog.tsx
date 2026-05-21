@@ -34,7 +34,7 @@ export default function MemberBroadcastDialog({ open, onClose }: Props) {
   const [step, setStep] = useState<"ready" | "previewed" | "done">("ready");
   const [targetsCount, setTargetsCount] = useState<number | null>(null);
   const [report, setReport] = useState<{
-    total: number; sent: number; failed: number; skipped: number;
+    total: number; success: number; failed: number;
   } | null>(null);
 
   const previewMut = useMutation({
@@ -249,19 +249,13 @@ export default function MemberBroadcastDialog({ open, onClose }: Props) {
             {report && (
               <div className="w-full grid grid-cols-3 gap-3">
                 <ResultBox label="전체" value={report.total} />
-                <ResultBox label="성공" value={report.sent} color="success" />
+                <ResultBox label="성공" value={report.success} color="success" />
                 <ResultBox
                   label="실패"
                   value={report.failed}
                   color={report.failed > 0 ? "danger" : undefined}
                 />
               </div>
-            )}
-
-            {report && report.skipped > 0 && (
-              <p className="text-xs text-muted-foreground">
-                건너뜀: {report.skipped}명 (전화번호 없음 또는 동의 미체크)
-              </p>
             )}
 
             <div className="flex gap-2 w-full">
