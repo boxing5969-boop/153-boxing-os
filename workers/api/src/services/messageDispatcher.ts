@@ -150,9 +150,9 @@ export async function dispatchMessage(
   }
 
   if (logRows.length > 0) {
-    await db.from("message_send_logs").insert(logRows).catch((e: unknown) =>
-      console.error("[dispatcher] log insert failed:", e)
-    );
+    // Supabase 쿼리빌더는 .catch() 가 없으므로 await 후 error 를 확인한다.
+    const { error: logErr } = await db.from("message_send_logs").insert(logRows);
+    if (logErr) console.error("[dispatcher] log insert failed:", logErr);
   }
 
   return result;
@@ -182,23 +182,24 @@ export async function dispatchToGroup(
     // 기존 membership_notifications에도 기록 (중복 방지용)
     if (target.membership_id && target.notification_type) {
       const status = result.overall_success ? "sent" : "failed";
-      await db.rpc("record_expiry_notification", {
+      const { error: recErr } = await db.rpc("record_expiry_notification", {
         _member_id: target.member_id, _membership_id: target.membership_id,
         _notification_type: target.notification_type,
         _status: status, _error_message: null,
         _recipient_phone: target.member_phone,
-      }).catch(() => null);
+      });
+      if (recErr) console.error("[dispatcher] record_expiry_notification failed:", recErr);
     }
 
     // 예약 발송 이력 업데이트
     if (scheduledMsgId) {
-      await db.from("scheduled_messages")
+      const { error: schErr } = await db.from("scheduled_messages")
         .update({
           sent_count: success,
           fail_count: failed,
         })
-        .eq("id", scheduledMsgId)
-        .catch(() => null);
+        .eq("id", scheduledMsgId);
+      if (schErr) console.error("[dispatcher] scheduled_messages update failed:", schErr);
     }
   }
 

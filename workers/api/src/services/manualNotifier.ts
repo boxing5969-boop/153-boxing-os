@@ -226,14 +226,15 @@ async function sendTargets(
 
     if (recordResult) {
       const status = result.success ? "sent" : "failed";
-      await db.rpc("record_expiry_notification", {
+      const { error: recErr } = await db.rpc("record_expiry_notification", {
         _member_id: target.member_id,
         _membership_id: target.membership_id,
         _notification_type: target.notification_type,
         _status: status,
         _error_message: result.success ? null : (result.error ?? null),
         _recipient_phone: target.member_phone ?? null,
-      }).catch((e: unknown) => console.error("[manualNotifier] record failed:", e));
+      });
+      if (recErr) console.error("[manualNotifier] record failed:", recErr);
     }
   }
 
