@@ -13,6 +13,7 @@ import MessageComposerPanel, {
   createDefaultComposer,
   type ComposerState,
 } from "@/components/messaging/MessageComposerPanel";
+import FreeSendPanel from "@/components/messaging/FreeSendPanel";
 
 // ── 발송 대상 옵션 ─────────────────────────────────────────
 const DAY_OPTIONS = [
@@ -23,9 +24,8 @@ const DAY_OPTIONS = [
 
 interface SendReport {
   total: number;
-  sent: number;
+  success: number;
   failed: number;
-  skipped: number;
 }
 
 // ── 설문 QR 선택 패널 ─────────────────────────────────────
@@ -152,6 +152,7 @@ export default function BulkNotifyPage() {
   const { profile } = useAuth();
   const branchId = profile?.branch_id ?? "";
 
+  const [tab, setTab] = useState<"expiry" | "free">("expiry");
   const [daysAhead, setDaysAhead] = useState(7);
   const [composer, setComposer] = useState<ComposerState>(createDefaultComposer("kakao"));
   const [surveyUrl, setSurveyUrl] = useState<string | null>(null);
@@ -206,13 +207,37 @@ export default function BulkNotifyPage() {
     <div className="space-y-6 max-w-5xl">
       {/* 헤더 */}
       <div>
-        <h1 className="text-2xl font-black text-foreground">그룹 발송</h1>
+        <h1 className="text-2xl font-black text-foreground">문자 발송</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          만료 예정 회원에게 문자·카카오 알림을 일괄 발송합니다.
-          마케팅 동의 + 전화번호 등록 회원만 발송됩니다.
+          만료 예정 회원 알림과 자유 공지·안내 문자를 발송합니다.
         </p>
       </div>
 
+      {/* 탭 */}
+      <div className="flex gap-1 border-b border-border">
+        {([
+          { id: "expiry", label: "만료 알림" },
+          { id: "free", label: "자유 발송" },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "-mb-px border-b-2 px-4 py-2 text-sm font-semibold transition-colors",
+              tab === t.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "free" && <FreeSendPanel />}
+
+      {tab === "expiry" && (
+        <>
       {/* 경고 배너 */}
       <div className="flex gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4">
         <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
@@ -362,16 +387,13 @@ export default function BulkNotifyPage() {
           <p className="text-sm font-semibold text-foreground">발송 완료</p>
           <div className="grid grid-cols-3 gap-3">
             <ResultBox label="전체" value={report.total} />
-            <ResultBox label="성공" value={report.sent} color="success" />
+            <ResultBox label="성공" value={report.success} color="success" />
             <ResultBox label="실패" value={report.failed} color={report.failed > 0 ? "danger" : "default"} />
           </div>
-          {report.skipped > 0 && (
-            <p className="text-xs text-muted-foreground">
-              건너뜀: {report.skipped}명 (전화번호 없음 또는 동의 미체크)
-            </p>
-          )}
           <Button variant="outline" onClick={reset}>다시 발송</Button>
         </div>
+      )}
+        </>
       )}
     </div>
   );

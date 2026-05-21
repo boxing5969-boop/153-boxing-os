@@ -22,6 +22,15 @@ const doorOpenSchema = z.object({
 
 const ALLOWED_ROLES = new Set(["super_admin", "hq_admin", "branch_owner"]);
 
+/**
+ * 광고성 문자 발송 가능 시간 여부 — 정보통신망법상 08~21시(KST)에만 허용.
+ * 정보성 공지는 이 제약을 받지 않는다.
+ */
+function isAdSendableNow(): boolean {
+  const kstHour = (new Date().getUTCHours() + 9) % 24;
+  return kstHour >= 8 && kstHour < 21;
+}
+
 adminRoutes.post("/door/open", requireJwt, async (c) => {
   const parsed = doorOpenSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
@@ -229,6 +238,8 @@ const memberSendSchema = z.object({
   channel:    z.enum(["sms", "kakao", "both", "kakao_sms_fallback"]).default("sms"),
   content:    z.string().optional(),
   survey_url: z.string().optional(), // #{설문링크} 치환용
+  // info = 정보성 공지(동의·시간 제약 없음), ad = 광고성(마케팅 동의자 + 08~21시)
+  message_type: z.enum(["info", "ad"]).default("ad"),
 });
 
 adminRoutes.post("/members/:id/send", requireJwt, async (c) => {
@@ -251,11 +262,17 @@ adminRoutes.post("/members/:id/send", requireJwt, async (c) => {
   if (!member) return fail(c, "NOT_FOUND", "회원을 찾을 수 없습니다", 404);
   if (!member.phone) return fail(c, "NO_PHONE", "전화번호가 없습니다", 400);
 
-  // 마케팅 동의 확인
-  const { data: consentRaw } = await db.from("consent_records")
-    .select("id").eq("member_id", memberId).eq("consent_type", "marketing")
-    .eq("agreed", true).is("revoked_at", null).maybeSingle();
-  if (!consentRaw) return fail(c, "NO_CONSENT", "마케팅 수신 동의를 받지 않은 회원입니다", 400);
+  // 광고성 발송만 마케팅 동의 + 발송 시간(08~21시 KST) 제약을 적용한다.
+  // 정보성 공지는 정보통신망법상 동의·시간 제약 대상이 아니다.
+  if (parsed.data.message_type === "ad") {
+    if (!isAdSendableNow()) {
+      return fail(c, "OUTSIDE_AD_HOURS", "광고성 문자는 08시~21시에만 발송할 수 있습니다", 400);
+    }
+    const { data: consentRaw } = await db.from("consent_records")
+      .select("id").eq("member_id", memberId).eq("consent_type", "marketing")
+      .eq("agreed", true).is("revoked_at", null).maybeSingle();
+    if (!consentRaw) return fail(c, "NO_CONSENT", "마케팅 수신 동의를 받지 않은 회원입니다", 400);
+  }
 
   // 활성 이용권 조회
   const today = new Date().toISOString().slice(0, 10);
@@ -340,6 +357,8 @@ const broadcastSchema = z.object({
   branch_id:       z.string().uuid().optional(),
   dry_run:         z.boolean().default(false),
   survey_url:      z.string().optional(), // #{설문링크} 치환용
+  // info = 정보성 공지(동의·시간 제약 없음), ad = 광고성(마케팅 동의자 + 08~21시)
+  message_type:    z.enum(["info", "ad"]).default("ad"),
 });
 
 adminRoutes.post("/notify/broadcast", requireJwt, async (c) => {
@@ -369,21 +388,28 @@ adminRoutes.post("/notify/broadcast", requireJwt, async (c) => {
   const { data: memberRows, error: memberErr } = await query;
   if (memberErr) return fail(c, "DB_ERROR", memberErr.message, 500);
 
-  // 마케팅 동의 회원 ID 목록
-  const memberIds = (memberRows ?? []).map((m: Record<string, unknown>) => m.id as string);
-  const { data: consentRows } = await db
-    .from("consent_records")
-    .select("member_id")
-    .in("member_id", memberIds.length > 0 ? memberIds : ["_"])
-    .eq("consent_type", "marketing")
-    .eq("agreed", true)
-    .is("revoked_at", null);
-
-  const consentSet = new Set((consentRows ?? []).map((r: Record<string, unknown>) => r.member_id as string));
-
   type MemberRow = { id: string; name: string; phone: string | null; branch_id: string; branches: { name: string } | null };
+
+  // 광고성 발송만 마케팅 동의자 + 08~21시 제약을 적용한다.
+  // allowedIds = null 이면 정보성 공지 → 전화번호만 있으면 모두 발송 대상.
+  let allowedIds: Set<string> | null = null;
+  if (parsed.data.message_type === "ad") {
+    if (!isAdSendableNow()) {
+      return fail(c, "OUTSIDE_AD_HOURS", "광고성 문자는 08시~21시에만 발송할 수 있습니다", 400);
+    }
+    const memberIds = (memberRows ?? []).map((m: Record<string, unknown>) => m.id as string);
+    const { data: consentRows } = await db
+      .from("consent_records")
+      .select("member_id")
+      .in("member_id", memberIds.length > 0 ? memberIds : ["_"])
+      .eq("consent_type", "marketing")
+      .eq("agreed", true)
+      .is("revoked_at", null);
+    allowedIds = new Set((consentRows ?? []).map((r: Record<string, unknown>) => r.member_id as string));
+  }
+
   const targets = (memberRows ?? [] as MemberRow[])
-    .filter((m: MemberRow) => m.phone && consentSet.has(m.id))
+    .filter((m: MemberRow) => m.phone && (allowedIds === null || allowedIds.has(m.id)))
     .map((m: MemberRow) => ({
       member_id: m.id,
       member_name: m.name,

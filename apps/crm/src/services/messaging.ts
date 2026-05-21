@@ -196,16 +196,24 @@ export async function saveBranchNotifySettings(branchId: string, settings: Parti
 
 // ── 수동 발송 (채널 선택 포함) ──────────────────────────────
 
+/** info = 정보성 공지(동의·시간 제약 없음), ad = 광고성(마케팅 동의자 + 08~21시) */
+export type MsgType = "info" | "ad";
+
 export interface ManualSendParams {
   member_id: string;
   channel: MsgChannel;
   content?: string;
+  message_type?: MsgType;
 }
 
 export async function sendMemberMsg(params: ManualSendParams): Promise<{ success: boolean; message: string }> {
   return apiFetch(`/api/admin/members/${params.member_id}/send`, {
     method: "POST",
-    body: JSON.stringify({ channel: params.channel, content: params.content }),
+    body: JSON.stringify({
+      channel: params.channel,
+      content: params.content,
+      message_type: params.message_type ?? "ad",
+    }),
   });
 }
 
@@ -220,7 +228,8 @@ export interface BulkSendParams {
 
 export interface BulkSendResult {
   targets_count: number;
-  report?: { total: number; sent: number; failed: number; skipped: number };
+  /** dispatchToGroup 결과 — Workers /notify/bulk-msg·/broadcast 응답 형식 */
+  report?: { total: number; success: number; failed: number };
 }
 
 export async function sendBulkMsg(params: BulkSendParams): Promise<BulkSendResult> {
@@ -238,6 +247,7 @@ export interface BroadcastParams {
   branch_id?: string;
   dry_run?: boolean;
   survey_url?: string; // #{설문링크} 치환용
+  message_type?: MsgType;
 }
 
 export async function broadcastMsg(params: BroadcastParams): Promise<BulkSendResult> {
