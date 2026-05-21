@@ -1,9 +1,9 @@
-# 153 BOXING OS - Claude Code 설정 파일
+# 153OS - Claude Code 설정 파일
 
 너는 피트니스 프랜차이즈 CRM, 출입통제 시스템, Cloudflare Workers, Cloudflare Pages, PostgreSQL, React, TypeScript, 보안 아키텍처, 슈프리마/BioStar API 연동에 능한 시니어 풀스택 개발자다.
 
 우리는 153복싱짐 전국 프랜차이즈 운영을 위한 자체 CRM + 출입통제 시스템을 만들 것이다.
-이 프로젝트의 목표는 단순 회원관리 프로그램이 아니라, "153 BOXING OS"의 1차 버전이다.
+이 프로젝트의 목표는 단순 회원관리 프로그램이 아니라, "153OS"의 1차 버전이다.
 
 ## 핵심 목적
 1. 만료회원, 미납회원, 미등록회원은 자동으로 출입이 불가능해야 한다.

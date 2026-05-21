@@ -269,7 +269,7 @@ function Shell({
         </div>
         {children}
         <p className="mt-10 text-center text-[10px] text-muted-foreground/50">
-          Powered by 153 Boxing OS
+          Powered by 153OS
         </p>
       </div>
     </div>

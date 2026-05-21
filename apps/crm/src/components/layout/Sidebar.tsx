@@ -190,7 +190,7 @@ export default function Sidebar() {
         </div>
         <div className="flex flex-col leading-none">
           <span className="text-xs font-black tracking-widest text-sidebar-foreground uppercase">
-            Boxing OS
+            153OS
           </span>
           <span className="text-[10px] text-sidebar-foreground/40 tracking-wide">
             Franchise CRM

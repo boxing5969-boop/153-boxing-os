@@ -82,7 +82,7 @@ export default function LoginPage() {
               <span className="text-sm font-black text-white leading-none">153</span>
             </div>
             <div>
-              <p className="text-sm font-black tracking-widest text-white uppercase">Boxing OS</p>
+              <p className="text-sm font-black tracking-widest text-white uppercase">153OS</p>
               <p className="text-xs text-sidebar-foreground/40">Franchise Management</p>
             </div>
           </div>
@@ -130,7 +130,7 @@ export default function LoginPage() {
             <div className="flex size-8 items-center justify-center rounded-lg bg-brand">
               <span className="text-xs font-black text-white">153</span>
             </div>
-            <span className="text-sm font-black tracking-wider uppercase">Boxing OS</span>
+            <span className="text-sm font-black tracking-wider uppercase">153OS</span>
           </div>
 
           {/* 환영 배너 (가입 직후) */}

@@ -61,7 +61,7 @@ export default function AiHelpWidget() {
           <iframe
             src="/ai.html"
             className="w-full h-full border-0"
-            title="153 Boxing OS AI 도우미"
+            title="153OS AI 도우미"
           />
         )}
       </div>
