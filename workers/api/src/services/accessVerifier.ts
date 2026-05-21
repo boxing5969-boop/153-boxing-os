@@ -142,13 +142,24 @@ export async function verifyAccess(
     }
   }
 
-  // 7. QR nonce 등록
+  // 7. QR nonce 원자적 소비 — 출입 1회용 보장의 게이트.
+  //    nonce 는 qr_used_tokens 의 PRIMARY KEY 이므로, 같은 토큰이 거의 동시에
+  //    두 번 들어와도 INSERT 는 하나만 성공하고 나머지는 UNIQUE 위반(23505)으로 실패한다.
+  //    INSERT 실패 = 이미 사용된 QR → 출입 거절(fail-closed). 사전 SELECT 검사만으로는
+  //    확인~등록 사이 경쟁(TOCTOU)을 막지 못하므로 INSERT 결과를 반드시 게이트로 쓴다.
   if (qrConsumed) {
-    await db.from("qr_used_tokens").insert({
+    const { error: nonceErr } = await db.from("qr_used_tokens").insert({
       nonce: qrConsumed.nonce,
       member_id: decision.member_id,
       expires_at: new Date(qrConsumed.expires_at * 1000).toISOString(),
     });
+    if (nonceErr) {
+      if (nonceErr.code !== "23505") {
+        // UNIQUE 위반이 아닌 다른 DB 오류 — 안전을 위해 거절하고 로그를 남긴다.
+        console.error("[verifyAccess] qr_used_tokens insert 실패", nonceErr);
+      }
+      return { door_open: false, member_id: decision.member_id, reason: "qr_already_used" };
+    }
   }
 
   return { door_open: true, member_id: decision.member_id, member_name: decision.member_name };
