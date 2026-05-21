@@ -153,7 +153,10 @@ export interface ContactLogInput {
 
 /** 연락 기록 추가 (append-only) */
 export async function logContact(input: ContactLogInput): Promise<void> {
-  const { error } = await supabase.from("contact_logs").insert(input);
+  // contact_logs 는 생성 타입 미포함 — Record 캐스팅으로 insert 오버로드 충족
+  const { error } = await supabase
+    .from("contact_logs")
+    .insert(input as unknown as Record<string, unknown>);
   if (error) throw new Error(error.message);
 }
 

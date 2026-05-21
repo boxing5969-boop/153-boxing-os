@@ -22,10 +22,12 @@ import {
   type FcTask, type MessageDraft, type ContactChannel, type ContactResult,
 } from "@/services/fcCare";
 
+const NORMAL_PRIORITY = { label: "보통", cls: "bg-muted text-muted-foreground" };
+
 const PRIORITY_META: Record<string, { label: string; cls: string }> = {
   urgent: { label: "긴급", cls: "bg-danger/10 text-danger" },
   high:   { label: "높음", cls: "bg-warning/10 text-warning" },
-  normal: { label: "보통", cls: "bg-muted text-muted-foreground" },
+  normal: NORMAL_PRIORITY,
   low:    { label: "낮음", cls: "bg-muted text-muted-foreground" },
 };
 
@@ -131,7 +133,7 @@ function TaskCard({
   onComplete: (id: string) => void;
   onContact: (t: FcTask) => void;
 }) {
-  const pr = PRIORITY_META[task.priority] ?? PRIORITY_META.normal;
+  const pr = PRIORITY_META[task.priority] ?? NORMAL_PRIORITY;
   return (
     <Card>
       <CardContent className="space-y-2.5">
