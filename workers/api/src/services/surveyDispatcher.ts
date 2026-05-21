@@ -150,7 +150,15 @@ export async function dispatchSurveyInvitations(
         sendSurveyAlimtalk(db, env, input.branch_id, m.phone, content),
       ]);
       success = s.success || k.success;
-      errMsg = success ? undefined : `SMS: ${s.error} / 알림톡: ${k.error}`;
+      if (!success) {
+        errMsg = `SMS: ${s.error} / 알림톡: ${k.error}`;
+      } else if (!s.success || !k.success) {
+        // 한쪽만 성공한 부분 실패 — 발송 자체는 됐지만(sent) 실패한 채널을
+        // error_message 에 남겨 운영자가 알림톡 템플릿 오류 등을 확인할 수 있게 한다.
+        errMsg = !s.success
+          ? `부분 실패 — SMS 실패: ${s.error}`
+          : `부분 실패 — 알림톡 실패: ${k.error}`;
+      }
 
     } else { // kakao_sms_fallback
       const k = await sendSurveyAlimtalk(db, env, input.branch_id, m.phone, content);
