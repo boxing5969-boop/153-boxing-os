@@ -78,8 +78,8 @@ export default function LoginPage() {
         <div className="relative flex flex-1 flex-col justify-between p-10">
           {/* 로고 */}
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-brand shadow-lg shadow-brand/30">
-              <span className="text-sm font-black text-white leading-none">153</span>
+            <div className="flex size-11 items-center justify-center rounded-2xl bg-brand shadow-lg shadow-brand/30">
+              <span className="text-sm font-black leading-none text-white">153</span>
             </div>
             <div>
               <p className="text-sm font-black tracking-widest text-white uppercase">153OS</p>
@@ -104,7 +104,7 @@ export default function LoginPage() {
           </div>
 
           {/* 하단 통계 */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-3">
             {[
               { label: "회원 관리", value: "통합" },
               { label: "출입 통제", value: "자동" },
@@ -112,10 +112,10 @@ export default function LoginPage() {
             ].map((stat) => (
               <div
                 key={stat.label}
-                className="rounded-xl border border-sidebar-border bg-sidebar-muted/50 p-3 text-center"
+                className="rounded-2xl border border-sidebar-border bg-sidebar-muted/50 p-3.5 text-center backdrop-blur"
               >
                 <p className="text-lg font-black text-white">{stat.value}</p>
-                <p className="text-[10px] text-sidebar-foreground/40">{stat.label}</p>
+                <p className="mt-0.5 text-[10px] text-sidebar-foreground/40">{stat.label}</p>
               </div>
             ))}
           </div>
@@ -127,19 +127,19 @@ export default function LoginPage() {
         <div className="w-full max-w-sm animate-fade-in">
           {/* 모바일 로고 */}
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-brand">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-brand">
               <span className="text-xs font-black text-white">153</span>
             </div>
-            <span className="text-sm font-black tracking-wider uppercase">153OS</span>
+            <span className="text-sm font-black uppercase tracking-wider">153OS</span>
           </div>
 
           {/* 환영 배너 (가입 직후) */}
           {welcomeEmail && (
-            <div className="mb-6 flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-              <CheckCircle2 className="size-5 text-green-600 mt-0.5 flex-shrink-0" />
+            <div className="mb-6 flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 shadow-card">
+              <CheckCircle2 className="mt-0.5 size-5 flex-shrink-0 text-green-600" />
               <div>
                 <p className="text-sm font-semibold text-green-800">가입을 환영합니다!</p>
-                <p className="text-xs text-green-700 mt-0.5">
+                <p className="mt-0.5 text-xs text-green-700">
                   14일 무료 체험이 시작되었습니다. 아래에서 로그인해 주세요.
                 </p>
               </div>
@@ -162,7 +162,7 @@ export default function LoginPage() {
                 이메일
               </Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="email"
                   type="email"
@@ -172,7 +172,7 @@ export default function LoginPage() {
                   autoComplete="email"
                   autoFocus
                   placeholder="admin@153boxing.com"
-                  className="pl-9"
+                  className="h-11 rounded-xl pl-10"
                 />
               </div>
             </div>
@@ -183,7 +183,7 @@ export default function LoginPage() {
                 비밀번호
               </Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Lock className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
@@ -192,13 +192,13 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  className="pl-9 pr-10"
+                  className="h-11 rounded-xl pl-10 pr-10"
                 />
                 <button
                   type="button"
                   tabIndex={-1}
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
@@ -207,7 +207,7 @@ export default function LoginPage() {
 
             {/* 에러 */}
             {error && (
-              <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2.5">
+              <div className="flex items-center gap-2 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 shadow-card">
                 <div className="size-1.5 shrink-0 rounded-full bg-danger" />
                 <p className="text-sm text-danger">{error}</p>
               </div>
@@ -217,11 +217,11 @@ export default function LoginPage() {
             <Button
               type="submit"
               disabled={submitting}
-              className="w-full font-semibold gap-2 mt-2"
+              className="mt-2 h-11 w-full gap-2 rounded-full font-semibold"
             >
               {submitting ? (
                 <>
-                  <span className="size-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                   로그인 중…
                 </>
               ) : (

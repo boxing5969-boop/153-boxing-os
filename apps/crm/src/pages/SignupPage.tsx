@@ -160,8 +160,8 @@ export default function SignupPage() {
         <div className="relative flex flex-1 flex-col justify-between p-10">
           {/* 로고 */}
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-brand shadow-lg shadow-brand/30">
-              <span className="text-sm font-black text-white leading-none">153</span>
+            <div className="flex size-11 items-center justify-center rounded-2xl bg-brand shadow-lg shadow-brand/30">
+              <span className="text-sm font-black leading-none text-white">153</span>
             </div>
             <div>
               <p className="text-sm font-bold text-sidebar-foreground">153os</p>
@@ -259,10 +259,10 @@ export default function SignupPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="company_name">브랜드명 *</Label>
                 <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                  <Building2 className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="company_name"
-                    className="pl-9"
+                    className="h-11 rounded-xl pl-10"
                     placeholder="예: 153복싱짐"
                     value={form.company_name}
                     onChange={(e) => set("company_name", e.target.value)}
@@ -273,22 +273,22 @@ export default function SignupPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="slug">
                   슬러그 *
-                  <span className="ml-1.5 text-xs text-muted-foreground font-normal">
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                     (영문 소문자·숫자·하이픈, 3-30자)
                   </span>
                 </Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground select-none">
+                  <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 select-none text-xs text-muted-foreground">
                     153os.kr/
                   </span>
                   <Input
                     id="slug"
-                    className="pl-20"
+                    className="h-11 rounded-xl pl-20"
                     placeholder="153boxing"
                     value={form.slug}
                     onChange={(e) => onSlugChange(e.target.value)}
                   />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
                     {slugState === "checking" && (
                       <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     )}
@@ -316,10 +316,10 @@ export default function SignupPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="admin_name">이름 *</Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                  <User className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="admin_name"
-                    className="pl-9"
+                    className="h-11 rounded-xl pl-10"
                     placeholder="홍길동"
                     value={form.admin_name}
                     onChange={(e) => set("admin_name", e.target.value)}
@@ -332,6 +332,7 @@ export default function SignupPage() {
                 <Input
                   id="admin_email"
                   type="email"
+                  className="h-11 rounded-xl"
                   placeholder="admin@example.com"
                   value={form.admin_email}
                   onChange={(e) => set("admin_email", e.target.value)}
@@ -344,13 +345,14 @@ export default function SignupPage() {
                   <Input
                     id="admin_password"
                     type={showPassword ? "text" : "password"}
+                    className="h-11 rounded-xl pr-10"
                     placeholder="••••••••"
                     value={form.admin_password}
                     onChange={(e) => set("admin_password", e.target.value)}
                   />
                   <button
                     type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                     onClick={() => setShowPassword((v) => !v)}
                   >
                     {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -361,11 +363,12 @@ export default function SignupPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="admin_phone">
                   연락처
-                  <span className="ml-1 text-xs text-muted-foreground font-normal">(선택)</span>
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">(선택)</span>
                 </Label>
                 <Input
                   id="admin_phone"
                   type="tel"
+                  className="h-11 rounded-xl"
                   placeholder="010-0000-0000"
                   value={form.admin_phone}
                   onChange={(e) => set("admin_phone", e.target.value)}
@@ -380,10 +383,10 @@ export default function SignupPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="branch_name">지점명 *</Label>
                 <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                  <MapPin className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="branch_name"
-                    className="pl-9"
+                    className="h-11 rounded-xl pl-10"
                     placeholder="예: 153복싱짐 선릉역점"
                     value={form.branch_name}
                     onChange={(e) => set("branch_name", e.target.value)}
@@ -394,11 +397,12 @@ export default function SignupPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="branch_phone">
                   지점 전화번호
-                  <span className="ml-1 text-xs text-muted-foreground font-normal">(선택)</span>
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">(선택)</span>
                 </Label>
                 <Input
                   id="branch_phone"
                   type="tel"
+                  className="h-11 rounded-xl"
                   placeholder="02-0000-0000"
                   value={form.branch_phone}
                   onChange={(e) => set("branch_phone", e.target.value)}
@@ -406,17 +410,17 @@ export default function SignupPage() {
               </div>
 
               {/* 요약 카드 */}
-              <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
-                <p className="font-medium text-foreground">가입 요약</p>
+              <div className="space-y-2 rounded-2xl border border-border bg-muted/40 p-5 text-sm shadow-card">
+                <p className="font-semibold text-foreground">가입 요약</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
                   <span>브랜드명</span>
-                  <span className="text-foreground font-medium">{form.company_name}</span>
+                  <span className="font-medium text-foreground">{form.company_name}</span>
                   <span>슬러그</span>
-                  <span className="text-foreground font-medium">/{form.slug}</span>
+                  <span className="font-medium text-foreground">/{form.slug}</span>
                   <span>관리자</span>
-                  <span className="text-foreground font-medium">{form.admin_email}</span>
+                  <span className="font-medium text-foreground">{form.admin_email}</span>
                 </div>
-                <div className="mt-2 pt-2 border-t text-xs text-brand font-medium">
+                <div className="mt-2 border-t border-border pt-2 text-xs font-medium text-brand">
                   ✓ 14일 무료 체험 자동 시작
                 </div>
               </div>
@@ -425,7 +429,7 @@ export default function SignupPage() {
 
           {/* 에러 */}
           {error && (
-            <div className="rounded-md bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive shadow-card">
               {error}
             </div>
           )}
@@ -435,32 +439,32 @@ export default function SignupPage() {
             {step > 0 && (
               <Button
                 variant="outline"
-                className="flex-1"
+                className="h-11 flex-1 rounded-full"
                 onClick={() => setStep((s) => (s - 1) as Step)}
                 disabled={submitting}
               >
-                <ArrowLeft className="size-4 mr-1.5" />
+                <ArrowLeft className="mr-1.5 size-4" />
                 이전
               </Button>
             )}
             <Button
-              className="flex-1 bg-brand hover:bg-brand/90"
+              className="h-11 flex-1 rounded-full bg-brand hover:bg-brand/90"
               onClick={next}
               disabled={!canProceed() || submitting}
             >
               {submitting ? (
                 <>
-                  <Loader2 className="size-4 mr-1.5 animate-spin" />
+                  <Loader2 className="mr-1.5 size-4 animate-spin" />
                   처리 중…
                 </>
               ) : step < 2 ? (
                 <>
                   다음
-                  <ArrowRight className="size-4 ml-1.5" />
+                  <ArrowRight className="ml-1.5 size-4" />
                 </>
               ) : (
                 <>
-                  <CheckCircle2 className="size-4 mr-1.5" />
+                  <CheckCircle2 className="mr-1.5 size-4" />
                   가입 완료
                 </>
               )}
