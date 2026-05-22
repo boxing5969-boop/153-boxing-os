@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, UserCog, Phone, Mail, FileSignature,
+  ArrowLeft, UserCog, FileSignature,
   BanknoteIcon, Plus, Send, Eye, CheckCircle2, Edit, Save, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";

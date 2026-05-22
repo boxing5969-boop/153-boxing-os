@@ -1,7 +1,7 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus, Pencil, Trash2,
+  ChevronLeft, ChevronRight, Plus, Trash2,
   TrendingUp, TrendingDown, Minus, RotateCcw, Check, X,
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";

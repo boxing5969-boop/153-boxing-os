@@ -66,7 +66,6 @@ export default function ClassSchedulePage() {
   const [baseDate, setBaseDate] = useState(new Date());
   const weekDates = getWeekDates(baseDate);
   // weekDates는 항상 7개 원소를 가짐 (non-null assertion 안전)
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const weekLabel = `${fmt(weekDates[0]!)} ~ ${fmt(weekDates[6]!)}`;
 
   // ── 수업 관리 다이얼로그 ───────────────────────────────────
@@ -138,9 +137,7 @@ export default function ClassSchedulePage() {
   });
 
   const { data: sessions = [], isLoading } = useQuery({
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     queryKey: ["class-sessions", branchId, fmt(weekDates[0]!)],
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     queryFn: () => listSessions(branchId, fmt(weekDates[0]!), true),
     enabled: !!branchId,
   });

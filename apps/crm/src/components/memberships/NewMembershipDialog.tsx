@@ -123,7 +123,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
     );
     setPaymentStatus("paid");
     setError(null);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // ── 탭 변경 시 시작일 업데이트
   useEffect(() => {
@@ -139,7 +139,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
     if (open && presets.length > 0 && !selectedPresetId && !isCustom) {
       applyPreset(presets[0]!);
     }
-  }, [open, presets.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, presets.length]);
 
   // ── 카테고리 변경 시 첫 번째 프리셋 선택
   useEffect(() => {
@@ -149,7 +149,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
     } else if (categoryFilter !== "all") {
       setSelectedPresetId(null);
     }
-  }, [categoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryFilter]);
 
   function applyPreset(p: BranchPlanPreset) {
     setSelectedPresetId(p.id);

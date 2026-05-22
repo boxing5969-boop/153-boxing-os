@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   getSurveyTemplate, updateSurveyTemplate,
   listSurveyQuestions, upsertSurveyQuestion, deleteSurveyQuestion,
@@ -304,7 +304,7 @@ function QrRow({ qr, onToggle }: { qr: SurveyQrCode; onToggle: () => void }) {
     <p class="hint">QR 코드 스캔 또는 아래 링크 접속</p>
     <p class="url">${url}</p>
   </div>
-  <script>window.onload = () => window.print();<\/script>
+  <script>window.onload = () => window.print();</${""}script>
 </body>
 </html>`);
     w.document.close();

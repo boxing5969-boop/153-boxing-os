@@ -12,7 +12,7 @@
 import { useState, useRef, type ChangeEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ImagePlus, X, AlertTriangle, AlertCircle, Clock,
+  ImagePlus, X, Clock,
   MessageSquare, ToggleLeft, ToggleRight, Coins,
 } from "lucide-react";
 import SmsPhonePreview, {

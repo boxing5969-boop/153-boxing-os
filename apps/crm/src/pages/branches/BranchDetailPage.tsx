@@ -5,13 +5,11 @@ import {
   ArrowLeft, Building2, MapPin, Phone, Users, Monitor,
   Pencil, XCircle, UserCircle2,
 } from "lucide-react";
-import PageHeader from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getBranchDetail } from "@/services/branches";
 import { listDevices } from "@/services/devices";
 import { supabase } from "@/integrations/supabase/client";
-import { formatDate } from "@/lib/format";
 import MemberStatusBadge from "@/components/members/MemberStatusBadge";
 import { cn } from "@/lib/cn";
 import BranchFormDialog from "@/components/branches/BranchFormDialog";

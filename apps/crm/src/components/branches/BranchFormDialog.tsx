@@ -4,7 +4,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { createBranch, updateBranch, type BranchDetail, type BranchStats } from "@/services/branches";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
