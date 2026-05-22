@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { roleLabel } from "@/lib/roleLabels";
-import { LogOut, Bell, FlaskConical, Search, Menu } from "lucide-react";
+import { LogOut, Bell, FlaskConical, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -53,11 +53,7 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-interface HeaderProps {
-  onMenuClick: () => void;
-}
-
-export default function Header({ onMenuClick }: HeaderProps) {
+export default function Header() {
   const { user, profile, signOut } = useAuth();
   const { data: alertCount = 0 } = useUnresolvedAlertCount();
   const { data: trialInfo } = useTrialInfo(profile?.company_id ?? null);
@@ -72,16 +68,6 @@ export default function Header({ onMenuClick }: HeaderProps) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
       <div className="flex items-center gap-2 min-w-0">
-        {/* 모바일 햄버거 메뉴 */}
-        <button
-          type="button"
-          onClick={onMenuClick}
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
-          aria-label="메뉴 열기"
-        >
-          <Menu className="size-5" />
-        </button>
-
         {/* 검색 버튼 */}
         <button
           type="button"
