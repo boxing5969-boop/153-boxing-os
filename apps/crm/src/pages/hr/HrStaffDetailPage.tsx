@@ -172,7 +172,7 @@ export default function HrStaffDetailPage() {
 
         {/* ── 기본 정보 탭 ── */}
         {tab === "info" && (
-          <Card>
+          <Card className="rounded-2xl">
             <CardContent className="pt-5 space-y-4">
               {editMode ? (
                 <div className="grid grid-cols-2 gap-4">
@@ -250,13 +250,13 @@ export default function HrStaffDetailPage() {
               </Button>
             </div>
             {contracts.length === 0 ? (
-              <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
+              <Card className="flex flex-col items-center gap-3 rounded-2xl py-14 text-muted-foreground">
                 <FileSignature className="size-9 opacity-30" />
                 <p className="text-sm">등록된 계약서가 없습니다</p>
               </Card>
             ) : (
               contracts.map(c => (
-                <Card key={c.id} className="px-5 py-4 flex items-center gap-4">
+                <Card key={c.id} className="flex items-center gap-4 rounded-2xl px-5 py-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-foreground text-sm">{c.title}</span>
@@ -302,13 +302,13 @@ export default function HrStaffDetailPage() {
               </Button>
             </div>
             {payrolls.length === 0 ? (
-              <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
+              <Card className="flex flex-col items-center gap-3 rounded-2xl py-14 text-muted-foreground">
                 <BanknoteIcon className="size-9 opacity-30" />
                 <p className="text-sm">등록된 급여 명세가 없습니다</p>
               </Card>
             ) : (
               payrolls.map(p => (
-                <Card key={p.id} className="px-5 py-4">
+                <Card key={p.id} className="rounded-2xl px-5 py-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">

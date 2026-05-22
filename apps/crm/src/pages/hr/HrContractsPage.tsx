@@ -102,25 +102,29 @@ export default function HrContractsPage() {
             { label: "발송됨", count: stats.sent, color: "text-blue-600" },
             { label: "서명완료", count: stats.signed, color: "text-success" },
           ].map(({ label, count, color }) => (
-            <Card key={label} className="px-4 py-3 text-center">
+            <Card key={label} className="rounded-2xl px-4 py-4 text-center">
               <p className="text-xs text-muted-foreground">{label}</p>
-              <p className={cn("text-2xl font-bold", color)}>{count}</p>
+              <p className={cn("text-2xl font-black tabular", color)}>{count}</p>
             </Card>
           ))}
         </div>
 
         {/* 검색 */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input className="pl-9" placeholder="직원명, 계약서 제목 검색" value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input className="h-11 rounded-xl pl-10" placeholder="직원명, 계약서 제목 검색" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
         </div>
 
         {/* 계약서 목록 */}
         {!branchId ? (
-          <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
-            <FileSignature className="size-9 opacity-30" />
+          <Card className="flex flex-col items-center gap-3 rounded-2xl py-16 text-muted-foreground">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+              <FileSignature className="size-6 text-muted-foreground/60" />
+            </div>
             <p className="text-sm">직원 관리에서 지점을 선택하면 계약서 목록이 표시됩니다</p>
-            <Button variant="outline" size="sm" onClick={() => navigate("/hr/staff")}>직원 관리로 이동</Button>
+            <Button variant="outline" size="sm" className="rounded-full" onClick={() => navigate("/hr/staff")}>직원 관리로 이동</Button>
           </Card>
         ) : isLoading ? (
           <div className="text-center py-16 text-muted-foreground text-sm">불러오는 중…</div>
@@ -146,7 +150,7 @@ export default function HrContractsPage() {
                 </div>
                 <div className="space-y-2 pl-8">
                   {s.contracts.map(c => (
-                    <Card key={c.id} className="px-4 py-3 flex items-center gap-4">
+                    <Card key={c.id} className="flex items-center gap-4 rounded-2xl px-5 py-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-medium text-foreground">{c.title}</span>

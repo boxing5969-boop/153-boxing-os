@@ -85,7 +85,7 @@ export default function StaffRolesPage() {
 
   if (!canManage) {
     return (
-      <div className="rounded-xl bg-muted/40 border border-border px-4 py-8 text-center text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-border bg-muted/40 px-4 py-10 text-center text-sm text-muted-foreground shadow-card">
         역할 배정은 조직 관리자만 접근할 수 있습니다.
       </div>
     );
@@ -105,7 +105,7 @@ export default function StaffRolesPage() {
       </div>
 
       {/* 배정 폼 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="text-sm font-bold text-foreground">새 역할 배정</CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -114,7 +114,7 @@ export default function StaffRolesPage() {
               <select
                 value={form.profile_id}
                 onChange={(e) => setForm({ ...form, profile_id: e.target.value })}
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm"
               >
                 <option value="">선택</option>
                 {(profilesQ.data ?? []).map((p) => (
@@ -127,7 +127,7 @@ export default function StaffRolesPage() {
               <select
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value })}
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm"
               >
                 {ASSIGNABLE_ROLES.map((r) => (
                   <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
@@ -139,7 +139,7 @@ export default function StaffRolesPage() {
               <select
                 value={form.scope}
                 onChange={(e) => setForm({ ...form, scope: e.target.value as StaffRoleScope })}
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm"
               >
                 {(["organization", "brand", "branch"] as StaffRoleScope[]).map((s) => (
                   <option key={s} value={s}>{SCOPE_LABELS[s]}</option>
@@ -152,7 +152,7 @@ export default function StaffRolesPage() {
                 <select
                   value={form.brand_id}
                   onChange={(e) => setForm({ ...form, brand_id: e.target.value })}
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10 rounded-xl border border-input bg-background px-3 text-sm"
                 >
                   <option value="">선택</option>
                   {(brandsQ.data ?? []).map((b) => (
@@ -167,7 +167,7 @@ export default function StaffRolesPage() {
                 <select
                   value={form.branch_id}
                   onChange={(e) => setForm({ ...form, branch_id: e.target.value })}
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10 rounded-xl border border-input bg-background px-3 text-sm"
                 >
                   <option value="">선택</option>
                   {(branchesQ.data ?? []).map((b) => (
@@ -180,6 +180,7 @@ export default function StaffRolesPage() {
           {err && <p className="text-xs text-danger">{err}</p>}
           <Button
             size="sm"
+            className="gap-1.5 rounded-full"
             disabled={!formValid || assignM.isPending}
             onClick={() => { setErr(null); assignM.mutate(); }}
           >
@@ -190,7 +191,7 @@ export default function StaffRolesPage() {
       </Card>
 
       {/* 배정 목록 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="text-sm font-bold text-foreground">현재 역할 배정</CardHeader>
         <CardContent className="p-0">
           {rolesQ.isLoading ? (
@@ -243,14 +244,14 @@ export default function StaffRolesPage() {
                             id: r.id,
                             status: r.status === "active" ? "inactive" : "active",
                           })}
-                          className="p-1.5 rounded hover:bg-muted text-muted-foreground"
+                          className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
                           title={r.status === "active" ? "비활성화" : "활성화"}
                         >
                           <Power className="size-3.5" />
                         </button>
                         <button
                           onClick={() => { if (confirm("이 역할 배정을 해제할까요?")) removeM.mutate(r.id); }}
-                          className="p-1.5 rounded hover:bg-muted text-danger"
+                          className="rounded-full p-1.5 text-danger hover:bg-muted"
                           title="배정 해제"
                         >
                           <Trash2 className="size-3.5" />

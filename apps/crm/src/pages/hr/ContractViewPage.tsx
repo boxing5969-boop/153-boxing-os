@@ -87,7 +87,7 @@ export default function ContractViewPage() {
 
         {/* 헤더 */}
         <div className="text-center space-y-2">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-brand/10 mx-auto">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand/10 shadow-card">
             <FileSignature className="size-6 text-brand" />
           </div>
           <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">153 Boxing Gym</p>
@@ -104,7 +104,7 @@ export default function ContractViewPage() {
         </div>
 
         {/* 기본 정보 */}
-        <div className="bg-white rounded-xl border border-border p-5 grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-2 gap-4 rounded-2xl border border-border bg-card p-5 text-sm shadow-card">
           {contract.staff && (
             <>
               <div>
@@ -147,14 +147,14 @@ export default function ContractViewPage() {
 
         {/* 계약서 본문 */}
         {contractBody ? (
-          <div className="bg-white rounded-xl border border-border p-6">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4">계약서 본문</p>
-            <pre className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans break-words">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">계약서 본문</p>
+            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-foreground">
               {contractBody}
             </pre>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-border p-6 text-center text-muted-foreground text-sm">
+          <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-card">
             계약서 본문이 없습니다. 담당자에게 문의해 주세요.
           </div>
         )}

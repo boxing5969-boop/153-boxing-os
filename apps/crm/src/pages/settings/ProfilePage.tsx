@@ -46,27 +46,27 @@ export default function ProfilePage() {
     <div className="space-y-6 max-w-xl">
       <PageHeader title="설정" description="자기 프로필" />
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80">계정 정보 (변경 불가)</h2>
+          <h2 className="text-sm font-semibold text-foreground">계정 정보 (변경 불가)</h2>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-3 gap-y-2 text-sm">
-            <dt className="opacity-60">이메일</dt>
-            <dd className="col-span-2">{user?.email ?? "—"}</dd>
-            <dt className="opacity-60">역할</dt>
-            <dd className="col-span-2">{roleLabel(profile?.role)}</dd>
-            <dt className="opacity-60">소속 지점</dt>
-            <dd className="col-span-2 opacity-80">{profile?.branch_id ?? "—"}</dd>
-            <dt className="opacity-60">가입일</dt>
-            <dd className="col-span-2 opacity-80">{profile?.created_at?.slice(0, 10) ?? "—"}</dd>
+          <dl className="grid grid-cols-3 gap-y-3 text-sm">
+            <dt className="text-muted-foreground">이메일</dt>
+            <dd className="col-span-2 font-medium text-foreground">{user?.email ?? "—"}</dd>
+            <dt className="text-muted-foreground">역할</dt>
+            <dd className="col-span-2 font-medium text-foreground">{roleLabel(profile?.role)}</dd>
+            <dt className="text-muted-foreground">소속 지점</dt>
+            <dd className="col-span-2 text-muted-foreground">{profile?.branch_id ?? "—"}</dd>
+            <dt className="text-muted-foreground">가입일</dt>
+            <dd className="col-span-2 text-muted-foreground tabular">{profile?.created_at?.slice(0, 10) ?? "—"}</dd>
           </dl>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80">개인 정보 수정</h2>
+          <h2 className="text-sm font-semibold text-foreground">개인 정보 수정</h2>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -75,6 +75,7 @@ export default function ProfilePage() {
               <Input
                 id="pname"
                 required
+                className="h-11 rounded-xl"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -84,20 +85,21 @@ export default function ProfilePage() {
               <Input
                 id="pphone"
                 type="tel"
+                className="h-11 rounded-xl"
                 placeholder="010-1234-5678"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />
             </div>
             {error && (
-              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+              <p className="rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger shadow-card">{error}</p>
             )}
             {success && (
-              <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
+              <p className="rounded-2xl border border-success/20 bg-success/5 px-4 py-3 text-sm text-success shadow-card">
                 저장되었습니다.
               </p>
             )}
-            <Button type="submit" disabled={mutation.isPending}>
+            <Button type="submit" className="h-11 gap-2 rounded-full px-6" disabled={mutation.isPending}>
               {mutation.isPending ? "저장 중…" : "저장"}
             </Button>
           </form>
