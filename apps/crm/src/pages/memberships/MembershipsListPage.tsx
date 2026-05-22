@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, Ticket, ChevronRight } from "lucide-react";
+import { CreditCard, Ticket, ChevronRight, SlidersHorizontal } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
-import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -56,26 +55,24 @@ function TabBtn({ active, icon: Icon, label, count, onClick }: {
   );
 }
 
-function SkeletonRow({ cols }: { cols: number }) {
+function SkeletonRow() {
   return (
-    <tr className="border-b border-border">
-      {[...Array(cols)].map((_, i) => (
-        <td key={i} className="px-5 py-3.5">
-          <div className="h-4 rounded-md bg-muted animate-pulse" style={{ width: `${60 + (i * 20) % 40}%` }} />
-        </td>
-      ))}
-      <td className="px-5 py-3.5" />
-    </tr>
+    <div className="flex items-center gap-3 px-5 py-4">
+      <div className="flex-1 space-y-2">
+        <div className="h-3.5 w-32 animate-pulse rounded-md bg-muted" />
+        <div className="h-3 w-48 animate-pulse rounded-md bg-muted/70" />
+      </div>
+      <div className="h-5 w-14 animate-pulse rounded-full bg-muted" />
+      <div className="h-5 w-12 animate-pulse rounded-full bg-muted" />
+    </div>
   );
 }
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <tr>
-      <td colSpan={6} className="px-5 py-14 text-center">
-        <p className="text-sm text-muted-foreground">{message}</p>
-      </td>
-    </tr>
+    <div className="px-5 py-16 text-center">
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
   );
 }
 
@@ -121,7 +118,7 @@ export default function MembershipsListPage() {
       />
 
       {/* 탭 */}
-      <div className="flex items-center border-b border-border gap-1 -mb-2">
+      <div className="-mb-2 flex items-center gap-1 border-b border-border">
         <TabBtn
           active={tab === "memberships"} icon={CreditCard} label="이용권"
           count={tab === "memberships" ? memQuery.data?.total : undefined}
@@ -135,102 +132,135 @@ export default function MembershipsListPage() {
       </div>
 
       {/* 필터 */}
-      <Card className="p-4">
-        {tab === "memberships" ? (
-          <Select value={memStatus} onChange={(e) => { setMemStatus(e.target.value as MembershipStatus | ""); setPage(0); }} className="max-w-[180px]">
-            <option value="">상태 전체</option>
-            {MEMBERSHIP_STATUS_VALUES.map((s) => <option key={s} value={s}>{membershipStatusLabel(s)}</option>)}
-          </Select>
-        ) : (
-          <Select value={trialStatus} onChange={(e) => { setTrialStatus(e.target.value as TrialPassStatus | ""); setPage(0); }} className="max-w-[180px]">
-            <option value="">상태 전체</option>
-            {TRIAL_STATUS_VALUES.map((s) => <option key={s} value={s}>{trialStatusLabel(s)}</option>)}
-          </Select>
-        )}
-      </Card>
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5">
+          <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" />
+          {tab === "memberships" ? (
+            <Select
+              value={memStatus}
+              onChange={(e) => { setMemStatus(e.target.value as MembershipStatus | ""); setPage(0); }}
+              className="min-w-[150px] max-w-[180px] border-0 bg-transparent px-1 shadow-none focus:ring-0"
+            >
+              <option value="">상태 전체</option>
+              {MEMBERSHIP_STATUS_VALUES.map((s) => <option key={s} value={s}>{membershipStatusLabel(s)}</option>)}
+            </Select>
+          ) : (
+            <Select
+              value={trialStatus}
+              onChange={(e) => { setTrialStatus(e.target.value as TrialPassStatus | ""); setPage(0); }}
+              className="min-w-[150px] max-w-[180px] border-0 bg-transparent px-1 shadow-none focus:ring-0"
+            >
+              <option value="">상태 전체</option>
+              {TRIAL_STATUS_VALUES.map((s) => <option key={s} value={s}>{trialStatusLabel(s)}</option>)}
+            </Select>
+          )}
+        </div>
+      </div>
 
-      {/* 테이블 */}
-      <Card className="overflow-hidden">
+      {/* 리스트 */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         {tab === "memberships" ? (
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/40">
-              <tr>
-                {["회원", "플랜", "기간", "이용권 상태", "결제 상태", ""].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {memQuery.isLoading && [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={5} />)}
-              {memQuery.isError && <EmptyState message="데이터를 불러오지 못했습니다" />}
-              {!memQuery.isLoading && !memQuery.isError && (memQuery.data?.rows.length ?? 0) === 0 && <EmptyState message="이용권이 없습니다" />}
-              {(memQuery.data?.rows ?? []).map((m) => (
-                <tr key={m.id} className="group hover:bg-muted/40 cursor-pointer transition-colors" onClick={() => navigate(`/members/${m.member_id}`)}>
-                  <td className="px-5 py-3.5 font-semibold text-foreground">{m.member_name ?? m.member_id.slice(0, 8)}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{m.plan_name}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground tabular text-xs">
-                    {formatDate(m.start_date)} ~ {formatDate(m.end_date)}
-                  </td>
-                  <td className="px-5 py-3.5"><MembershipStatusBadge status={m.status} /></td>
-                  <td className="px-5 py-3.5"><PaymentStatusBadge status={m.payment_status} /></td>
-                  <td className="px-5 py-3.5 text-right">
-                    <ChevronRight className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors ml-auto" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/40">
-              <tr>
-                {["회원", "기간", "사용 횟수", "상태", ""].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {trialQuery.isLoading && [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={4} />)}
-              {trialQuery.isError && <EmptyState message="데이터를 불러오지 못했습니다" />}
-              {!trialQuery.isLoading && !trialQuery.isError && (trialQuery.data?.rows.length ?? 0) === 0 && <EmptyState message="체험권이 없습니다" />}
-              {(trialQuery.data?.rows ?? []).map((t) => (
-                <tr key={t.id} className="group hover:bg-muted/40 cursor-pointer transition-colors" onClick={() => navigate(`/members/${t.member_id}`)}>
-                  <td className="px-5 py-3.5 font-semibold text-foreground">{t.member_name ?? t.member_id.slice(0, 8)}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground tabular text-xs">
-                    {formatDateTime(t.start_at)} ~ {formatDateTime(t.end_at)}
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: `${t.max_entries === 0 ? 0 : (t.used_entries / t.max_entries) * 100}%` }}
-                        />
+          <>
+            {memQuery.isLoading && (
+              <div className="divide-y divide-border/60">
+                {[...Array(5)].map((_, i) => <SkeletonRow key={i} />)}
+              </div>
+            )}
+            {memQuery.isError && <EmptyState message="데이터를 불러오지 못했습니다" />}
+            {!memQuery.isLoading && !memQuery.isError && (memQuery.data?.rows.length ?? 0) === 0 && (
+              <EmptyState message="이용권이 없습니다" />
+            )}
+            {!memQuery.isLoading && !memQuery.isError && (memQuery.data?.rows.length ?? 0) > 0 && (
+              <ul className="divide-y divide-border/60">
+                {(memQuery.data?.rows ?? []).map((m) => (
+                  <li
+                    key={m.id}
+                    className="group flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-muted/40"
+                    onClick={() => navigate(`/members/${m.member_id}`)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold text-foreground">
+                          {m.member_name ?? m.member_id.slice(0, 8)}
+                        </span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="truncate text-sm text-muted-foreground">{m.plan_name}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground tabular">{t.used_entries}/{t.max_entries}</span>
+                      <p className="mt-0.5 text-xs text-muted-foreground tabular">
+                        {formatDate(m.start_date)} ~ {formatDate(m.end_date)}
+                      </p>
                     </div>
-                  </td>
-                  <td className="px-5 py-3.5"><TrialStatusBadge status={t.status} /></td>
-                  <td className="px-5 py-3.5 text-right">
-                    <ChevronRight className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors ml-auto" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <div className="flex items-center gap-1.5">
+                      <MembershipStatusBadge status={m.status} />
+                      <PaymentStatusBadge status={m.payment_status} />
+                    </div>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <>
+            {trialQuery.isLoading && (
+              <div className="divide-y divide-border/60">
+                {[...Array(5)].map((_, i) => <SkeletonRow key={i} />)}
+              </div>
+            )}
+            {trialQuery.isError && <EmptyState message="데이터를 불러오지 못했습니다" />}
+            {!trialQuery.isLoading && !trialQuery.isError && (trialQuery.data?.rows.length ?? 0) === 0 && (
+              <EmptyState message="체험권이 없습니다" />
+            )}
+            {!trialQuery.isLoading && !trialQuery.isError && (trialQuery.data?.rows.length ?? 0) > 0 && (
+              <ul className="divide-y divide-border/60">
+                {(trialQuery.data?.rows ?? []).map((t) => {
+                  const pct = t.max_entries === 0 ? 0 : (t.used_entries / t.max_entries) * 100;
+                  return (
+                    <li
+                      key={t.id}
+                      className="group flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-muted/40"
+                      onClick={() => navigate(`/members/${t.member_id}`)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="truncate font-semibold text-foreground">
+                          {t.member_name ?? t.member_id.slice(0, 8)}
+                        </span>
+                        <p className="mt-0.5 text-xs text-muted-foreground tabular">
+                          {formatDateTime(t.start_at)} ~ {formatDateTime(t.end_at)}
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-primary transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-muted-foreground tabular">
+                            {t.used_entries}/{t.max_entries}회
+                          </span>
+                        </div>
+                      </div>
+                      <TrialStatusBadge status={t.status} />
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
         )}
-      </Card>
+      </div>
 
       {/* 페이지네이션 */}
       {total > 0 && (
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground tabular">총 {total.toLocaleString()}건</span>
+        <div className="flex items-center justify-between rounded-2xl border border-border bg-card px-5 py-3 shadow-card">
+          <span className="text-sm text-muted-foreground tabular">
+            총 {total.toLocaleString()}건
+          </span>
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>이전</Button>
-            <span className="px-3 text-sm text-muted-foreground">{page + 1} / {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>다음</Button>
+            <Button variant="outline" size="sm" className="rounded-full" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>이전</Button>
+            <span className="px-3 text-sm font-medium text-muted-foreground tabular">{page + 1} / {totalPages}</span>
+            <Button variant="outline" size="sm" className="rounded-full" disabled={page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>다음</Button>
           </div>
         </div>
       )}
