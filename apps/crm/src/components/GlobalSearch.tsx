@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { cn } from "@/lib/cn";
 
 // ── 메뉴 아이템 정의 ──────────────────────────────────────
@@ -78,6 +79,7 @@ export default function GlobalSearch() {
 
 function GlobalSearchPanel({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 250);
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -90,13 +92,13 @@ function GlobalSearchPanel({ onClose }: { onClose: () => void }) {
     return () => clearTimeout(t);
   }, []);
 
-  // 회원 검색
+  // 회원 검색 — 250ms 디바운스로 타이핑마다 쿼리 발사 방지
   const { data: members = [] } = useQuery<MemberResult[]>({
-    queryKey: ["global-search-members", query, profile?.branch_id],
-    enabled: query.trim().length >= 1,
+    queryKey: ["global-search-members", debouncedQuery, profile?.branch_id],
+    enabled: debouncedQuery.trim().length >= 1,
     staleTime: 10_000,
     queryFn: async () => {
-      const q = query.trim();
+      const q = debouncedQuery.trim();
       let base = supabase
         .from("members")
         .select("id,name,phone,status")

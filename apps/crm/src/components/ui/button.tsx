@@ -16,9 +16,11 @@ const variantClasses: Record<ButtonVariant, string> = {
   destructive: "bg-danger text-danger-foreground hover:opacity-90 shadow-sm",
 };
 
+// 모바일에서 sm/md 는 살짝 키워 iOS 권장 44pt 터치 영역에 접근.
+// icon 버튼은 표시 영역 자체가 작으므로 그대로 유지.
 const sizeClasses: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-xs",
-  md: "h-10 px-4 text-sm",
+  sm: "h-9 px-3 text-xs sm:h-8",
+  md: "h-11 px-4 text-sm sm:h-10",
   lg: "h-12 px-6 text-base",
   icon: "h-10 w-10",
 };
