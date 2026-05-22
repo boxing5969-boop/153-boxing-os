@@ -113,7 +113,8 @@ export default function AlertsPage() {
       </Card>
 
       <Card className="overflow-hidden rounded-2xl">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px] text-sm">
           <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-3">심각도</th>
@@ -152,6 +153,7 @@ export default function AlertsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

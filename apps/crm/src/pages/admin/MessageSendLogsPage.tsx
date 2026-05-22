@@ -124,7 +124,7 @@ export default function MessageSendLogsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[800px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">발송 시각</th>
