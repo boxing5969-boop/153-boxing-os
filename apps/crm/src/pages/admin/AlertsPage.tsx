@@ -174,9 +174,10 @@ function StatCard({
       </div>
       <div
         className={cn(
-          "mt-2 text-3xl font-bold",
-          tone === "warning" && "text-yellow-600",
-          tone === "danger" && "text-red-600"
+          "mt-2 text-3xl font-black tabular",
+          tone === "default" && "text-foreground",
+          tone === "warning" && "text-warning",
+          tone === "danger" && "text-danger"
         )}
       >
         {value}
@@ -189,7 +190,7 @@ function AlertRowView({ a }: { a: AlertRow }) {
   const sev = (a.severity as string) ?? "warning";
   const detailsKv = a.details ? Object.entries(a.details) : [];
   return (
-    <tr className="border-b border-foreground/5 align-top">
+    <tr className="border-b border-border/60 align-top transition-colors hover:bg-muted/40">
       <td className="px-4 py-3">
         <span
           className={cn(
@@ -200,13 +201,13 @@ function AlertRowView({ a }: { a: AlertRow }) {
           {SEVERITY_LABELS[sev] ?? sev}
         </span>
       </td>
-      <td className="px-4 py-3 opacity-80">
+      <td className="px-4 py-3 text-muted-foreground">
         {KIND_LABELS[a.kind as string] ?? a.kind}
       </td>
       <td className="px-4 py-3">
         <div className="font-medium">{a.subject}</div>
         {detailsKv.length > 0 && (
-          <div className="mt-0.5 text-xs opacity-60">
+          <div className="mt-0.5 text-xs text-muted-foreground/60">
             {detailsKv
               .filter(([, v]) => v !== null && v !== undefined)
               .map(([k, v]) => (
@@ -217,8 +218,8 @@ function AlertRowView({ a }: { a: AlertRow }) {
           </div>
         )}
       </td>
-      <td className="px-4 py-3 opacity-70">{formatDateTime(a.detected_at)}</td>
-      <td className="px-4 py-3 opacity-70">
+      <td className="px-4 py-3 text-muted-foreground">{formatDateTime(a.detected_at)}</td>
+      <td className="px-4 py-3 text-muted-foreground">
         {a.notified_at ? formatDateTime(a.notified_at) : "—"}
       </td>
       <td className="px-4 py-3">
@@ -236,7 +237,7 @@ function AlertRowView({ a }: { a: AlertRow }) {
         {a.device_id && (
           <Link
             to={`/devices/${a.device_id}`}
-            className="text-xs underline opacity-70 hover:opacity-100"
+            className="text-xs underline text-muted-foreground hover:opacity-100"
           >
             장비 상세
           </Link>

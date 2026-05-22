@@ -28,7 +28,7 @@ export default function MemberLevelsPage() {
   });
 
   if (memberQuery.isLoading) {
-    return <p className="text-sm opacity-60">로딩 중…</p>;
+    return <p className="text-sm text-muted-foreground">로딩 중…</p>;
   }
   if (!memberQuery.data) {
     return (

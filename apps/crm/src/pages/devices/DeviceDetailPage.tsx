@@ -77,10 +77,10 @@ export default function DeviceDetailPage() {
     },
   });
 
-  if (isLoading) return <p className="text-sm opacity-60">로딩 중…</p>;
+  if (isLoading) return <p className="text-sm text-muted-foreground">로딩 중…</p>;
   if (isError) {
     return (
-      <p className="text-sm text-red-600">
+      <p className="text-sm text-danger">
         오류: {errorMessage(error)}
       </p>
     );

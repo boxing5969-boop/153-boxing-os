@@ -129,11 +129,11 @@ export default function EmergencyPinsPage() {
                     {EMERGENCY_PIN_STATUS_LABELS[p.status]}
                   </span>
                 </td>
-                <td className="px-4 py-3 opacity-80">{p.branch_name ?? "—"}</td>
-                <td className="px-4 py-3 opacity-80">{p.purpose ?? "—"}</td>
-                <td className="px-4 py-3 opacity-80">{p.issuer_name ?? "—"}</td>
-                <td className="px-4 py-3 opacity-70">{formatDateTime(p.issued_at)}</td>
-                <td className="px-4 py-3 opacity-70">{formatDateTime(p.expires_at)}</td>
+                <td className="px-4 py-3 text-muted-foreground">{p.branch_name ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{p.purpose ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{p.issuer_name ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDateTime(p.issued_at)}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDateTime(p.expires_at)}</td>
                 <td className="px-4 py-3">
                   {p.used_count} / {p.max_uses}
                 </td>
@@ -168,7 +168,7 @@ export default function EmergencyPinsPage() {
         title="PIN 취소"
         description={
           <span className="flex gap-2">
-            <KeyRound className="size-4 shrink-0 mt-0.5 opacity-60" />
+            <KeyRound className="size-4 shrink-0 mt-0.5 text-muted-foreground/60" />
             <span>PIN 을 즉시 무효화합니다. 발급 후 사용 전이라면 사용 불가가 됩니다.</span>
           </span>
         }

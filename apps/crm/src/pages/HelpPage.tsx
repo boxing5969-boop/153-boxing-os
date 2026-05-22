@@ -45,9 +45,9 @@ export default function HelpPage() {
         description="자주 쓰는 절차 + 출입 거절 사유별 안내 + 외부 문서 링크"
       />
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <BookOpen className="size-4" />
             전체 매뉴얼
           </h2>
@@ -60,12 +60,12 @@ export default function HelpPage() {
                   href={l.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-start gap-2 hover:bg-foreground/5 -mx-2 px-2 py-1 rounded"
+                  className="-mx-2 flex items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60"
                 >
-                  <ExternalLink className="size-4 mt-0.5 opacity-60 shrink-0" />
+                  <ExternalLink className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
                   <div>
                     <div className="font-medium">{l.label}</div>
-                    <div className="text-xs opacity-70">{l.description}</div>
+                    <div className="text-xs text-muted-foreground">{l.description}</div>
                   </div>
                 </a>
               </li>
@@ -74,19 +74,19 @@ export default function HelpPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <AlertCircle className="size-4" />
             출입 거절 사유별 안내
           </h2>
-          <p className="text-xs opacity-60 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             회원이 거절됐을 때 직원이 즉시 참고할 수 있는 액션 매트릭스
           </p>
         </CardHeader>
         <CardContent className="p-0">
           <table className="w-full text-sm">
-            <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
+            <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2">시스템 사유</th>
                 <th className="px-4 py-2">회원에게 안내 문구</th>
@@ -95,10 +95,10 @@ export default function HelpPage() {
             </thead>
             <tbody>
               {(Object.keys(DENIED_REASON_LABELS) as DeniedReason[]).map((r) => (
-                <tr key={r} className="border-b border-foreground/5">
-                  <td className="px-4 py-2 font-mono text-xs opacity-70">{r}</td>
+                <tr key={r} className="border-b border-border/60">
+                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{r}</td>
                   <td className="px-4 py-2">{DENIED_REASON_LABELS[r]}</td>
-                  <td className="px-4 py-2 opacity-80">
+                  <td className="px-4 py-2 text-muted-foreground">
                     {DENIED_REASON_ACTIONS[r] ?? "—"}
                   </td>
                 </tr>
@@ -109,9 +109,9 @@ export default function HelpPage() {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
+        <Card className="rounded-2xl">
           <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80">자주 쓰는 절차</h2>
+            <h2 className="text-sm font-semibold text-foreground">자주 쓰는 절차</h2>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm">
@@ -140,25 +140,25 @@ export default function HelpPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl">
           <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80 flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
               <Phone className="size-4" />
               비상 연락처
             </h2>
-            <p className="text-xs opacity-60 mt-0.5">운영 시작 시 본사관리자가 채워넣음</p>
+            <p className="text-xs text-muted-foreground mt-0.5">운영 시작 시 본사관리자가 채워넣음</p>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-3 gap-y-2 text-sm">
-              <dt className="opacity-60">본사 운영팀</dt>
+              <dt className="text-muted-foreground">본사 운영팀</dt>
               <dd className="col-span-2">[TBD]</dd>
-              <dt className="opacity-60">시스템 개발팀</dt>
+              <dt className="text-muted-foreground">시스템 개발팀</dt>
               <dd className="col-span-2">[TBD]</dd>
-              <dt className="opacity-60">단말기 벤더</dt>
+              <dt className="text-muted-foreground">단말기 벤더</dt>
               <dd className="col-span-2">[TBD]</dd>
-              <dt className="opacity-60">Supabase 지원</dt>
+              <dt className="text-muted-foreground">Supabase 지원</dt>
               <dd className="col-span-2 break-all">support@supabase.io</dd>
-              <dt className="opacity-60">Cloudflare</dt>
+              <dt className="text-muted-foreground">Cloudflare</dt>
               <dd className="col-span-2 break-all">dash.cloudflare.com → Help</dd>
             </dl>
           </CardContent>

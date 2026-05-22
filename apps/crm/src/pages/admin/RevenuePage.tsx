@@ -228,11 +228,11 @@ export default function RevenuePage() {
               )}
               {(dailyQuery.data ?? []).map((d) => (
                 <tr key={d.day} className="border-b border-border/60 transition-colors hover:bg-muted/40">
-                  <td className="px-4 py-2 opacity-80">{d.day}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{d.day}</td>
                   <td className="px-4 py-2 text-right font-medium">
                     {formatKrw(d.paid_total)}
                   </td>
-                  <td className="px-4 py-2 text-right opacity-80">
+                  <td className="px-4 py-2 text-right text-muted-foreground">
                     {d.partial_total > 0 ? formatKrw(d.partial_total) : "—"}
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -249,7 +249,7 @@ export default function RevenuePage() {
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right opacity-80">{d.total_count}</td>
+                  <td className="px-4 py-2 text-right text-muted-foreground">{d.total_count}</td>
                 </tr>
               ))}
             </tbody>

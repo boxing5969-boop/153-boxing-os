@@ -118,11 +118,13 @@ export default function NotificationLogsPage() {
             불러오는 중…
           </div>
         ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 p-12 text-muted-foreground">
-            <MessageCircle className="size-8 opacity-30" />
-            <p className="text-sm">발송 이력이 없습니다.</p>
+          <div className="flex flex-col items-center justify-center gap-3 p-16 text-muted-foreground">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+              <MessageCircle className="size-6 text-muted-foreground/60" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">발송 이력이 없습니다.</p>
             {statusFilter !== "all" && (
-              <p className="text-xs opacity-70">다른 필터를 선택해보세요.</p>
+              <p className="text-xs text-muted-foreground">다른 필터를 선택해보세요.</p>
             )}
           </div>
         ) : (
