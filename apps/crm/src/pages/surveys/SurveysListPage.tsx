@@ -97,7 +97,7 @@ function CreateForm({ branchId, profileId, onDone }: CreateFormProps) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="예: 153복싱 고객 만족도 조사"
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -106,7 +106,7 @@ function CreateForm({ branchId, profileId, onDone }: CreateFormProps) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="설문에 대한 간단한 안내 문구"
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </label>
       </div>
@@ -201,7 +201,7 @@ export default function SurveysListPage() {
               setSelectedBranchId(e.target.value);
               setShowCreate(false);
             }}
-            className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="flex-1 rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">— 지점을 선택하세요 —</option>
             {branches.map((b) => (
@@ -222,7 +222,7 @@ export default function SurveysListPage() {
 
       {/* 목록 */}
       {isHq && !selectedBranchId ? (
-        <Card>
+        <Card className="rounded-2xl">
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
             위에서 지점을 선택하면 해당 지점의 설문 목록이 표시됩니다.
           </CardContent>
@@ -234,7 +234,7 @@ export default function SurveysListPage() {
           ))}
         </div>
       ) : templates.length === 0 ? (
-        <Card>
+        <Card className="rounded-2xl">
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
             아직 설문이 없습니다. 위 버튼으로 첫 설문을 만들어보세요.
           </CardContent>

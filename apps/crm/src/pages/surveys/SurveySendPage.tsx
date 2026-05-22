@@ -143,7 +143,7 @@ function StatsPanel({ templateId }: { templateId: string }) {
   }
   if (!data || data.counts.total === 0) {
     return (
-      <Card>
+      <Card className="rounded-2xl">
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
           아직 발송 이력이 없습니다.
         </CardContent>
@@ -155,7 +155,7 @@ function StatsPanel({ templateId }: { templateId: string }) {
   const respRate = c.sent > 0 ? Math.round((c.responded / c.sent) * 100) : 0;
 
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardHeader className="flex items-center gap-2">
         <BarChart3 className="size-4 text-primary" />
         <span className="text-sm font-bold text-foreground">발송 / 응답 추적</span>
@@ -318,7 +318,7 @@ export default function SurveySendPage() {
         {/* ── 좌측: 발송 설정 ───────────────────────────── */}
         <div className="space-y-5">
           {/* QR 링크 선택 */}
-          <Card>
+          <Card className="rounded-2xl">
             <CardHeader className="flex items-center gap-2">
               <Link2 className="size-4 text-primary" />
               <span className="text-sm font-bold text-foreground">1. 설문 링크</span>
@@ -349,7 +349,7 @@ export default function SurveySendPage() {
           </Card>
 
           {/* 채널 선택 */}
-          <Card>
+          <Card className="rounded-2xl">
             <CardHeader className="flex items-center gap-2">
               <Send className="size-4 text-primary" />
               <span className="text-sm font-bold text-foreground">2. 발송 채널</span>
@@ -385,7 +385,7 @@ export default function SurveySendPage() {
           </Card>
 
           {/* 메시지 작성 */}
-          <Card>
+          <Card className="rounded-2xl">
             <CardHeader className="flex items-center gap-2">
               <MessageSquare className="size-4 text-primary" />
               <span className="text-sm font-bold text-foreground">3. 안내 문구</span>
@@ -423,7 +423,7 @@ export default function SurveySendPage() {
           </Card>
 
           {/* 대상 회원 선택 */}
-          <Card>
+          <Card className="rounded-2xl">
             <CardHeader className="flex items-center gap-2">
               <Users className="size-4 text-primary" />
               <span className="text-sm font-bold text-foreground">4. 대상 회원</span>
@@ -527,7 +527,7 @@ export default function SurveySendPage() {
           {result && isReport(result) && <ResultPanel report={result} />}
           <StatsPanel templateId={id} />
           {firstQr && (
-            <Card>
+            <Card className="rounded-2xl">
               <CardContent className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">공개 설문 주소</p>
                 <p className="text-xs text-foreground break-all">

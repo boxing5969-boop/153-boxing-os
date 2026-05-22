@@ -207,12 +207,12 @@ function LowScoreCard({
 
           {/* 후속관리 폼 */}
           {showFollowupForm ? (
-            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="rounded-xl border border-border bg-card p-3 space-y-2">
               <div className="flex gap-2">
                 <select
                   value={statusDraft}
                   onChange={(e) => setStatusDraft(e.target.value as FollowupStatus)}
-                  className="rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="rounded-xl border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   {(Object.keys(FOLLOWUP_STATUS) as FollowupStatus[]).map((k) => (
                     <option key={k} value={k}>{FOLLOWUP_STATUS[k].label}</option>
@@ -224,7 +224,7 @@ function LowScoreCard({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="처리 내용 메모"
-                className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-xl border border-input bg-background px-2 py-1 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <div className="flex gap-2">
                 <Button

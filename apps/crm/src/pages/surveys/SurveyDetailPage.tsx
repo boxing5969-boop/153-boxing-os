@@ -89,7 +89,7 @@ function QuestionRow({
             <select
               value={draft.type}
               onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as QuestionType }))}
-              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               {(Object.keys(Q_TYPE_LABELS) as QuestionType[]).map((k) => (
                 <option key={k} value={k}>{Q_TYPE_LABELS[k]}</option>
@@ -104,7 +104,7 @@ function QuestionRow({
               autoFocus
               value={draft.text}
               onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
-              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
         </div>
@@ -140,7 +140,7 @@ function QuestionRow({
 
   // ── 보기 모드 ─────────────────────────────────────────────
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 group">
+    <div className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 group">
       <GripVertical className="size-4 mt-0.5 text-muted-foreground/30 shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -224,7 +224,7 @@ function AddQuestionForm({
           <select
             value={qType}
             onChange={(e) => setQType(e.target.value as QuestionType)}
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             {(Object.keys(Q_TYPE_LABELS) as QuestionType[]).map((k) => (
               <option key={k} value={k}>{Q_TYPE_LABELS[k]}</option>
@@ -238,7 +238,7 @@ function AddQuestionForm({
             value={qText}
             onChange={(e) => setQText(e.target.value)}
             placeholder="질문을 입력하세요"
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </label>
       </div>
@@ -313,7 +313,7 @@ function QrRow({ qr, onToggle }: { qr: SurveyQrCode; onToggle: () => void }) {
   const isExpired = qr.valid_until ? new Date(qr.valid_until) < new Date() : false;
 
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3">
+    <div className="rounded-xl border border-border bg-card px-4 py-3">
       <div className="flex items-start gap-3">
         <QrCode className="size-5 mt-0.5 text-primary shrink-0" />
         <div className="flex-1 min-w-0">
@@ -417,7 +417,7 @@ function CreateQrForm({
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="예: 프론트 데스크, 1층 입구"
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -426,7 +426,7 @@ function CreateQrForm({
             type="date"
             value={validUntil}
             onChange={(e) => setValidUntil(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-xl border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </label>
       </div>
@@ -554,7 +554,7 @@ export default function SurveyDetailPage() {
                 autoFocus
                 value={titleDraft}
                 onChange={(e) => setTitleDraft(e.target.value)}
-                className="text-xl font-black rounded-md border border-input bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring w-full max-w-sm"
+                className="text-xl font-black rounded-xl border border-input bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring w-full max-w-sm"
               />
               <button
                 onClick={() => saveTitleMutation.mutate()}
@@ -641,7 +641,7 @@ export default function SurveyDetailPage() {
               ))}
             </div>
           ) : questions.length === 0 ? (
-            <Card>
+            <Card className="rounded-2xl">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
                 질문이 없습니다. 위 버튼으로 추가하세요.
               </CardContent>
@@ -699,7 +699,7 @@ export default function SurveyDetailPage() {
               ))}
             </div>
           ) : qrCodes.length === 0 ? (
-            <Card>
+            <Card className="rounded-2xl">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
                 발급된 QR 코드가 없습니다. 위 버튼으로 발급하세요.
               </CardContent>
