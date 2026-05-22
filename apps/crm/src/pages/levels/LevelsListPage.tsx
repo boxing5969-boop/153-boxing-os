@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ChevronRight, Trophy, Users } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import { LoadingState, EmptyState } from "@/components/ui/states";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -72,16 +73,9 @@ export default function LevelsListPage() {
 
       {/* 리스트 */}
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
-        {isLoading && (
-          <div className="px-5 py-16 text-center text-sm text-muted-foreground">로딩 중…</div>
-        )}
+        {isLoading && <LoadingState />}
         {!isLoading && rows.length === 0 && (
-          <div className="flex flex-col items-center gap-2 px-5 py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
-              <Users className="size-6 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">검색 결과가 없습니다</p>
-          </div>
+          <EmptyState icon={Users} title="검색 결과가 없습니다" />
         )}
         {!isLoading && rows.length > 0 && (
           <ul className="divide-y divide-border/60">

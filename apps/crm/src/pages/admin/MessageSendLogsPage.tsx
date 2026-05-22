@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, MessageSquare, Phone, Layers } from "lucide-react";
 import { listMessageSendLogs, type MessageSendLog } from "@/services/messaging";
 import { useAuth } from "@/contexts/AuthContext";
+import { LoadingState, EmptyState } from "@/components/ui/states";
 import { cn } from "@/lib/cn";
 
 // ── 채널 레이블 ─────────────────────────────────────────────
@@ -116,12 +117,9 @@ export default function MessageSendLogsPage() {
         </div>
 
         {isLoading ? (
-          <div className="flex items-center justify-center p-12 text-sm opacity-50">불러오는 중…</div>
+          <LoadingState />
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 p-12 text-muted-foreground">
-            <MessageSquare className="size-8 opacity-30" />
-            <p className="text-sm">발송 이력이 없습니다.</p>
-          </div>
+          <EmptyState icon={MessageSquare} title="발송 이력이 없습니다" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] text-sm">

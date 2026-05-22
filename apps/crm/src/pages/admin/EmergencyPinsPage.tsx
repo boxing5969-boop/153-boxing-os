@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { errorMessage } from "@/lib/errors";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/states";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, Ban } from "lucide-react";
@@ -98,25 +99,13 @@ export default function EmergencyPinsPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr>
-                <td colSpan={8} className="px-5 py-16 text-center text-muted-foreground">
-                  로딩 중…
-                </td>
-              </tr>
+              <tr><td colSpan={8}><LoadingState /></td></tr>
             )}
             {isError && (
-              <tr>
-                <td colSpan={8} className="px-5 py-16 text-center text-danger">
-                  오류: {errorMessage(error)}
-                </td>
-              </tr>
+              <tr><td colSpan={8}><ErrorState error={error} /></td></tr>
             )}
             {!isLoading && !isError && (data?.length ?? 0) === 0 && (
-              <tr>
-                <td colSpan={8} className="px-5 py-16 text-center text-muted-foreground">
-                  발급 이력이 없습니다.
-                </td>
-              </tr>
+              <tr><td colSpan={8}><EmptyState icon={KeyRound} title="발급 이력이 없습니다" /></td></tr>
             )}
             {(data ?? []).map((p) => (
               <tr key={p.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">

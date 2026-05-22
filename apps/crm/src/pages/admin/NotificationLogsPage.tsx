@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Clock, MessageCircle } from "lucide-react";
 import { getNotificationLogs } from "@/services/notificationLogs";
+import { LoadingState, EmptyState } from "@/components/ui/states";
 import { cn } from "@/lib/cn";
 
 // 알림 유형 한글 레이블
@@ -114,19 +115,13 @@ export default function NotificationLogsPage() {
 
         {/* 테이블 */}
         {isLoading ? (
-          <div className="flex items-center justify-center p-12 text-sm opacity-50">
-            불러오는 중…
-          </div>
+          <LoadingState />
         ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 p-16 text-muted-foreground">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
-              <MessageCircle className="size-6 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">발송 이력이 없습니다.</p>
-            {statusFilter !== "all" && (
-              <p className="text-xs text-muted-foreground">다른 필터를 선택해보세요.</p>
-            )}
-          </div>
+          <EmptyState
+            icon={MessageCircle}
+            title="발송 이력이 없습니다"
+            description={statusFilter !== "all" ? "다른 필터를 선택해보세요." : undefined}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] text-sm">

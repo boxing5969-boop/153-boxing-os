@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { errorMessage } from "@/lib/errors";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/states";
 import { Navigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
@@ -128,25 +128,13 @@ export default function AlertsPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr>
-                <td colSpan={7} className="px-5 py-16 text-center text-muted-foreground">
-                  로딩 중…
-                </td>
-              </tr>
+              <tr><td colSpan={7}><LoadingState /></td></tr>
             )}
             {isError && (
-              <tr>
-                <td colSpan={7} className="px-5 py-16 text-center text-danger">
-                  오류: {errorMessage(error)}
-                </td>
-              </tr>
+              <tr><td colSpan={7}><ErrorState error={error} /></td></tr>
             )}
             {!isLoading && !isError && (data?.length ?? 0) === 0 && (
-              <tr>
-                <td colSpan={7} className="px-5 py-16 text-center text-muted-foreground">
-                  알림이 없습니다. 모든 단말기 정상.
-                </td>
-              </tr>
+              <tr><td colSpan={7}><EmptyState icon={Bell} title="알림이 없습니다" description="모든 단말기가 정상 상태입니다." /></td></tr>
             )}
             {(data ?? []).map((a) => (
               <AlertRowView key={a.id} a={a} />
