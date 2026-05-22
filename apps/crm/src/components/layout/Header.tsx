@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { roleLabel } from "@/lib/roleLabels";
-import { LogOut, Bell, FlaskConical, Search } from "lucide-react";
+import { LogOut, Bell, FlaskConical, Search, Menu } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -53,7 +53,11 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-export default function Header() {
+interface HeaderProps {
+  onMenuClick: () => void;
+}
+
+export default function Header({ onMenuClick }: HeaderProps) {
   const { user, profile, signOut } = useAuth();
   const { data: alertCount = 0 } = useUnresolvedAlertCount();
   const { data: trialInfo } = useTrialInfo(profile?.company_id ?? null);
@@ -66,19 +70,31 @@ export default function Header() {
     : null;
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-6">
-      {/* 왼쪽: 검색 버튼 */}
-      <button
-        type="button"
-        onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
-        className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:bg-muted hover:text-foreground"
-      >
-        <Search className="size-3.5" />
-        <span className="hidden sm:inline">검색…</span>
-        <kbd className="hidden sm:flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-mono">
-          <span className="text-[11px]">⌘</span>K
-        </kbd>
-      </button>
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* 모바일 햄버거 메뉴 */}
+        <button
+          type="button"
+          onClick={onMenuClick}
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+          aria-label="메뉴 열기"
+        >
+          <Menu className="size-5" />
+        </button>
+
+        {/* 검색 버튼 */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
+          className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:bg-muted hover:text-foreground"
+        >
+          <Search className="size-3.5" />
+          <span className="hidden sm:inline">검색…</span>
+          <kbd className="hidden sm:flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-mono">
+            <span className="text-[11px]">⌘</span>K
+          </kbd>
+        </button>
+      </div>
 
       {/* 오른쪽: 알림 + 사용자 */}
       <div className="flex items-center gap-3">

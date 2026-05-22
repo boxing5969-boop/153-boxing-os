@@ -29,6 +29,7 @@ import {
   SmilePlus,
   Inbox,
   TrendingUp,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -133,12 +134,13 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function NavItemLink({ item }: { item: NavItem }) {
+function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const Icon = item.icon;
   return (
     <NavLink
       to={item.to}
       end={item.to === "/"}
+      onClick={onNavigate}
       className={({ isActive }) =>
         cn(
           "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150",
@@ -170,7 +172,12 @@ function NavItemLink({ item }: { item: NavItem }) {
   );
 }
 
-export default function Sidebar() {
+interface SidebarProps {
+  mobileOpen: boolean;
+  onClose: () => void;
+}
+
+export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { profile } = useAuth();
 
   const groups = NAV_GROUPS.map((group) => ({
@@ -181,43 +188,72 @@ export default function Sidebar() {
   })).filter((group) => group.items.length > 0);
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
-      {/* 로고 영역 */}
-      <div className="flex h-14 items-center gap-2.5 px-4 border-b border-sidebar-border">
-        {/* 복싱 글러브 마크 */}
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-brand shadow-sm">
-          <span className="text-xs font-black text-white leading-none">153</span>
-        </div>
-        <div className="flex flex-col leading-none">
-          <span className="text-xs font-black tracking-widest text-sidebar-foreground uppercase">
-            153OS
-          </span>
-          <span className="text-[10px] text-sidebar-foreground/40 tracking-wide">
-            Franchise CRM
-          </span>
-        </div>
-      </div>
+    <>
+      {/* 모바일 백드롭 */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      {/* 네비게이션 */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-        {groups.map((group) => (
-          <div key={group.label}>
-            <p className="mb-1.5 px-3 text-[11px] font-bold tracking-wider text-sidebar-foreground/65">
-              {group.label}
-            </p>
-            <div className="space-y-0.5">
-              {group.items.map((item) => (
-                <NavItemLink key={item.to} item={item} />
-              ))}
-            </div>
+      <aside
+        className={cn(
+          "flex w-60 shrink-0 flex-col bg-sidebar border-r border-sidebar-border transition-transform duration-200 ease-out",
+          // 모바일: fixed 슬라이드 패널
+          "fixed inset-y-0 left-0 z-40",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          // 데스크톱: 항상 표시되는 static 사이드바
+          "md:static md:translate-x-0 md:z-auto"
+        )}
+      >
+        {/* 로고 영역 */}
+        <div className="flex h-14 items-center gap-2.5 px-4 border-b border-sidebar-border">
+          {/* 복싱 글러브 마크 */}
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-brand shadow-sm">
+            <span className="text-xs font-black text-white leading-none">153</span>
           </div>
-        ))}
-      </nav>
+          <div className="flex flex-col leading-none">
+            <span className="text-xs font-black tracking-widest text-sidebar-foreground uppercase">
+              153OS
+            </span>
+            <span className="text-[10px] text-sidebar-foreground/40 tracking-wide">
+              Franchise CRM
+            </span>
+          </div>
+          {/* 모바일 닫기 버튼 */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto flex size-8 items-center justify-center rounded-lg text-sidebar-foreground/60 hover:bg-sidebar-muted hover:text-sidebar-foreground md:hidden"
+            aria-label="메뉴 닫기"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
 
-      {/* 하단 버전 표시 */}
-      <div className="border-t border-sidebar-border px-4 py-3">
-        <p className="text-[10px] text-sidebar-foreground/25 tabular">v1.0.0-beta</p>
-      </div>
-    </aside>
+        {/* 네비게이션 */}
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
+          {groups.map((group) => (
+            <div key={group.label}>
+              <p className="mb-1.5 px-3 text-[11px] font-bold tracking-wider text-sidebar-foreground/65">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <NavItemLink key={item.to} item={item} onNavigate={onClose} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* 하단 버전 표시 */}
+        <div className="border-t border-sidebar-border px-4 py-3">
+          <p className="text-[10px] text-sidebar-foreground/25 tabular">v1.0.0-beta</p>
+        </div>
+      </aside>
+    </>
   );
 }
