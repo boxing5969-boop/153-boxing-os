@@ -160,3 +160,32 @@ INSERT INTO access_devices (
 - 동의 철회 자동 처리 (`consent_records.revoked_at` → device_sync_jobs)
 - 다중 지점 통합 대시보드 (지점별 비교 차트)
 - 모바일 키오스크 모드 (회원이 본인 정보 확인)
+
+---
+
+## 8. 실 단말기 어댑터 — Contract Gap (Suprema/ZKTeco/Hikvision)
+
+Mock adapter 는 `packages/device-adapters/test/contract.test.ts` 의 14개 불변식을
+모두 통과한다. 실 벤더 어댑터로 갈아끼우기 전에 같은 contract 를 통과시켜야 한다.
+
+현재 SupremaAdapter 의 알려진 위반 (BioStar 2 명세 확보 후 수정):
+
+| 메서드 | 위반 | mock 동작 | suprema 현재 동작 | 영향 |
+|---|---|---|---|---|
+| `disableUser` | 미존재 user 호출 시 throw | no-op | 404 → Error throw | 이미 삭제된 회원 동기화 시 `device_sync_jobs.status='failed'` 누적 |
+| `deleteUser` | 동일 | no-op | 404 → throw | 동일 |
+| `removeAccessGroup` | 동일 | no-op | 404 → throw | 권한 회수 작업 실패 |
+| `assignAccessGroup` | 같은 group 두 번 → 409 가능 | 멱등 (1개) | 409 → throw | 재시도 시 실패 |
+| `createUser` | 같은 member id 충돌 가능 | 1개로 수렴 | 409 → throw | 재등록 실패 |
+
+### 수정 가이드 (SDK 명세 확보 후)
+- `bioStar()` 헬퍼에 `ignoreNotFound`, `ignoreConflict` 옵션 추가
+- 멱등 메서드(`disableUser`, `deleteUser`, `removeAccessGroup`)는
+  404/410 응답을 swallow → no-op 로 처리
+- 충돌 가능 메서드(`createUser`, `assignAccessGroup`)는 409 응답을
+  swallow → 기존 리소스 조회·반환
+
+### 통합 테스트
+- 실 BioStar 인스턴스 또는 SDK 제공 모의 서버에 대해
+  `test/contract.test.ts` 패턴을 복제한 `test/suprema-contract.test.ts` 작성
+- fetch mock 으로 모의 서버 흉내도 가능 (msw 또는 vi.spyOn(globalThis, "fetch"))
