@@ -17,6 +17,29 @@ import { cn } from "@/lib/cn";
 
 const AUTO_RESET_SECONDS = 30;
 
+// AutoResetCountdown: summary/not_found 뷰가 마운트되는 동안만 카운트다운 — 외부 시스템(setInterval)을 useEffect 안에서 관리
+function AutoResetCountdown({ onExpire }: { onExpire: () => void }) {
+  const [secondsLeft, setSecondsLeft] = useState(AUTO_RESET_SECONDS);
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          clearInterval(id);
+          onExpireRef.current();
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{secondsLeft}초 후 자동 초기화</>;
+}
+
 type ViewState =
   | { kind: "input" }
   | { kind: "loading" }
@@ -30,26 +53,6 @@ export default function KioskHomePage() {
   const [phoneSuffix, setPhoneSuffix] = useState("");
   const [view, setView] = useState<ViewState>({ kind: "input" });
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (view.kind === "summary" || view.kind === "not_found") {
-      setSecondsLeft(AUTO_RESET_SECONDS);
-      const id = setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s === null || s <= 1) {
-            clearInterval(id);
-            reset();
-            return null;
-          }
-          return s - 1;
-        });
-      }, 1000);
-      return () => clearInterval(id);
-    }
-    setSecondsLeft(null);
-    return;
-  }, [view.kind]);
 
   if (authLoading) {
     return (
@@ -183,7 +186,7 @@ export default function KioskHomePage() {
           )}
 
           {view.kind === "summary" && (
-            <SummaryView summary={view.summary} secondsLeft={secondsLeft} onReset={reset} />
+            <SummaryView summary={view.summary} onReset={reset} onAutoReset={reset} />
           )}
 
           {view.kind === "not_found" && (
@@ -195,9 +198,9 @@ export default function KioskHomePage() {
               <p className="text-sm text-muted-foreground">
                 정확한 4자리 또는 전체 번호로 다시 조회해주세요. 신규 등록은 카운터에 문의.
               </p>
-              {secondsLeft !== null && (
-                <p className="text-xs text-muted-foreground">{secondsLeft}초 후 자동 초기화</p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                <AutoResetCountdown onExpire={reset} />
+              </p>
               <Button onClick={reset} size="lg" className="w-full">
                 <RotateCcw className="size-4" />
                 다시 조회
@@ -224,12 +227,12 @@ export default function KioskHomePage() {
 
 function SummaryView({
   summary,
-  secondsLeft,
   onReset,
+  onAutoReset,
 }: {
   summary: KioskSummary;
-  secondsLeft: number | null;
   onReset: () => void;
+  onAutoReset: () => void;
 }) {
   return (
     <div className="space-y-5">
@@ -293,11 +296,9 @@ function SummaryView({
         )}
       </div>
 
-      {secondsLeft !== null && (
-        <p className="text-center text-xs text-muted-foreground tabular">
-          {secondsLeft}초 후 자동 초기화
-        </p>
-      )}
+      <p className="text-center text-xs text-muted-foreground tabular">
+        <AutoResetCountdown onExpire={onAutoReset} />
+      </p>
 
       <Button onClick={onReset} size="lg" className="h-14 w-full rounded-2xl text-lg" variant="outline">
         <RotateCcw className="size-4" />

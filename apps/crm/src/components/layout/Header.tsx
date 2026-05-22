@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { roleLabel } from "@/lib/roleLabels";
@@ -58,8 +59,10 @@ export default function Header() {
   const { data: trialInfo } = useTrialInfo(profile?.company_id ?? null);
   const displayName = profile?.name ?? user?.email ?? "–";
 
+  // 마운트 시점의 현재 시각 — useState 초기 함수는 첫 렌더에만 실행됨 (impure 호출 격리)
+  const [now] = useState(() => Date.now());
   const trialDaysLeft = trialInfo?.subscription_status === "trial" && trialInfo.trial_ends_at
-    ? Math.max(0, Math.ceil((new Date(trialInfo.trial_ends_at).getTime() - Date.now()) / 86_400_000))
+    ? Math.max(0, Math.ceil((new Date(trialInfo.trial_ends_at).getTime() - now) / 86_400_000))
     : null;
 
   return (

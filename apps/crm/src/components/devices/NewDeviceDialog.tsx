@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Check, AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -39,6 +39,11 @@ const VENDOR_OPTIONS: { value: RegisterDeviceInput["vendor"]; label: string }[] 
 ];
 
 export function NewDeviceDialog({ open, onClose }: Props) {
+  if (!open) return null;
+  return <NewDeviceDialogBody onClose={onClose} />;
+}
+
+function NewDeviceDialogBody({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const isHq = profile ? HQ_ROLES.has(profile.role) : false;
@@ -46,7 +51,7 @@ export function NewDeviceDialog({ open, onClose }: Props) {
   const branchesQuery = useQuery({
     queryKey: ["branches"],
     queryFn: listBranches,
-    enabled: open && isHq,
+    enabled: isHq,
     staleTime: 60_000,
   });
 
@@ -63,22 +68,6 @@ export function NewDeviceDialog({ open, onClose }: Props) {
   const [result, setResult] = useState<DeviceKeyResult | null>(null);
   const [keyAcknowledged, setKeyAcknowledged] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setStep("form");
-    setName("");
-    setDeviceType("face_terminal");
-    setVendor("mock");
-    setIdentifier("");
-    setModelName("");
-    setApiEndpoint("");
-    setBranchId(profile?.branch_id ?? "");
-    setError(null);
-    setResult(null);
-    setKeyAcknowledged(false);
-    setCopied(false);
-  }, [open, profile?.branch_id]);
 
   const mutation = useMutation({
     mutationFn: registerDevice,
@@ -130,7 +119,7 @@ export function NewDeviceDialog({ open, onClose }: Props) {
 
   return (
     <Dialog
-      open={open}
+      open={true}
       onClose={handleClose}
       title={step === "form" ? "장비 등록" : "장비 등록 완료 — api_key 1회 노출"}
       className="max-w-lg"

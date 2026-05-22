@@ -79,6 +79,12 @@ function SuccessView({ memberId, memberName, onRegisterMembership }: SuccessView
 }
 
 export default function MemberNewPage() {
+  const { profile } = useAuth();
+  // profile.branch_id 가 늦게 로드되면 fresh mount 되도록 key 로 분리
+  return <MemberNewPageBody key={profile?.branch_id ?? "_loading"} />;
+}
+
+function MemberNewPageBody() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile } = useAuth();
@@ -101,10 +107,6 @@ export default function MemberNewPage() {
   const [error, setError] = useState<string | null>(null);
   const [createdMember, setCreatedMember] = useState<{ id: string; name: string } | null>(null);
   const [showMembershipDialog, setShowMembershipDialog] = useState(false);
-
-  useEffect(() => {
-    if (!isHq && profile?.branch_id) setBranchId(profile.branch_id);
-  }, [isHq, profile?.branch_id]);
 
   const selectedBranch = useMemo(
     () => branchesQuery.data?.find((b) => b.id === branchId) ?? null,

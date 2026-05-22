@@ -5,7 +5,7 @@
  * - DB 컬럼 재활용: kakao_api_key_enc=API키, kakao_api_secret_enc=UserID,
  *   kakao_pfid=SenderKey, kakao_tpl_d7/d3/d1=템플릿코드
  */
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { MessageCircle, Eye, EyeOff, CheckCircle2, ToggleLeft, ToggleRight, Send, ExternalLink } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -46,17 +46,21 @@ async function saveBranchKakao(branchId: string, body: Record<string, unknown>) 
   }
 }
 
-export default function BranchKakaoSettingsCard({ branchId, config, onSaved }: Props) {
+export default function BranchKakaoSettingsCard(props: Props) {
+  return <BranchKakaoSettingsCardInner key={props.branchId} {...props} />;
+}
+
+function BranchKakaoSettingsCardInner({ branchId, config, onSaved }: Props) {
   // 알리고 Sender Key (구 pfId 컬럼 재활용)
-  const [senderKey, setSenderKey] = useState("");
-  const [senderPhone, setSenderPhone] = useState("");
-  const [tplD7, setTplD7] = useState("");
-  const [tplD3, setTplD3] = useState("");
-  const [tplD1, setTplD1] = useState("");
-  // 알리고 API Key + User ID (구 api_key/api_secret 컬럼 재활용)
+  const [senderKey, setSenderKey] = useState(config?.kakao_pfid ?? "");
+  const [senderPhone, setSenderPhone] = useState(config?.kakao_sender_phone ?? "");
+  const [tplD7, setTplD7] = useState(config?.kakao_tpl_d7 ?? "");
+  const [tplD3, setTplD3] = useState(config?.kakao_tpl_d3 ?? "");
+  const [tplD1, setTplD1] = useState(config?.kakao_tpl_d1 ?? "");
+  // 알리고 API Key + User ID는 보안상 서버에서 다시 내려주지 않음 — 항상 빈 값으로 시작
   const [apiKey, setApiKey] = useState("");
   const [userId, setUserId] = useState("");
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(config?.kakao_enabled ?? false);
   const [showKey, setShowKey] = useState(false);
   const [showUserId, setShowUserId] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -68,17 +72,6 @@ export default function BranchKakaoSettingsCard({ branchId, config, onSaved }: P
     onSuccess: (report) => { setTestReport(report); setTestError(null); },
     onError: (err) => { setTestError(err instanceof Error ? err.message : "발송 오류"); setTestReport(null); },
   });
-
-  useEffect(() => {
-    if (!config) return;
-    setSenderKey(config.kakao_pfid ?? "");
-    setSenderPhone(config.kakao_sender_phone ?? "");
-    setTplD7(config.kakao_tpl_d7 ?? "");
-    setTplD3(config.kakao_tpl_d3 ?? "");
-    setTplD1(config.kakao_tpl_d1 ?? "");
-    setEnabled(config.kakao_enabled ?? false);
-    // API Key / User ID는 보안상 서버에서 다시 내려주지 않음
-  }, [config]);
 
   const mutation = useMutation({
     mutationFn: () => saveBranchKakao(branchId, {

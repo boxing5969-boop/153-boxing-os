@@ -42,10 +42,6 @@ export default function AlertsPage() {
   const [resolvedFilter, setResolvedFilter] = useState<ResolvedFilter>("unresolved");
   const [severityFilter, setSeverityFilter] = useState<"" | AlertSeverity>("");
 
-  if (profile && !ALLOWED.has(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
-
   const filters = useMemo(
     () => ({
       resolved:
@@ -74,6 +70,10 @@ export default function AlertsPage() {
     ).length;
     return { total: data?.length ?? 0, unresolved, critical };
   }, [data]);
+
+  if (profile && !ALLOWED.has(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="space-y-6">

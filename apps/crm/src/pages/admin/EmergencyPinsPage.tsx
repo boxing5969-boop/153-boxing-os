@@ -41,10 +41,6 @@ export default function EmergencyPinsPage() {
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-  if (profile && !ALLOWED_ROLES.has(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
-
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["emergency-pins"],
     queryFn: listEmergencyPins,
@@ -63,6 +59,10 @@ export default function EmergencyPinsPage() {
       setRevokeId(null);
     },
   });
+
+  if (profile && !ALLOWED_ROLES.has(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="space-y-6">

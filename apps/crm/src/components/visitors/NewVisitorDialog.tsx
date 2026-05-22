@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,11 @@ interface Props {
 const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
 
 export function NewVisitorDialog({ open, onClose }: Props) {
+  if (!open) return null;
+  return <NewVisitorDialogBody onClose={onClose} />;
+}
+
+function NewVisitorDialogBody({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const isHq = profile ? HQ_ROLES.has(profile.role) : false;
@@ -29,7 +34,7 @@ export function NewVisitorDialog({ open, onClose }: Props) {
   const branchesQuery = useQuery({
     queryKey: ["branches"],
     queryFn: listBranches,
-    enabled: open && isHq,
+    enabled: isHq,
     staleTime: 60_000,
   });
 
@@ -39,16 +44,6 @@ export function NewVisitorDialog({ open, onClose }: Props) {
   const [branchId, setBranchId] = useState<string>(profile?.branch_id ?? "");
   const [visitAt, setVisitAt] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setName("");
-    setPhone("");
-    setPurpose("consultation");
-    setBranchId(profile?.branch_id ?? "");
-    setVisitAt("");
-    setError(null);
-  }, [open, profile?.branch_id]);
 
   const mutation = useMutation({
     mutationFn: createVisitor,
@@ -75,7 +70,7 @@ export function NewVisitorDialog({ open, onClose }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="방문자 신청 등록">
+    <Dialog open={true} onClose={onClose} title="방문자 신청 등록">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">

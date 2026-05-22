@@ -50,10 +50,6 @@ export default function RevenuePage() {
   const { profile } = useAuth();
   const isHq = profile ? HQ_ROLES.has(profile.role) : false;
 
-  if (profile && !ALLOWED.has(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
-
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(todayIso());
   const [branchId, setBranchId] = useState<string>("");
@@ -87,6 +83,10 @@ export default function RevenuePage() {
     queryFn: () => getOutstandingPayments(filters.branchId),
     staleTime: 60_000,
   });
+
+  if (profile && !ALLOWED.has(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   const summary = summaryQuery.data;
   const totalRevenue = (summary?.paid_total ?? 0) + (summary?.partial_total ?? 0);

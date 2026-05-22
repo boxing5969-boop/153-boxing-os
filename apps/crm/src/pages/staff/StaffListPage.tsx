@@ -17,15 +17,15 @@ export default function StaffListPage() {
   const { profile } = useAuth();
   const [openInvite, setOpenInvite] = useState(false);
 
-  if (profile && !HQ_ROLES.has(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
-
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["staff"],
     queryFn: listStaff,
     staleTime: 30_000,
   });
+
+  if (profile && !HQ_ROLES.has(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="space-y-6">

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -10,18 +10,17 @@ import { roleLabel } from "@/lib/roleLabels";
 import { updateOwnProfile } from "@/services/profileApi";
 
 export default function ProfilePage() {
+  const { profile } = useAuth();
+  // profile 이 로드되면 fresh mount 되도록 key 로 분리 — useEffect 동기화 불필요
+  return <ProfilePageBody key={profile?.id ?? "_loading"} />;
+}
+
+function ProfilePageBody() {
   const { user, profile, refreshProfile } = useAuth();
   const [name, setName] = useState(profile?.name ?? "");
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    if (profile) {
-      setName(profile.name);
-      setPhone(profile.phone ?? "");
-    }
-  }, [profile]);
 
   const mutation = useMutation({
     mutationFn: updateOwnProfile,

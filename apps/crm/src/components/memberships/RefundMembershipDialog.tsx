@@ -1,4 +1,4 @@
-import { type FormEvent, useState, useEffect } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Receipt, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,21 +20,17 @@ function formatPrice(n: number) {
 }
 
 export function RefundMembershipDialog({ open, onClose, membership, memberId }: Props) {
+  if (!open) return null;
+  return <RefundMembershipDialogBody onClose={onClose} membership={membership} memberId={memberId} />;
+}
+
+function RefundMembershipDialogBody({ onClose, membership, memberId }: Omit<Props, "open">) {
   const qc = useQueryClient();
-  const [refundAmount, setRefundAmount] = useState<string>("");
+  // 기존 가격이 있으면 기본값으로 설정
+  const [refundAmount, setRefundAmount] = useState<string>(membership.price ? String(membership.price) : "");
   const [refundReason, setRefundReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      // 기존 가격이 있으면 기본값으로 설정
-      setRefundAmount(membership.price ? String(membership.price) : "");
-      setRefundReason("");
-      setConfirmed(false);
-      setError(null);
-    }
-  }, [open, membership.price]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -73,7 +69,7 @@ export function RefundMembershipDialog({ open, onClose, membership, memberId }: 
   const originalPrice = membership.price ?? null;
 
   return (
-    <Dialog open={open} onClose={onClose} title="이용권 환불">
+    <Dialog open={true} onClose={onClose} title="이용권 환불">
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
         {/* 대상 이용권 */}
         <div className="rounded-lg bg-danger/10 border border-danger/30 px-4 py-3 flex items-start gap-3">

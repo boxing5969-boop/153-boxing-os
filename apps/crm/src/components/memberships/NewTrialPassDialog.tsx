@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,11 @@ function addDaysToLocal(localIso: string, days: number): string {
 }
 
 export function NewTrialPassDialog({ open, onClose, member }: Props) {
+  if (!open) return null;
+  return <NewTrialPassDialogBody onClose={onClose} member={member} />;
+}
+
+function NewTrialPassDialogBody({ onClose, member }: Omit<Props, "open">) {
   const qc = useQueryClient();
   const [startAt, setStartAt] = useState(nowLocalIso());
   const [days, setDays] = useState(7);
@@ -35,14 +40,6 @@ export function NewTrialPassDialog({ open, onClose, member }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const endAt = useMemo(() => addDaysToLocal(startAt, days), [startAt, days]);
-
-  useEffect(() => {
-    if (!open) return;
-    setStartAt(nowLocalIso());
-    setDays(7);
-    setMaxEntries(1);
-    setError(null);
-  }, [open]);
 
   const mutation = useMutation({
     mutationFn: createTrialPass,
@@ -71,7 +68,7 @@ export function NewTrialPassDialog({ open, onClose, member }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title={`체험권 발급 — ${member.name}`}>
+    <Dialog open={true} onClose={onClose} title={`체험권 발급 — ${member.name}`}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="start_at">시작 일시</Label>

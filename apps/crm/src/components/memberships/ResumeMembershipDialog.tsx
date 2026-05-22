@@ -1,4 +1,4 @@
-import { type FormEvent, useState, useEffect } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Play, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,16 +18,14 @@ interface Props {
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
 export function ResumeMembershipDialog({ open, onClose, membership, memberId }: Props) {
+  if (!open) return null;
+  return <ResumeMembershipDialogBody onClose={onClose} membership={membership} memberId={memberId} />;
+}
+
+function ResumeMembershipDialogBody({ onClose, membership, memberId }: Omit<Props, "open">) {
   const qc = useQueryClient();
   const [resumeDate, setResumeDate] = useState(todayIso());
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setResumeDate(todayIso());
-      setError(null);
-    }
-  }, [open]);
 
   // 홀딩 시작일 기준 홀딩 일수 미리보기
   const holdStart = membership.hold_start ?? null;
@@ -74,7 +72,7 @@ export function ResumeMembershipDialog({ open, onClose, membership, memberId }: 
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="홀딩 해제 (재개)">
+    <Dialog open={true} onClose={onClose} title="홀딩 해제 (재개)">
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
         {/* 대상 이용권 */}
         <div className="rounded-lg bg-primary/10 border border-primary/30 px-4 py-3 flex items-start gap-3">

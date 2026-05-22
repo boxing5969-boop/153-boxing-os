@@ -117,13 +117,13 @@ export default function BranchesListPage() {
   const { profile } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
 
-  if (profile && !HQ_ROLES.has(profile.role)) return <Navigate to="/" replace />;
-
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["branches-stats"],
     queryFn: getBranchesWithStats,
     staleTime: 60_000,
   });
+
+  if (profile && !HQ_ROLES.has(profile.role)) return <Navigate to="/" replace />;
 
   const branches = data ?? [];
   const totalActive = branches.filter(b => b.status === "active").length;
