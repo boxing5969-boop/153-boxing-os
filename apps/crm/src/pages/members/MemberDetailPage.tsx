@@ -177,11 +177,11 @@ export default function MemberDetailPage() {
 
   if (memberQuery.isLoading) {
     return (
-      <div className="space-y-4 max-w-4xl animate-pulse">
-        <div className="h-36 rounded-xl bg-muted" />
+      <div className="max-w-4xl animate-pulse space-y-4">
+        <div className="h-36 rounded-2xl bg-muted" />
         <div className="grid grid-cols-2 gap-4">
-          <div className="h-48 rounded-xl bg-muted" />
-          <div className="h-48 rounded-xl bg-muted" />
+          <div className="h-48 rounded-2xl bg-muted" />
+          <div className="h-48 rounded-2xl bg-muted" />
         </div>
       </div>
     );
@@ -234,23 +234,23 @@ export default function MemberDetailPage() {
       </Link>
 
       {/* 프로필 히어로 카드 */}
-      <Card className="overflow-hidden">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 p-6">
+      <Card className="overflow-hidden rounded-2xl">
+        <div className="flex flex-col items-start gap-5 p-6 sm:flex-row sm:items-center sm:p-7">
           {/* 아바타 */}
           <div className={cn(
-            "flex size-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-black",
+            "flex size-20 shrink-0 items-center justify-center rounded-2xl text-3xl font-black shadow-card",
             avatarColor(member.name)
           )}>
             {getInitials(member.name)}
           </div>
 
           {/* 이름 + 상태 */}
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-2xl font-black text-foreground">{member.name}</h1>
+              <h1 className="text-2xl font-black tracking-tight text-foreground">{member.name}</h1>
               <MemberStatusBadge status={member.status} />
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <Phone className="size-3.5" />
                 {formatPhone(member.phone)}
@@ -264,7 +264,7 @@ export default function MemberDetailPage() {
 
           {/* 출입 가능 여부 */}
           <div className={cn(
-            "flex flex-col items-stretch gap-1.5 rounded-xl px-4 py-2.5 shrink-0 min-w-[180px]",
+            "flex min-w-[180px] shrink-0 flex-col items-stretch gap-1.5 rounded-2xl px-4 py-3",
             accessAllowed ? "bg-success/10" : "bg-danger/10"
           )}>
             <div className={cn(
@@ -305,22 +305,22 @@ export default function MemberDetailPage() {
       </Card>
 
       {actionError && (
-        <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
-          <div className="size-1.5 rounded-full bg-danger shrink-0" />
+        <div className="flex items-center gap-2 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 shadow-card">
+          <div className="size-1.5 shrink-0 rounded-full bg-danger" />
           <p className="text-sm text-danger">{actionError}</p>
         </div>
       )}
 
       {/* 기본 정보 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <User2 className="size-4 text-muted-foreground" />
             기본 정보
           </h2>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
             {[
               { label: "생년월일", value: formatDate(member.birth_date) },
               { label: "성별", value: genderLabel(member.gender) },
@@ -363,8 +363,8 @@ export default function MemberDetailPage() {
         const planType = activeMembership.plan_type as PlanType | undefined;
 
         return (
-          <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="p-4">
+          <Card className="rounded-2xl border-primary/30 bg-primary/5">
+            <CardContent className="p-5">
               <div className="flex flex-wrap items-start gap-4">
                 {/* 왼쪽: 플랜 정보 */}
                 <div className="flex-1 min-w-0 space-y-1.5">
@@ -484,7 +484,7 @@ export default function MemberDetailPage() {
       })()}
 
       {/* 이용권 이력 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">이용권</h2>
           <div className="flex gap-2">
@@ -493,7 +493,7 @@ export default function MemberDetailPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => { setExtendTarget(activeMembership); setOpenNewMembership(true); }}
-                className="gap-1.5"
+                className="gap-1.5 rounded-full"
               >
                 <RefreshCw className="size-3.5" /> 연장
               </Button>
@@ -501,7 +501,7 @@ export default function MemberDetailPage() {
             <Button
               size="sm"
               onClick={() => { setExtendTarget(null); setOpenNewMembership(true); }}
-              className="gap-1.5"
+              className="gap-1.5 rounded-full"
             >
               <Plus className="size-3.5" />
               이용권 등록
@@ -510,15 +510,15 @@ export default function MemberDetailPage() {
         </CardHeader>
         <CardContent className="p-0">
           {memberships.length === 0 ? (
-            <div className="px-5 py-10 text-center space-y-3">
+            <div className="space-y-3 px-5 py-12 text-center">
               <p className="text-sm text-muted-foreground">이용권 이력이 없습니다</p>
-              <Button size="sm" variant="outline" onClick={() => { setExtendTarget(null); setOpenNewMembership(true); }} className="gap-1.5">
+              <Button size="sm" variant="outline" onClick={() => { setExtendTarget(null); setOpenNewMembership(true); }} className="gap-1.5 rounded-full">
                 <Plus className="size-3.5" />
                 첫 이용권 등록
               </Button>
             </div>
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="divide-y divide-border/60">
               {memberships.map((m) => {
                 const remaining = m.status === "active" ? daysUntil(m.end_date) : null;
                 const isHolding = m.status === "paused";
@@ -711,21 +711,21 @@ export default function MemberDetailPage() {
       </Card>
 
       {/* 체험권 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">체험권</h2>
-          <Button size="sm" variant="outline" onClick={() => setOpenNewTrial(true)} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => setOpenNewTrial(true)} className="gap-1.5 rounded-full">
             <Plus className="size-3.5" />
             체험권 발급
           </Button>
         </CardHeader>
         <CardContent className="p-0">
           {trials.length === 0 ? (
-            <div className="px-5 py-10 text-center">
+            <div className="px-5 py-12 text-center">
               <p className="text-sm text-muted-foreground">체험권이 없습니다</p>
             </div>
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="divide-y divide-border/60">
               {trials.map((t) => (
                 <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
                   <div className="min-w-0 flex-1">
