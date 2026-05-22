@@ -8,7 +8,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        "rounded-xl border border-border bg-card shadow-card",
+        "rounded-2xl border border-border bg-card shadow-card",
         className
       )}
       {...props}
@@ -39,7 +39,7 @@ export const CardFooter = forwardRef<HTMLDivElement, CardProps>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("px-5 py-3 border-t border-border bg-muted/40 rounded-b-xl", className)}
+      className={cn("px-5 py-3 border-t border-border bg-muted/40 rounded-b-2xl", className)}
       {...props}
     />
   )

@@ -82,7 +82,7 @@ export function TodayActionStrip({
   const totalActions = pendingVisitorCount + pendingScheduledMessagesCount + dueFollowupsCount;
 
   return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-card">
+    <div className="rounded-2xl border border-border bg-card px-5 py-4 shadow-card">
       <div className="flex flex-wrap items-center gap-3">
         {/* 제목 */}
         <div className="flex items-center gap-2 shrink-0 mr-2">
