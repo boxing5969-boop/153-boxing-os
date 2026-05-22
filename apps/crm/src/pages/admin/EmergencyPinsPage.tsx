@@ -70,7 +70,7 @@ export default function EmergencyPinsPage() {
         title="비상 PIN"
         description="단말기 장애·본인확인 불가 시 발급. 발급된 PIN 은 1회만 노출되며, 단말기에서 credential_type=pin 으로 검증됩니다."
         action={
-          <Button onClick={() => setOpenIssue(true)}>
+          <Button onClick={() => setOpenIssue(true)} className="gap-2 rounded-full">
             <Plus className="size-4" />
             PIN 발급
           </Button>
@@ -78,12 +78,12 @@ export default function EmergencyPinsPage() {
       />
 
       {actionMsg && (
-        <p className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{actionMsg}</p>
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary shadow-card">{actionMsg}</div>
       )}
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl">
         <table className="w-full text-sm">
-          <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
+          <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-3">상태</th>
               <th className="px-4 py-3">지점</th>
@@ -98,27 +98,27 @@ export default function EmergencyPinsPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center opacity-60">
+                <td colSpan={8} className="px-5 py-16 text-center text-muted-foreground">
                   로딩 중…
                 </td>
               </tr>
             )}
             {isError && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-red-600">
+                <td colSpan={8} className="px-5 py-16 text-center text-danger">
                   오류: {errorMessage(error)}
                 </td>
               </tr>
             )}
             {!isLoading && !isError && (data?.length ?? 0) === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center opacity-60">
+                <td colSpan={8} className="px-5 py-16 text-center text-muted-foreground">
                   발급 이력이 없습니다.
                 </td>
               </tr>
             )}
             {(data ?? []).map((p) => (
-              <tr key={p.id} className="border-b border-foreground/5">
+              <tr key={p.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
                 <td className="px-4 py-3">
                   <span
                     className={cn(

@@ -249,7 +249,7 @@ export default function BulkNotifyPage() {
       </div>
 
       {/* 설정 카드 */}
-      <div className="rounded-xl border border-border bg-card p-5 shadow-card space-y-5">
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-card space-y-5">
 
         {/* 발송 대상 기간 */}
         <div className="space-y-2">
@@ -383,7 +383,7 @@ export default function BulkNotifyPage() {
 
       {/* 발송 결과 */}
       {step === "done" && report && (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card space-y-4">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card space-y-4">
           <p className="text-sm font-semibold text-foreground">발송 완료</p>
           <div className="grid grid-cols-3 gap-3">
             <ResultBox label="전체" value={report.total} />

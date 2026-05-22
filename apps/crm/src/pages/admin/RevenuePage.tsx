@@ -124,7 +124,7 @@ export default function RevenuePage() {
         description="이용권 가격 기반 집계. NULL 가격은 합계에서 제외됨. CSV 로 회계 마감 export."
       />
 
-      <Card className="p-4">
+      <Card className="rounded-2xl p-5">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-2">
             <Label htmlFor="rfrom">시작일</Label>
@@ -191,9 +191,9 @@ export default function RevenuePage() {
         />
       </div>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold opacity-80">일별 분해</h2>
+          <h2 className="text-sm font-semibold text-foreground">일별 분해</h2>
           <Button size="sm" variant="outline" onClick={handleExportDaily}>
             <Download className="size-4" />
             CSV
@@ -201,7 +201,7 @@ export default function RevenuePage() {
         </CardHeader>
         <CardContent className="p-0">
           <table className="w-full text-sm">
-            <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
+            <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2">날짜</th>
                 <th className="px-4 py-2 text-right">매출</th>
@@ -214,20 +214,20 @@ export default function RevenuePage() {
             <tbody>
               {dailyQuery.isLoading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center opacity-60">
+                  <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground">
                     로딩 중…
                   </td>
                 </tr>
               )}
               {!dailyQuery.isLoading && (dailyQuery.data?.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center opacity-60">
+                  <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground">
                     해당 기간 매출 데이터가 없습니다.
                   </td>
                 </tr>
               )}
               {(dailyQuery.data ?? []).map((d) => (
-                <tr key={d.day} className="border-b border-foreground/5">
+                <tr key={d.day} className="border-b border-border/60 transition-colors hover:bg-muted/40">
                   <td className="px-4 py-2 opacity-80">{d.day}</td>
                   <td className="px-4 py-2 text-right font-medium">
                     {formatKrw(d.paid_total)}
@@ -237,14 +237,14 @@ export default function RevenuePage() {
                   </td>
                   <td className="px-4 py-2 text-right">
                     {d.unpaid_total > 0 ? (
-                      <span className="text-yellow-700">{formatKrw(d.unpaid_total)}</span>
+                      <span className="text-warning">{formatKrw(d.unpaid_total)}</span>
                     ) : (
                       "—"
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
                     {d.refunded_total > 0 ? (
-                      <span className="text-red-700">{formatKrw(d.refunded_total)}</span>
+                      <span className="text-danger">{formatKrw(d.refunded_total)}</span>
                     ) : (
                       "—"
                     )}
@@ -257,11 +257,11 @@ export default function RevenuePage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold opacity-80">미납·부분결제 회원</h2>
-            <p className="text-xs opacity-60 mt-0.5">
+            <h2 className="text-sm font-semibold text-foreground">미납·부분결제 회원</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               회계 마감 전 결제 확인 또는 정지 처리가 필요한 회원
             </p>
           </div>
@@ -272,7 +272,7 @@ export default function RevenuePage() {
         </CardHeader>
         <CardContent className="p-0">
           <table className="w-full text-sm">
-            <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
+            <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2">회원</th>
                 <th className="px-4 py-2">플랜</th>
@@ -285,7 +285,7 @@ export default function RevenuePage() {
             <tbody>
               {outstandingQuery.isLoading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center opacity-60">
+                  <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground">
                     로딩 중…
                   </td>
                 </tr>
@@ -293,31 +293,31 @@ export default function RevenuePage() {
               {!outstandingQuery.isLoading &&
                 (outstandingQuery.data?.length ?? 0) === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center opacity-60">
+                    <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground">
                       미납 건이 없습니다.
                     </td>
                   </tr>
                 )}
               {(outstandingQuery.data ?? []).map((r) => (
-                <tr key={r.membership_id} className="border-b border-foreground/5">
-                  <td className="px-4 py-2 font-medium">
+                <tr key={r.membership_id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+                  <td className="px-4 py-2.5 font-medium">
                     <a
                       href={`/members/${r.member_id}`}
-                      className="underline opacity-90 hover:opacity-100"
+                      className="text-primary underline-offset-2 hover:underline"
                     >
                       {r.member_name}
                     </a>
                   </td>
-                  <td className="px-4 py-2 opacity-80">{r.plan_name}</td>
-                  <td className="px-4 py-2 opacity-70">{formatDate(r.start_date)}</td>
-                  <td className="px-4 py-2 opacity-80">{r.payment_status}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2.5 text-muted-foreground">{r.plan_name}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground tabular">{formatDate(r.start_date)}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{r.payment_status}</td>
+                  <td className="px-4 py-2.5 text-right tabular">
                     {r.price !== null ? formatKrw(r.price) : "—"}
                   </td>
                   <td
                     className={cn(
-                      "px-4 py-2 text-right",
-                      r.days_since_start > 14 && "text-red-600"
+                      "px-4 py-2.5 text-right tabular",
+                      r.days_since_start > 14 && "text-danger"
                     )}
                   >
                     {r.days_since_start}일
@@ -346,22 +346,23 @@ function SummaryCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 text-sm opacity-70">
+    <Card className="rounded-2xl p-5">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         {icon}
         {label}
       </div>
       <div
         className={cn(
-          "mt-2 text-2xl font-bold",
-          tone === "success" && "text-green-700",
-          tone === "warning" && "text-yellow-600",
-          tone === "danger" && "text-red-600"
+          "mt-2 text-2xl font-black tabular",
+          tone === "success" && "text-success",
+          tone === "warning" && "text-warning",
+          tone === "danger" && "text-danger",
+          tone === "default" && "text-foreground"
         )}
       >
         {value}
       </div>
-      {hint && <div className="mt-1 text-xs opacity-60">{hint}</div>}
+      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
     </Card>
   );
 }

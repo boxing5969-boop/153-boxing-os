@@ -88,11 +88,12 @@ export default function AlertsPage() {
         <StatCard label="조회 결과" value={counts.total} tone="default" />
       </div>
 
-      <Card className="p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <Card className="rounded-2xl p-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Select
             value={resolvedFilter}
             onChange={(e) => setResolvedFilter(e.target.value as ResolvedFilter)}
+            className="h-10 rounded-xl"
           >
             <option value="unresolved">미해결만</option>
             <option value="resolved">해결됨만</option>
@@ -101,6 +102,7 @@ export default function AlertsPage() {
           <Select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value as AlertSeverity | "")}
+            className="h-10 rounded-xl"
           >
             <option value="">심각도 전체</option>
             <option value="info">정보</option>
@@ -110,9 +112,9 @@ export default function AlertsPage() {
         </div>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl">
         <table className="w-full text-sm">
-          <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
+          <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-3">심각도</th>
               <th className="px-4 py-3">유형</th>
@@ -126,21 +128,21 @@ export default function AlertsPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center opacity-60">
+                <td colSpan={7} className="px-5 py-16 text-center text-muted-foreground">
                   로딩 중…
                 </td>
               </tr>
             )}
             {isError && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-red-600">
+                <td colSpan={7} className="px-5 py-16 text-center text-danger">
                   오류: {errorMessage(error)}
                 </td>
               </tr>
             )}
             {!isLoading && !isError && (data?.length ?? 0) === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center opacity-60">
+                <td colSpan={7} className="px-5 py-16 text-center text-muted-foreground">
                   알림이 없습니다. 모든 단말기 정상.
                 </td>
               </tr>
@@ -165,8 +167,8 @@ function StatCard({
   tone?: "default" | "warning" | "danger";
 }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 text-sm opacity-70">
+    <Card className="rounded-2xl p-5">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Bell className="size-4" />
         {label}
       </div>

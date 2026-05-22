@@ -383,7 +383,7 @@ export default function ScheduledMessagesPage() {
           <p className="text-sm">예약된 발송이 없습니다.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+        <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
@@ -480,7 +480,7 @@ function SummaryCard({ label, value, color }: { label: string; value: number; co
     : color === "blue" ? "text-blue-600"
     : "text-foreground";
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={cn("mt-1 text-2xl font-black tabular", textColor)}>{value}</p>
     </div>

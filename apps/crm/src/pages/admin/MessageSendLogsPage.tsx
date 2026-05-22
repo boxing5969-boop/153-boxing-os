@@ -79,15 +79,15 @@ export default function MessageSendLogsPage() {
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">전체 발송</p>
           <p className="mt-1 text-2xl font-black tabular">{logs.length}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">성공</p>
           <p className="mt-1 text-2xl font-black text-success tabular">{totalSent}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">실패</p>
           <p className={cn("mt-1 text-2xl font-black tabular", totalFailed > 0 ? "text-danger" : "text-foreground")}>
             {totalFailed}
@@ -96,7 +96,7 @@ export default function MessageSendLogsPage() {
       </div>
 
       {/* 테이블 */}
-      <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+      <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
         {/* 탭 */}
         <div className="flex gap-1 border-b border-border px-4 pt-3">
           {filterTabs.map(tab => (

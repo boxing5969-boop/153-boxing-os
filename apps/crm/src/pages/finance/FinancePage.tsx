@@ -121,7 +121,7 @@ function ExpenseRow({
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 group hover:border-primary/20 transition-colors">
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 group hover:border-primary/20 transition-colors">
       {/* 이름 */}
       <div className="flex-1 min-w-0">
         {editingName ? (

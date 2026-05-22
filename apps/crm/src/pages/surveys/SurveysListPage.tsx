@@ -244,7 +244,7 @@ export default function SurveysListPage() {
           {templates.map((t) => (
             <div
               key={t.id}
-              className="rounded-xl border border-border bg-card shadow-card hover:shadow-md transition-shadow"
+              className="rounded-2xl border border-border bg-card shadow-card hover:shadow-md transition-shadow"
             >
               <div className="flex items-center gap-4 px-5 py-4">
                 {/* 메인 정보 */}
