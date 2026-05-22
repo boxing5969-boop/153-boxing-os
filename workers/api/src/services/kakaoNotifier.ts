@@ -17,6 +17,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptDeviceKey } from "../lib/keyEncryption";
+import { NOTIFY_CONCURRENCY, processWithLimit } from "../lib/concurrency";
 import type { Env } from "../lib/env";
 
 export interface NotificationTarget {
@@ -177,11 +178,12 @@ export async function runExpiryNotifications(
   }
 
   let sent = 0; let failed = 0; let skipped = 0;
-  const results: TargetResult[] = [];
+  const results: TargetResult[] = new Array(targets.length);
 
-  for (const target of targets) {
+  // 알리고 rate limit (~500/분) 대비 동시 발송 NOTIFY_CONCURRENCY 로 제한.
+  await processWithLimit(targets, NOTIFY_CONCURRENCY, async (target, i) => {
     const result = await sendExpiryNotification(db, env, target);
-    results.push({ target, result });
+    results[i] = { target, result };
 
     if (result.success) {
       sent++;
@@ -193,7 +195,7 @@ export async function runExpiryNotifications(
       failed++;
       console.error(`[alimtalk] 실패 → ${target.member_name}: ${result.error}`);
     }
-  }
+  });
 
   return { report: { total: targets.length, sent, failed, skipped }, results };
 }

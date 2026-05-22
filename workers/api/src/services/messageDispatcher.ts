@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Env } from "../lib/env";
+import { NOTIFY_CONCURRENCY, processWithLimit } from "../lib/concurrency";
 import { sendSms, substituteVars } from "./smsNotifier";
 import { sendExpiryNotification, type NotificationTarget } from "./kakaoNotifier";
 
@@ -173,7 +174,8 @@ export async function dispatchToGroup(
 ): Promise<GroupDispatchReport> {
   let success = 0; let failed = 0;
 
-  for (const target of targets) {
+  // 알리고 rate limit 대비 NOTIFY_CONCURRENCY 동시 처리.
+  await processWithLimit(targets, NOTIFY_CONCURRENCY, async (target) => {
     const result = await dispatchMessage(db, env, target, channel, content);
 
     if (result.overall_success) success++;
@@ -190,17 +192,14 @@ export async function dispatchToGroup(
       });
       if (recErr) console.error("[dispatcher] record_expiry_notification failed:", recErr);
     }
+  });
 
-    // 예약 발송 이력 업데이트
-    if (scheduledMsgId) {
-      const { error: schErr } = await db.from("scheduled_messages")
-        .update({
-          sent_count: success,
-          fail_count: failed,
-        })
-        .eq("id", scheduledMsgId);
-      if (schErr) console.error("[dispatcher] scheduled_messages update failed:", schErr);
-    }
+  // 예약 발송 이력 업데이트 — 모든 발송 끝난 후 1회만 (기존엔 매 발송마다 update 였음)
+  if (scheduledMsgId) {
+    const { error: schErr } = await db.from("scheduled_messages")
+      .update({ sent_count: success, fail_count: failed })
+      .eq("id", scheduledMsgId);
+    if (schErr) console.error("[dispatcher] scheduled_messages update failed:", schErr);
   }
 
   return { total: targets.length, success, failed };

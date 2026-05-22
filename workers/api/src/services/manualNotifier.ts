@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Env } from "../lib/env";
+import { NOTIFY_CONCURRENCY, processWithLimit } from "../lib/concurrency";
 import {
   sendExpiryNotification,
   type NotificationTarget,
@@ -208,20 +209,22 @@ async function sendTargets(
   recordResult: boolean
 ): Promise<ManualSendReport> {
   let sent = 0; let failed = 0; let skipped = 0;
-  const details: ManualSendReport["details"] = [];
+  const details: ManualSendReport["details"] = new Array(targets.length);
 
-  for (const target of targets) {
+  // 알리고 rate limit (~500/분) 대비 동시 발송 NOTIFY_CONCURRENCY 로 제한.
+  // 수천명 발송 시 외부 API 폭주 방지.
+  await processWithLimit(targets, NOTIFY_CONCURRENCY, async (target, i) => {
     const result: SendResult = await sendExpiryNotification(db, env, target);
 
     if (result.success) {
       sent++;
-      details.push({ member_name: target.member_name, member_phone: target.member_phone, status: "sent" });
+      details[i] = { member_name: target.member_name, member_phone: target.member_phone, status: "sent" };
     } else if (result.error?.includes("not configured") || result.error?.includes("Kakao not configured")) {
       skipped++;
-      details.push({ member_name: target.member_name, member_phone: target.member_phone, status: "skipped", error: result.error });
+      details[i] = { member_name: target.member_name, member_phone: target.member_phone, status: "skipped", error: result.error };
     } else {
       failed++;
-      details.push({ member_name: target.member_name, member_phone: target.member_phone, status: "failed", error: result.error });
+      details[i] = { member_name: target.member_name, member_phone: target.member_phone, status: "failed", error: result.error };
     }
 
     if (recordResult) {
@@ -236,7 +239,7 @@ async function sendTargets(
       });
       if (recErr) console.error("[manualNotifier] record failed:", recErr);
     }
-  }
+  });
 
   return { total: targets.length, sent, failed, skipped, details };
 }
