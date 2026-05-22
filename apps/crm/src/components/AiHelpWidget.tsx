@@ -38,7 +38,8 @@ export default function AiHelpWidget() {
       <div
         ref={panelRef}
         className={cn(
-          "fixed bottom-20 right-5 z-50 w-[380px] max-w-[calc(100vw-24px)]",
+          // 모바일: 하단 탭바(h-14) + 여백 → bottom-36. 데스크톱: bottom-20.
+          "fixed bottom-36 md:bottom-20 right-5 z-50 w-[380px] max-w-[calc(100vw-24px)]",
           "rounded-2xl overflow-hidden shadow-2xl border border-border",
           "transition-all duration-300 origin-bottom-right",
           open
@@ -70,7 +71,8 @@ export default function AiHelpWidget() {
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "fixed bottom-5 right-5 z-50",
+          // 모바일: 탭바(h-14) 위에 떠야 하니 bottom-20. 데스크톱: bottom-5.
+          "fixed bottom-20 md:bottom-5 right-5 z-50",
           "flex items-center gap-2 rounded-full shadow-xl transition-all duration-200",
           open
             ? "bg-muted text-muted-foreground px-4 py-2.5 text-sm font-medium"
