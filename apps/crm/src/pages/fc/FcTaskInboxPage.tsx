@@ -135,7 +135,7 @@ function TaskCard({
 }) {
   const pr = PRIORITY_META[task.priority] ?? NORMAL_PRIORITY;
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardContent className="space-y-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -211,7 +211,7 @@ function DraftCard({
   const terms = draft.safety_flags.map((f) => f.term).join(", ");
 
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardContent className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-bold text-foreground truncate">
@@ -245,7 +245,7 @@ function DraftCard({
               {isBlocked
                 ? "외모·압박성 표현이 감지되어 일반 승인이 차단됩니다."
                 : "압박성 표현이 감지되었습니다. 확인 후 승인하세요."}
-              {terms && <span className="opacity-80"> ({terms})</span>}
+              {terms && <span className="text-muted-foreground"> ({terms})</span>}
             </span>
           </p>
         )}

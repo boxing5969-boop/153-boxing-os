@@ -37,7 +37,7 @@ function StatCard({
     success: "text-success",
   }[tone];
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardContent className="space-y-1.5">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           {Icon && <Icon className="size-3.5" />}
@@ -80,7 +80,7 @@ function HqView({ data }: { data: HqKpiDashboard }) {
       </div>
 
       {/* 지점별 표 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="text-sm font-bold text-foreground">지점별 현황</CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-sm">
@@ -121,7 +121,7 @@ function HqView({ data }: { data: HqKpiDashboard }) {
       </Card>
 
       {/* 직원별 업무(상담) 처리율 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="text-sm font-bold text-foreground">직원별 업무 처리율</CardHeader>
         <CardContent>
           {data.staff_processing.length === 0 ? (
