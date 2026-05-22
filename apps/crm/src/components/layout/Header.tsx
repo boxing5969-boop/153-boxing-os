@@ -66,7 +66,7 @@ export default function Header() {
     : null;
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6 pt-[env(safe-area-inset-top,0px)]" style={{ height: "calc(3.5rem + env(safe-area-inset-top, 0px))" }}>
       <div className="flex items-center gap-2 min-w-0">
         {/* 검색 버튼 */}
         <button

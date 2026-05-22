@@ -29,23 +29,37 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className={cn(
+        "fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm",
+        // 모바일: 하단 시트 (bottom sheet), 데스크톱: 중앙
+        "sm:items-center sm:p-4",
+        "animate-fade-in",
+      )}
       onClick={onClose}
     >
       <div
         className={cn(
-          "relative flex flex-col w-full max-w-md max-h-[90vh] rounded-lg border border-foreground/10 bg-background shadow-lg",
-          className
+          "relative flex flex-col w-full max-h-[92vh] border border-foreground/10 bg-background shadow-2xl",
+          // 모바일: 하단 시트 — 상단만 둥글게, 전체 폭
+          "rounded-t-3xl",
+          // 데스크톱: 카드처럼 — 모든 모서리 둥글게, 폭 제한
+          "sm:max-w-md sm:rounded-2xl",
+          className,
         )}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* 모바일 그랩 핸들 — iOS 시트 시그니처 */}
+        <div className="flex justify-center pt-2 pb-1 sm:hidden">
+          <div className="h-1 w-9 rounded-full bg-muted-foreground/30" />
+        </div>
+
         {/* 헤더: 고정 */}
         <div className="flex shrink-0 items-center justify-between border-b border-foreground/10 px-4 py-3">
           <h2 className="font-semibold text-base">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="opacity-60 hover:opacity-100"
+            className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
             aria-label="닫기"
           >
             <X className="size-4" />
