@@ -275,7 +275,7 @@ export default function HrStaffDetailPage() {
                   <div className="flex gap-2">
                     {c.file_url && (
                       <a href={c.file_url} target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 px-3 h-8 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted text-foreground transition-colors">
+                        className="inline-flex h-8 items-center gap-1 rounded-full border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted">
                         <Eye className="size-3.5" />보기
                       </a>
                     )}

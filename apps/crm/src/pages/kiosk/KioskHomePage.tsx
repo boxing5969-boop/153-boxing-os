@@ -261,7 +261,7 @@ function SummaryView({
               <span
                 className={cn(
                   summary.days_remaining <= 3
-                    ? "text-red-600 font-bold"
+                    ? "font-bold text-danger"
                     : summary.days_remaining <= 7
                       ? "text-yellow-600 font-bold"
                       : ""

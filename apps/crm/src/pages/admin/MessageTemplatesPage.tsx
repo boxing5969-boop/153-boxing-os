@@ -371,7 +371,7 @@ function TemplateCard({
   return (
     <div className={cn(
       "rounded-xl border bg-card p-4 shadow-card transition-all",
-      t.is_active ? "border-border" : "border-border/50 opacity-60"
+      t.is_active ? "border-border" : "border-border/50 opacity-70"
     )}>
       <div className="flex items-start gap-3">
         {/* 아이콘 */}

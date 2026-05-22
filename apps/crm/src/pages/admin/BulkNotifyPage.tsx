@@ -121,7 +121,7 @@ function SurveySelector({
                       key={qr.id}
                       type="button"
                       onClick={() => { onSelect(url); setOpen(false); }}
-                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-left hover:border-primary/50 hover:bg-primary/5 transition-all"
+                      className="w-full rounded-xl border border-border bg-card px-3.5 py-2.5 text-left transition-all hover:border-primary/50 hover:bg-primary/5"
                     >
                       <p className="text-xs font-medium text-foreground">
                         {qr.label || "기본 QR"}
