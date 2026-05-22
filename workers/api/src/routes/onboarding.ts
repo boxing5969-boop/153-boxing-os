@@ -120,5 +120,5 @@ onboardingRoutes.post("/signup", async (c) => {
     slug:         d.slug,
     trial_ends_at: trialEndsAt,
     message:      `153os에 오신 것을 환영합니다! 14일 무료 체험이 시작되었습니다.`,
-  }, 201);
+  }, undefined, 201);
 });
