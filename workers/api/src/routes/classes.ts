@@ -77,7 +77,7 @@ classesRoutes.post("/branches/:branchId", requireJwt, async (c) => {
     .single();
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
-  return ok(c, data, 201);
+  return ok(c, data, undefined, 201);
 });
 
 /** PATCH /api/classes/:classId — 수업 수정 */
@@ -181,7 +181,7 @@ classesRoutes.post("/sessions/branches/:branchId", requireJwt, async (c) => {
     .single();
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
-  return ok(c, data, 201);
+  return ok(c, data, undefined, 201);
 });
 
 /** PATCH /api/classes/sessions/:sessionId/status — 세션 상태 변경 */
@@ -243,7 +243,7 @@ classesRoutes.post("/sessions/:sessionId/bookings", requireJwt, async (c) => {
     if (error.code === "23505") return fail(c, "ALREADY_BOOKED", "이미 예약된 회원입니다", 409);
     return fail(c, "DB_ERROR", error.message, 500);
   }
-  return ok(c, data, 201);
+  return ok(c, data, undefined, 201);
 });
 
 /** PATCH /api/classes/bookings/:bookingId/status — 출석 처리 */
@@ -317,7 +317,7 @@ classesRoutes.post("/pt/branches/:branchId", requireJwt, async (c) => {
     .single();
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
-  return ok(c, data, 201);
+  return ok(c, data, undefined, 201);
 });
 
 /** PATCH /api/classes/pt/:ptId/status — PT 세션 상태 변경 */
