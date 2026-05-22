@@ -3,7 +3,6 @@ import { useMutation } from "@tanstack/react-query";
 import { X, Send, Users, CheckCircle, Megaphone, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { broadcastMsg } from "@/services/messaging";
-import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
 import MessageComposerPanel, {
   createDefaultComposer,
@@ -25,8 +24,6 @@ interface Props {
 }
 
 export default function MemberBroadcastDialog({ open, onClose }: Props) {
-  const { profile } = useAuth();
-
   const [composer, setComposer] = useState<ComposerState>(createDefaultComposer("kakao"));
   const [targetStatuses, setTargetStatuses] = useState<string[]>(["active"]);
 
