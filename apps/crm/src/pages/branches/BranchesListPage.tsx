@@ -104,7 +104,7 @@ function SkeletonCard() {
           <div className="h-3 w-14 rounded-full bg-muted" />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {[0,1,2].map(i => <div key={i} className="h-14 rounded-xl bg-muted" />)}
       </div>
       <div className="h-1.5 rounded-full bg-muted" />

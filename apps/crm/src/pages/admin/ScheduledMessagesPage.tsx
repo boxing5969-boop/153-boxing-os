@@ -181,7 +181,7 @@ export default function ScheduledMessagesPage() {
       </div>
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <SummaryCard label="대기 중" value={pending} color="blue" />
         <SummaryCard label="발송 완료" value={sent} color="success" />
         <SummaryCard label="실패" value={failed} color={failed > 0 ? "danger" : "default"} />

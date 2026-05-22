@@ -264,7 +264,7 @@ export default function MemberDetailPage() {
 
           {/* 출입 가능 여부 */}
           <div className={cn(
-            "flex min-w-[180px] shrink-0 flex-col items-stretch gap-1.5 rounded-2xl px-4 py-3",
+            "flex w-full sm:w-auto sm:min-w-[180px] shrink-0 flex-col items-stretch gap-1.5 rounded-2xl px-4 py-3",
             accessAllowed ? "bg-success/10" : "bg-danger/10"
           )}>
             <div className={cn(

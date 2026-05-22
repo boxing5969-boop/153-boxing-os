@@ -95,7 +95,7 @@ export default function HrContractsPage() {
         </div>
 
         {/* 통계 */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "전체", count: stats.total, color: "text-foreground" },
             { label: "초안", count: stats.draft, color: "text-muted-foreground" },

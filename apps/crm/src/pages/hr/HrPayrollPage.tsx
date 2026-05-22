@@ -170,7 +170,7 @@ export default function HrPayrollPage() {
                       })}
                     </div>
                     {/* 연간 합계 */}
-                    <div className="grid grid-cols-3 gap-4 pt-3 border-t border-border text-center">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-3 border-t border-border text-center">
                       <div>
                         <p className="text-xs text-muted-foreground">연간 총 인건비</p>
                         <p className="text-lg font-bold text-foreground">{formatKRW(summary.annual_total)}</p>
@@ -318,11 +318,11 @@ export default function HrPayrollPage() {
                     </button>
                     {showDetail && (
                       <div className="w-full text-xs border border-border rounded-lg overflow-hidden">
-                        <div className="grid grid-cols-3 bg-muted px-3 py-1.5 font-semibold text-muted-foreground">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 bg-muted px-3 py-1.5 font-semibold text-muted-foreground">
                           <span>항목</span><span className="text-center">근로자</span><span className="text-center">사업주</span>
                         </div>
                         {INSURANCE_RATES.map(r => (
-                          <div key={r.label} className="grid grid-cols-3 px-3 py-1.5 border-t border-border text-foreground">
+                          <div key={r.label} className="grid grid-cols-2 sm:grid-cols-3 px-3 py-1.5 border-t border-border text-foreground">
                             <span>{r.label}</span>
                             <span className="text-center">{r.employee}</span>
                             <span className="text-center">{r.employer}</span>

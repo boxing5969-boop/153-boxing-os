@@ -72,7 +72,7 @@ function ResultPanel({ report }: { report: SurveySendReport }) {
         <span className="text-sm font-bold text-foreground">발송 완료</span>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <div className="rounded-lg bg-success/5 p-3 text-center">
             <p className="text-2xl font-black text-success">{report.sent}</p>
             <p className="text-xs text-muted-foreground">발송 성공</p>
@@ -162,7 +162,7 @@ function StatsPanel({ templateId }: { templateId: string }) {
         <span className="ml-auto text-xs text-muted-foreground">응답률 {respRate}%</span>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-4 gap-2 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           {([
             ["발송", c.sent, "text-primary"],
             ["열람", c.opened, "text-warning"],

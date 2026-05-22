@@ -267,7 +267,8 @@ export default function ClassSchedulePage() {
             {isLoading ? (
               <div className="text-center py-16 text-muted-foreground text-sm">불러오는 중…</div>
             ) : (
-              <div className="grid grid-cols-7 gap-2">
+              <div className="overflow-x-auto -mx-2 px-2 pb-2">
+                <div className="grid grid-cols-7 gap-2 min-w-[700px]">
                 {weekDates.map((d, i) => {
                   const dateStr = fmt(d);
                   const daySessions = sessionsByDate[dateStr] ?? [];
@@ -312,6 +313,7 @@ export default function ClassSchedulePage() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
           </>

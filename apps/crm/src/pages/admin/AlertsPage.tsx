@@ -82,7 +82,7 @@ export default function AlertsPage() {
         description="Workers cron 5분마다 자동 점검 (단말기 오프라인/오류/sync 누적). Slack webhook 미설정 시 DB 기록만 됩니다."
       />
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCard label="미해결" value={counts.unresolved} tone={counts.unresolved > 0 ? "warning" : "default"} />
         <StatCard label="심각 미해결" value={counts.critical} tone={counts.critical > 0 ? "danger" : "default"} />
         <StatCard label="조회 결과" value={counts.total} tone="default" />

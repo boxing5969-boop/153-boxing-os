@@ -221,7 +221,7 @@ export default function HrStaffDetailPage() {
               {!editMode && (
                 <div className="pt-4 border-t border-border">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">급여 계좌</p>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     {[["은행", staff.bank_name ?? "미입력"], ["계좌번호", staff.bank_account ?? "미입력"], ["예금주", staff.bank_holder ?? "미입력"]].map(([k, v]) => (
                       <div key={k}>
                         <p className="text-xs text-muted-foreground">{k}</p>

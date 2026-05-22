@@ -78,7 +78,7 @@ export default function MessageSendLogsPage() {
       </div>
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">전체 발송</p>
           <p className="mt-1 text-2xl font-black tabular">{logs.length}</p>
