@@ -21,32 +21,12 @@ interface DeviceRow {
   status: string;
 }
 
-interface MemberRow {
-  id: string;
-  name: string;
-  status: "active" | "trial" | "expired" | "suspended" | "unpaid" | "withdrawn";
-}
-
-interface MembershipRow {
-  id: string;
-  status: string;
-  end_date: string;
-  payment_status: string;
-}
-
 interface TrialPassRow {
   id: string;
   status: string;
   end_at: string;
   max_entries: number;
   used_entries: number;
-}
-
-interface GrantRow {
-  id: string;
-  grant_type: string;
-  valid_until: string | null;
-  status: string;
 }
 
 /**
