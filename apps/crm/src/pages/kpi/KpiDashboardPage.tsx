@@ -37,7 +37,7 @@ function StatCard({
     success: "text-success",
   }[tone];
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardContent className="space-y-1.5">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           {Icon && <Icon className="size-3.5" />}
@@ -80,39 +80,39 @@ function HqView({ data }: { data: HqKpiDashboard }) {
       </div>
 
       {/* 지점별 표 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="text-sm font-bold text-foreground">지점별 현황</CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
-                <th className="text-left  px-4 py-2 font-medium">지점</th>
-                <th className="text-right px-4 py-2 font-medium">월매출</th>
-                <th className="text-right px-4 py-2 font-medium">활성</th>
-                <th className="text-right px-4 py-2 font-medium">신규</th>
-                <th className="text-right px-4 py-2 font-medium">만료예정</th>
-                <th className="text-right px-4 py-2 font-medium">미납</th>
-                <th className="text-right px-4 py-2 font-medium">14일 미출석</th>
+                <th className="text-left  px-4 py-2 font-medium whitespace-nowrap">지점</th>
+                <th className="text-right px-4 py-2 font-medium whitespace-nowrap">월매출</th>
+                <th className="text-right px-4 py-2 font-medium whitespace-nowrap">활성</th>
+                <th className="text-right px-4 py-2 font-medium whitespace-nowrap">신규</th>
+                <th className="text-right px-4 py-2 font-medium whitespace-nowrap">만료예정</th>
+                <th className="text-right px-4 py-2 font-medium whitespace-nowrap">미납</th>
+                <th className="text-right px-4 py-2 font-medium whitespace-nowrap">14일 미출석</th>
               </tr>
             </thead>
             <tbody>
               {data.branches.map((b) => (
                 <tr key={b.branch_id} className="border-b border-border/50 last:border-0">
-                  <td className="px-4 py-2.5 font-medium text-foreground">{b.branch_name}</td>
-                  <td className="px-4 py-2.5 text-right">{won(Number(b.revenue_month))}</td>
-                  <td className="px-4 py-2.5 text-right">{b.active_members}</td>
-                  <td className="px-4 py-2.5 text-right">{b.new_members}</td>
-                  <td className="px-4 py-2.5 text-right">
+                  <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap">{b.branch_name}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{won(Number(b.revenue_month))}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{b.active_members}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{b.new_members}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     <span className={cn(b.expiring_soon > 0 && "text-warning font-semibold")}>
                       {b.expiring_soon}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-right">
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     <span className={cn(b.unpaid_members > 0 && "text-danger font-semibold")}>
                       {b.unpaid_members}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-right">{b.inactive_14d}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{b.inactive_14d}</td>
                 </tr>
               ))}
             </tbody>
@@ -121,7 +121,7 @@ function HqView({ data }: { data: HqKpiDashboard }) {
       </Card>
 
       {/* 직원별 업무(상담) 처리율 */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="text-sm font-bold text-foreground">직원별 업무 처리율</CardHeader>
         <CardContent>
           {data.staff_processing.length === 0 ? (

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { cn } from "@/lib/cn";
 
 // ── 메뉴 아이템 정의 ──────────────────────────────────────
@@ -58,12 +59,6 @@ const STATUS_LABEL: Record<string, string> = {
 // ── 메인 컴포넌트 ──────────────────────────────────────────
 export default function GlobalSearch() {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [cursor, setCursor] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-  const { profile } = useAuth();
 
   // Cmd+K / Ctrl+K 단축키
   useEffect(() => {
@@ -78,22 +73,32 @@ export default function GlobalSearch() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 열릴 때 인풋 포커스
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-      setQuery("");
-      setCursor(0);
-    }
-  }, [open]);
+  if (!open) return null;
+  return <GlobalSearchPanel onClose={() => setOpen(false)} />;
+}
 
-  // 회원 검색
+function GlobalSearchPanel({ onClose }: { onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 250);
+  const [cursor, setCursor] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+
+  // 마운트 시 인풋 포커스
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, []);
+
+  // 회원 검색 — 250ms 디바운스로 타이핑마다 쿼리 발사 방지
   const { data: members = [] } = useQuery<MemberResult[]>({
-    queryKey: ["global-search-members", query, profile?.branch_id],
-    enabled: open && query.trim().length >= 1,
+    queryKey: ["global-search-members", debouncedQuery, profile?.branch_id],
+    enabled: debouncedQuery.trim().length >= 1,
     staleTime: 10_000,
     queryFn: async () => {
-      const q = query.trim();
+      const q = debouncedQuery.trim();
       let base = supabase
         .from("members")
         .select("id,name,phone,status")
@@ -127,16 +132,16 @@ export default function GlobalSearch() {
       e.preventDefault();
       if (cursor < filteredMenus.length) {
         const menu = filteredMenus[cursor];
-        if (menu) { navigate(menu.to); setOpen(false); }
+        if (menu) { navigate(menu.to); onClose(); }
       } else {
         const member = members[cursor - filteredMenus.length];
         if (member) {
           navigate(`/members/${member.id}`);
-          setOpen(false);
+          onClose();
         }
       }
     }
-  }, [cursor, filteredMenus, members, navigate]);
+  }, [cursor, filteredMenus, members, navigate, onClose, totalItems]);
 
   // 커서 변경 시 스크롤
   useEffect(() => {
@@ -146,12 +151,12 @@ export default function GlobalSearch() {
 
   function selectMenu(to: string) {
     navigate(to);
-    setOpen(false);
+    onClose();
   }
 
   function selectMember(id: string) {
     navigate(`/members/${id}`);
-    setOpen(false);
+    onClose();
   }
 
   if (!open) return null;
@@ -159,7 +164,7 @@ export default function GlobalSearch() {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4"
-      onClick={() => setOpen(false)}
+      onClick={() => onClose()}
     >
       {/* 배경 오버레이 */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />

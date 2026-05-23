@@ -39,28 +39,39 @@ export interface UpdateBranchInput {
 }
 
 export async function getBranchesWithStats(): Promise<BranchStats[]> {
-  const { data, error } = await supabase.from("branches").select("*").order("name");
-  if (error) throw error;
+  // 기존: 지점마다 (회원합/활성회원/단말기) 3쿼리 × N → 100지점에 300쿼리 N+1.
+  // 변경: 지점 + 회원 전체(branch_id, status) + 단말기 전체(branch_id) 3쿼리만 발사하고
+  // 클라이언트에서 group by 집계. RLS 가 본사 권한에 모든 회원 select 를 허용한다는 전제.
+  const [branchesRes, membersRes, devicesRes] = await Promise.all([
+    supabase.from("branches").select("*").order("name"),
+    supabase.from("members").select("branch_id, status"),
+    supabase.from("access_devices").select("branch_id"),
+  ]);
+  if (branchesRes.error) throw branchesRes.error;
+  if (membersRes.error) throw membersRes.error;
+  if (devicesRes.error) throw devicesRes.error;
+
   type BranchRow = Omit<BranchStats, "member_count" | "active_member_count" | "device_count">;
-  const rows = ((data ?? []) as unknown as BranchRow[]) ?? [];
+  const rows = ((branchesRes.data ?? []) as unknown as BranchRow[]) ?? [];
 
-  const counts = await Promise.all(
-    rows.map(async (b) => {
-      const [total, active, devices] = await Promise.all([
-        supabase.from("members").select("id", { count: "exact", head: true }).eq("branch_id", b.id),
-        supabase.from("members").select("id", { count: "exact", head: true }).eq("branch_id", b.id).eq("status", "active"),
-        supabase.from("access_devices").select("id", { count: "exact", head: true }).eq("branch_id", b.id),
-      ]);
-      return { id: b.id, total: total.count ?? 0, active: active.count ?? 0, devices: devices.count ?? 0 };
-    })
-  );
+  const memberCounts = new Map<string, { total: number; active: number }>();
+  for (const m of ((membersRes.data ?? []) as unknown as { branch_id: string; status: string }[])) {
+    const c = memberCounts.get(m.branch_id) ?? { total: 0, active: 0 };
+    c.total += 1;
+    if (m.status === "active") c.active += 1;
+    memberCounts.set(m.branch_id, c);
+  }
 
-  const map = new Map(counts.map((c) => [c.id, c]));
+  const deviceCounts = new Map<string, number>();
+  for (const d of ((devicesRes.data ?? []) as unknown as { branch_id: string }[])) {
+    deviceCounts.set(d.branch_id, (deviceCounts.get(d.branch_id) ?? 0) + 1);
+  }
+
   return rows.map((b) => ({
     ...b,
-    member_count: map.get(b.id)?.total ?? 0,
-    active_member_count: map.get(b.id)?.active ?? 0,
-    device_count: map.get(b.id)?.devices ?? 0,
+    member_count: memberCounts.get(b.id)?.total ?? 0,
+    active_member_count: memberCounts.get(b.id)?.active ?? 0,
+    device_count: deviceCounts.get(b.id) ?? 0,
   }));
 }
 

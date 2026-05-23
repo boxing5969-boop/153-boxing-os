@@ -121,7 +121,7 @@ function SurveySelector({
                       key={qr.id}
                       type="button"
                       onClick={() => { onSelect(url); setOpen(false); }}
-                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-left hover:border-primary/50 hover:bg-primary/5 transition-all"
+                      className="w-full rounded-xl border border-border bg-card px-3.5 py-2.5 text-left transition-all hover:border-primary/50 hover:bg-primary/5"
                     >
                       <p className="text-xs font-medium text-foreground">
                         {qr.label || "기본 QR"}
@@ -249,12 +249,12 @@ export default function BulkNotifyPage() {
       </div>
 
       {/* 설정 카드 */}
-      <div className="rounded-xl border border-border bg-card p-5 shadow-card space-y-5">
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-card space-y-5">
 
         {/* 발송 대상 기간 */}
         <div className="space-y-2">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">발송 대상</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {DAY_OPTIONS.map(opt => (
               <button
                 key={opt.days}
@@ -383,9 +383,9 @@ export default function BulkNotifyPage() {
 
       {/* 발송 결과 */}
       {step === "done" && report && (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card space-y-4">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card space-y-4">
           <p className="text-sm font-semibold text-foreground">발송 완료</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <ResultBox label="전체" value={report.total} />
             <ResultBox label="성공" value={report.success} color="success" />
             <ResultBox label="실패" value={report.failed} color={report.failed > 0 ? "danger" : "default"} />

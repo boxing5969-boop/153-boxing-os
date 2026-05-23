@@ -89,6 +89,39 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground));
   }
+
+  /* iOS Safari: 입력 포커스 시 자동 줌 방지 (입력 폰트가 16px 미만이면 발생) */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1rem);
+  }
+  @media (min-width: 640px) {
+    /* 데스크톱은 입력 폰트 줄여도 OK */
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="password"],
+    input[type="number"],
+    input[type="date"],
+    input[type="datetime-local"],
+    input[type="search"],
+    input[type="url"],
+    textarea,
+    select {
+      font-size: 0.875rem;
+    }
+  }
+
+  /* iOS 탭 하이라이트 제거 (회색 박스) */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* iOS 오버스크롤 바운스 배경 색 통일 */
+  html {
+    background-color: hsl(var(--background));
+  }
 }
 
 @layer utilities {

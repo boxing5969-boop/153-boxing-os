@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, UserCog, Phone, Mail, FileSignature,
+  ArrowLeft, UserCog, FileSignature,
   BanknoteIcon, Plus, Send, Eye, CheckCircle2, Edit, Save, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -172,7 +172,7 @@ export default function HrStaffDetailPage() {
 
         {/* ── 기본 정보 탭 ── */}
         {tab === "info" && (
-          <Card>
+          <Card className="rounded-2xl">
             <CardContent className="pt-5 space-y-4">
               {editMode ? (
                 <div className="grid grid-cols-2 gap-4">
@@ -221,7 +221,7 @@ export default function HrStaffDetailPage() {
               {!editMode && (
                 <div className="pt-4 border-t border-border">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">급여 계좌</p>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     {[["은행", staff.bank_name ?? "미입력"], ["계좌번호", staff.bank_account ?? "미입력"], ["예금주", staff.bank_holder ?? "미입력"]].map(([k, v]) => (
                       <div key={k}>
                         <p className="text-xs text-muted-foreground">{k}</p>
@@ -250,13 +250,13 @@ export default function HrStaffDetailPage() {
               </Button>
             </div>
             {contracts.length === 0 ? (
-              <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
+              <Card className="flex flex-col items-center gap-3 rounded-2xl py-14 text-muted-foreground">
                 <FileSignature className="size-9 opacity-30" />
                 <p className="text-sm">등록된 계약서가 없습니다</p>
               </Card>
             ) : (
               contracts.map(c => (
-                <Card key={c.id} className="px-5 py-4 flex items-center gap-4">
+                <Card key={c.id} className="flex items-center gap-4 rounded-2xl px-5 py-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-foreground text-sm">{c.title}</span>
@@ -275,7 +275,7 @@ export default function HrStaffDetailPage() {
                   <div className="flex gap-2">
                     {c.file_url && (
                       <a href={c.file_url} target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 px-3 h-8 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted text-foreground transition-colors">
+                        className="inline-flex h-8 items-center gap-1 rounded-full border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted">
                         <Eye className="size-3.5" />보기
                       </a>
                     )}
@@ -302,13 +302,13 @@ export default function HrStaffDetailPage() {
               </Button>
             </div>
             {payrolls.length === 0 ? (
-              <Card className="py-14 flex flex-col items-center gap-3 text-muted-foreground">
+              <Card className="flex flex-col items-center gap-3 rounded-2xl py-14 text-muted-foreground">
                 <BanknoteIcon className="size-9 opacity-30" />
                 <p className="text-sm">등록된 급여 명세가 없습니다</p>
               </Card>
             ) : (
               payrolls.map(p => (
-                <Card key={p.id} className="px-5 py-4">
+                <Card key={p.id} className="rounded-2xl px-5 py-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">

@@ -61,7 +61,7 @@ function PresetForm({
       {/* 플랜 유형 선택 */}
       <div className="space-y-1">
         <Label className="text-xs">플랜 유형 <span className="text-danger">*</span></Label>
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
           {PLAN_TYPES.map((t) => (
             <button
               key={t}

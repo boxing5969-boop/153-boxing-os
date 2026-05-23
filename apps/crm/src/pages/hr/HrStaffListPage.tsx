@@ -124,20 +124,20 @@ export default function HrStaffListPage() {
               <p className="text-xs text-muted-foreground">직원 등록, 계약, 급여 정보 통합 관리</p>
             </div>
           </div>
-          <Button onClick={() => setShowDialog(true)} className="gap-2" disabled={!branchId}>
+          <Button onClick={() => setShowDialog(true)} className="gap-2 rounded-full" disabled={!branchId}>
             <Plus className="size-4" /> 직원 등록
           </Button>
         </div>
 
         {/* 본사 계정: 지점 선택 */}
         {isHqUser && (
-          <Card className="px-4 py-3 flex items-center gap-3">
-            <Building2 className="size-4 text-muted-foreground shrink-0" />
-            <span className="text-sm text-muted-foreground shrink-0">지점 선택</span>
+          <Card className="flex items-center gap-3 rounded-2xl px-5 py-4">
+            <Building2 className="size-4 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 text-sm text-muted-foreground">지점 선택</span>
             <Select
               value={selectedBranchId}
               onChange={e => setSelectedBranchId(e.target.value)}
-              className="h-8 text-sm"
+              className="h-9 rounded-xl text-sm"
             >
               <option value="">지점을 선택하세요</option>
               {branches.map(b => (
@@ -149,8 +149,10 @@ export default function HrStaffListPage() {
 
         {/* 지점 미선택 안내 */}
         {isHqUser && !selectedBranchId ? (
-          <Card className="py-16 flex flex-col items-center gap-3 text-muted-foreground">
-            <Building2 className="size-10 opacity-30" />
+          <Card className="flex flex-col items-center gap-3 rounded-2xl py-16 text-muted-foreground">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+              <Building2 className="size-6 text-muted-foreground/60" />
+            </div>
             <p className="text-sm">위에서 지점을 선택하면 직원 목록이 표시됩니다</p>
           </Card>
         ) : (
@@ -162,50 +164,54 @@ export default function HrStaffListPage() {
                 { label: "전체 직원", count: staff.length, icon: Briefcase, color: "text-brand" },
                 { label: "퇴사", count: staff.filter(s => s.status === "resigned").length, icon: UserX, color: "text-muted-foreground" },
               ].map(({ label, count, icon: Icon, color }) => (
-                <Card key={label} className="px-4 py-3 flex items-center gap-3">
+                <Card key={label} className="flex items-center gap-3 rounded-2xl px-4 py-4">
                   <Icon className={cn("size-5", color)} />
                   <div>
                     <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="text-xl font-bold text-foreground">{count}</p>
+                    <p className="text-xl font-black text-foreground tabular">{count}</p>
                   </div>
                 </Card>
               ))}
             </div>
 
             {/* 검색 + 필터 */}
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input className="pl-9" placeholder="이름, 연락처, 직책 검색" value={search} onChange={e => setSearch(e.target.value)} />
-              </div>
-              <div className="flex gap-1.5">
-                {[["active", "재직중"], ["inactive", "휴직"], ["resigned", "퇴사"], ["all", "전체"]].map(([val, lbl]) => (
-                  <button key={val} onClick={() => setStatusFilter(val ?? "")}
-                    className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                      statusFilter === val ? "bg-brand text-white" : "bg-muted text-muted-foreground hover:bg-muted/70")}>
-                    {lbl}
-                  </button>
-                ))}
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input className="h-11 rounded-xl pl-10" placeholder="이름, 연락처, 직책 검색" value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+                <div className="flex gap-1.5">
+                  {[["active", "재직중"], ["inactive", "휴직"], ["resigned", "퇴사"], ["all", "전체"]].map(([val, lbl]) => (
+                    <button key={val} onClick={() => setStatusFilter(val ?? "")}
+                      className={cn("rounded-full px-4 py-2 text-xs font-medium transition-colors",
+                        statusFilter === val ? "bg-brand text-white shadow-card" : "bg-muted text-muted-foreground hover:bg-muted/70")}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
             {/* 직원 목록 */}
             {isLoading ? (
-              <div className="text-center py-20 text-muted-foreground text-sm">불러오는 중…</div>
+              <div className="py-20 text-center text-sm text-muted-foreground">불러오는 중…</div>
             ) : filtered.length === 0 ? (
-              <Card className="py-16 flex flex-col items-center gap-3 text-muted-foreground">
-                <UserCog className="size-10 opacity-30" />
+              <Card className="flex flex-col items-center gap-3 rounded-2xl py-16 text-muted-foreground">
+                <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+                  <UserCog className="size-6 text-muted-foreground/60" />
+                </div>
                 <p className="text-sm">등록된 직원이 없습니다</p>
-                <Button variant="outline" size="sm" onClick={() => setShowDialog(true)}>
-                  <Plus className="size-4 mr-1.5" /> 첫 직원 등록
+                <Button variant="outline" size="sm" className="rounded-full" onClick={() => setShowDialog(true)}>
+                  <Plus className="mr-1.5 size-4" /> 첫 직원 등록
                 </Button>
               </Card>
             ) : (
               <div className="space-y-2">
                 {filtered.map(s => (
-                  <Card key={s.id} className="px-5 py-4 flex items-center gap-4 cursor-pointer hover:bg-muted/40 transition-colors"
+                  <Card key={s.id} className="flex cursor-pointer items-center gap-4 rounded-2xl px-5 py-4 transition-colors hover:bg-muted/40"
                     onClick={() => navigate(`/hr/staff/${s.id}`)}>
-                    <div className="size-10 rounded-full bg-brand/10 flex items-center justify-center shrink-0">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand/10">
                       <span className="text-sm font-bold text-brand">{s.name.slice(0, 1)}</span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -311,9 +317,9 @@ export default function HrStaffListPage() {
           {createMutation.error && (
             <p className="text-sm text-danger">{(createMutation.error as Error).message}</p>
           )}
-          <div className="flex justify-end gap-2 pt-2 border-t border-border mt-4">
-            <Button variant="outline" onClick={() => setShowDialog(false)}>취소</Button>
-            <Button onClick={() => createMutation.mutate()}
+          <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
+            <Button variant="outline" className="rounded-full" onClick={() => setShowDialog(false)}>취소</Button>
+            <Button className="rounded-full" onClick={() => createMutation.mutate()}
               disabled={!form.name || !form.employment_type || !branchId || createMutation.isPending}>
               {createMutation.isPending ? "등록 중…" : "등록"}
             </Button>

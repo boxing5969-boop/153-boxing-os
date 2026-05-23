@@ -28,7 +28,7 @@ export default function MemberLevelsPage() {
   });
 
   if (memberQuery.isLoading) {
-    return <p className="text-sm opacity-60">로딩 중…</p>;
+    return <p className="text-sm text-muted-foreground">로딩 중…</p>;
   }
   if (!memberQuery.data) {
     return (
@@ -36,7 +36,7 @@ export default function MemberLevelsPage() {
         title="회원을 찾을 수 없습니다"
         action={
           <Link to="/levels">
-            <Button variant="outline">
+            <Button variant="outline" className="gap-1.5 rounded-full">
               <ArrowLeft className="size-4" />
               목록으로
             </Button>
@@ -55,12 +55,12 @@ export default function MemberLevelsPage() {
         description={
           <span className="flex items-center gap-2">
             <MemberStatusBadge status={member.status} />
-            <span className="opacity-60">셀을 변경하면 즉시 저장됩니다.</span>
+            <span className="text-muted-foreground">셀을 변경하면 즉시 저장됩니다.</span>
           </span>
         }
         action={
           <Link to="/levels">
-            <Button variant="outline">
+            <Button variant="outline" className="gap-1.5 rounded-full">
               <ArrowLeft className="size-4" />
               목록으로
             </Button>
@@ -68,9 +68,9 @@ export default function MemberLevelsPage() {
         }
       />
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80">진행 그리드 (4 티어 × 10 레벨)</h2>
+          <h2 className="text-sm font-semibold text-foreground">진행 그리드 (4 티어 × 10 레벨)</h2>
         </CardHeader>
         <CardContent>
           <LevelProgressGrid

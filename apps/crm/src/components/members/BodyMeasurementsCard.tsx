@@ -194,7 +194,7 @@ export function BodyMeasurementsCard({ memberId }: Props) {
         ) : (
           <>
             {/* 최신 수치 요약 */}
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <StatChip label="체중"      value={latest(measurements, "weight_kg")}      unit="kg" />
               <StatChip label="체지방률"  value={latest(measurements, "body_fat_pct")}   unit="%" />
               <StatChip label="골격근량"  value={latest(measurements, "muscle_mass_kg")} unit="kg" />

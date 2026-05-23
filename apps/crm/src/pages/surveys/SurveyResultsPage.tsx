@@ -14,14 +14,13 @@ import {
   BarChart3, Users,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   getSurveyTemplate,
   getSurveyResponseList,
   createFollowup, updateFollowup,
   calcAvgByKeyword, calcNps, filterLowScoreResponses, extractTextAnswers,
-  type SurveyResponseDetail, type ResponseFollowup, type NpsResult,
+  type SurveyResponseDetail, type NpsResult,
 } from "@/services/surveys";
 import { cn } from "@/lib/cn";
 
@@ -41,7 +40,7 @@ function KpiCard({
     danger:  "text-danger",
   }[tone];
   return (
-    <div className="rounded-xl border border-border bg-card shadow-card p-4 space-y-1">
+    <div className="rounded-2xl border border-border bg-card shadow-card p-4 space-y-1">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={cn("text-2xl font-black tabular", textCls)}>{value}</p>
       {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
@@ -53,7 +52,7 @@ function KpiCard({
 function NpsGauge({ nps }: { nps: NpsResult }) {
   const tone = nps.score >= 50 ? "success" : nps.score >= 0 ? "warning" : "danger";
   return (
-    <div className="rounded-xl border border-border bg-card shadow-card p-4 space-y-3">
+    <div className="rounded-2xl border border-border bg-card shadow-card p-4 space-y-3">
       <p className="text-xs text-muted-foreground">NPS (지인 추천 지수)</p>
       <div className="flex items-end gap-3">
         <p className={cn("text-2xl font-black tabular", {
@@ -126,7 +125,6 @@ function LowScoreCard({
   branchId: string;
   onFollowupChange: () => void;
 }) {
-  const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [showFollowupForm, setShowFollowupForm] = useState(false);
   const [notes, setNotes] = useState(response.followup?.notes ?? "");
@@ -149,7 +147,7 @@ function LowScoreCard({
   });
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
       {/* 헤더 행 */}
       <div className="flex items-center gap-3 px-4 py-3">
         <AlertTriangle className="size-4 text-danger shrink-0" />
@@ -207,12 +205,12 @@ function LowScoreCard({
 
           {/* 후속관리 폼 */}
           {showFollowupForm ? (
-            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="rounded-xl border border-border bg-card p-3 space-y-2">
               <div className="flex gap-2">
                 <select
                   value={statusDraft}
                   onChange={(e) => setStatusDraft(e.target.value as FollowupStatus)}
-                  className="rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="rounded-xl border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   {(Object.keys(FOLLOWUP_STATUS) as FollowupStatus[]).map((k) => (
                     <option key={k} value={k}>{FOLLOWUP_STATUS[k].label}</option>
@@ -224,7 +222,7 @@ function LowScoreCard({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="처리 내용 메모"
-                className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-xl border border-input bg-background px-2 py-1 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <div className="flex gap-2">
                 <Button
@@ -280,7 +278,7 @@ export default function SurveyResultsPage() {
   });
 
   // 응답 목록 (RPC)
-  const { data: responseData, isLoading: rLoading, refetch } = useQuery({
+  const { data: responseData, isLoading: rLoading } = useQuery({
     queryKey: ["survey-response-list", id],
     queryFn: () => getSurveyResponseList(id!),
     enabled: !!id,
@@ -417,7 +415,7 @@ export default function SurveyResultsPage() {
         </div>
 
         {lowScores.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
             낮은 점수 응답이 없습니다 👍
           </div>
         ) : (
@@ -445,13 +443,13 @@ export default function SurveyResultsPage() {
         </div>
 
         {textAnswers.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
             주관식 답변이 없습니다.
           </div>
         ) : (
           <div className="space-y-2">
             {textAnswers.map((ta, i) => (
-              <div key={`${ta.responseId}-${i}`} className="rounded-xl border border-border bg-card px-4 py-3">
+              <div key={`${ta.responseId}-${i}`} className="rounded-2xl border border-border bg-card px-4 py-3">
                 <p className="text-xs text-muted-foreground mb-1">
                   {new Date(ta.submittedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                   {ta.questionText && (
@@ -474,11 +472,11 @@ export default function SurveyResultsPage() {
         </div>
 
         {responses.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
             아직 응답이 없습니다.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
+          <div className="overflow-x-auto rounded-2xl border border-border bg-card">
             <table className="w-full text-xs">
               <thead className="border-b border-border bg-muted/30">
                 <tr>

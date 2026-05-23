@@ -44,7 +44,7 @@ function KpiCard({ label, value, hint, icon: Icon, tone }: KpiCardProps) {
   }[tone];
 
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-card flex flex-col gap-3">
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-card flex flex-col gap-3">
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
         <div className={cn("flex size-9 items-center justify-center rounded-lg", tones.icon)}>
@@ -120,7 +120,7 @@ export default function HqDashboardPage() {
             전 지점 실시간 운영 지표 · 1분 자동 갱신
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-card">
+        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-4 py-2.5 shadow-card">
           <TrendingUp className="size-4 text-primary" />
           <span className="text-sm font-semibold">{totalBranches}개 지점</span>
           <div className="size-2 rounded-full bg-success animate-pulse" />
@@ -146,7 +146,7 @@ export default function HqDashboardPage() {
       {/* 차트 + 테이블 2열 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* 활성 회원 바 차트 */}
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <h2 className="text-sm font-semibold text-foreground mb-4">지점별 활성 회원</h2>
           {isLoading ? (
             <div className="h-48 animate-pulse rounded-lg bg-muted" />
@@ -173,7 +173,7 @@ export default function HqDashboardPage() {
         </div>
 
         {/* 오늘 출입 바 차트 */}
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <h2 className="text-sm font-semibold text-foreground mb-4">오늘 지점별 출입</h2>
           {isLoading ? (
             <div className="h-48 animate-pulse rounded-lg bg-muted" />
@@ -198,7 +198,7 @@ export default function HqDashboardPage() {
       </div>
 
       {/* 지점별 상세 테이블 */}
-      <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+      <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
         <div className="px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">지점별 상세 현황</h2>
         </div>

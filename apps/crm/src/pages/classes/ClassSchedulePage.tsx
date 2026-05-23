@@ -66,7 +66,6 @@ export default function ClassSchedulePage() {
   const [baseDate, setBaseDate] = useState(new Date());
   const weekDates = getWeekDates(baseDate);
   // weekDates는 항상 7개 원소를 가짐 (non-null assertion 안전)
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const weekLabel = `${fmt(weekDates[0]!)} ~ ${fmt(weekDates[6]!)}`;
 
   // ── 수업 관리 다이얼로그 ───────────────────────────────────
@@ -138,9 +137,7 @@ export default function ClassSchedulePage() {
   });
 
   const { data: sessions = [], isLoading } = useQuery({
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     queryKey: ["class-sessions", branchId, fmt(weekDates[0]!)],
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     queryFn: () => listSessions(branchId, fmt(weekDates[0]!), true),
     enabled: !!branchId,
   });
@@ -229,7 +226,7 @@ export default function ClassSchedulePage() {
 
         {/* 본사 지점 선택 */}
         {isHqUser && (
-          <Card className="px-4 py-3 flex items-center gap-3">
+          <Card className="flex items-center gap-3 rounded-2xl px-5 py-4">
             <Building2 className="size-4 text-muted-foreground shrink-0" />
             <Select value={selectedBranchId} onChange={e => setSelectedBranchId(e.target.value)} className="h-8 text-sm">
               <option value="">지점을 선택하세요</option>
@@ -239,7 +236,7 @@ export default function ClassSchedulePage() {
         )}
 
         {!branchId ? (
-          <Card className="py-20 flex flex-col items-center gap-3 text-muted-foreground">
+          <Card className="flex flex-col items-center gap-3 rounded-2xl py-20 text-muted-foreground">
             <CalendarDays className="size-10 opacity-30" />
             <p className="text-sm">지점을 선택하면 수업 일정이 표시됩니다</p>
           </Card>
@@ -247,7 +244,7 @@ export default function ClassSchedulePage() {
           <>
             {/* 수업 없을 때 안내 */}
             {classes.filter(c => c.is_active).length === 0 && (
-              <Card className="px-5 py-4 flex items-center gap-4 border-warning/40 bg-warning/5">
+              <Card className="flex items-center gap-4 rounded-2xl border-warning/40 bg-warning/5 px-5 py-4">
                 <Settings2 className="size-5 text-warning shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-foreground">등록된 수업이 없습니다</p>
@@ -270,7 +267,8 @@ export default function ClassSchedulePage() {
             {isLoading ? (
               <div className="text-center py-16 text-muted-foreground text-sm">불러오는 중…</div>
             ) : (
-              <div className="grid grid-cols-7 gap-2">
+              <div className="overflow-x-auto -mx-2 px-2 pb-2">
+                <div className="grid grid-cols-7 gap-2 min-w-[700px]">
                 {weekDates.map((d, i) => {
                   const dateStr = fmt(d);
                   const daySessions = sessionsByDate[dateStr] ?? [];
@@ -315,6 +313,7 @@ export default function ClassSchedulePage() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
           </>

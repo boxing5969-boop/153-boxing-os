@@ -12,7 +12,7 @@
 import { useState, useRef, type ChangeEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ImagePlus, X, AlertTriangle, AlertCircle, Clock,
+  ImagePlus, X, Clock,
   MessageSquare, ToggleLeft, ToggleRight, Coins,
 } from "lucide-react";
 import SmsPhonePreview, {
@@ -141,7 +141,7 @@ export default function MessageComposerPanel({
   const isAdChannel = value.channel === "sms" || value.channel === "both";
 
   return (
-    <div className="grid grid-cols-[1fr_auto] gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 items-start">
       {/* ── 왼쪽: 작성 폼 ─────────────────────────────── */}
       <div className="space-y-4">
 

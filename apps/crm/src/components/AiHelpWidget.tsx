@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 export default function AiHelpWidget() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   // ESC 닫기
   useEffect(() => {
@@ -20,13 +21,15 @@ export default function AiHelpWidget() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 외부 클릭 닫기
+  // 외부 클릭 닫기 — 플로팅 버튼은 panel 밖이지만 토글 onClick 이 있으므로
+  // 외부 클릭으로도 잡지 않음 (잡으면 닫혔다가 onClick 으로 다시 열림)
   useEffect(() => {
     if (!open) return;
     function onClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setOpen(false);
     }
     setTimeout(() => document.addEventListener("mousedown", onClick), 100);
     return () => document.removeEventListener("mousedown", onClick);
@@ -38,7 +41,8 @@ export default function AiHelpWidget() {
       <div
         ref={panelRef}
         className={cn(
-          "fixed bottom-20 right-5 z-50 w-[380px] max-w-[calc(100vw-24px)]",
+          // 모바일: 하단 탭바(h-14) + 여백 → bottom-36. 데스크톱: bottom-20.
+          "fixed bottom-36 md:bottom-20 right-5 z-50 w-[380px] max-w-[calc(100vw-24px)]",
           "rounded-2xl overflow-hidden shadow-2xl border border-border",
           "transition-all duration-300 origin-bottom-right",
           open
@@ -68,9 +72,11 @@ export default function AiHelpWidget() {
 
       {/* 플로팅 버튼 */}
       <button
+        ref={buttonRef}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "fixed bottom-5 right-5 z-50",
+          // 모바일: 탭바(h-14) 위에 떠야 하니 bottom-20. 데스크톱: bottom-5.
+          "fixed bottom-20 md:bottom-5 right-5 z-50",
           "flex items-center gap-2 rounded-full shadow-xl transition-all duration-200",
           open
             ? "bg-muted text-muted-foreground px-4 py-2.5 text-sm font-medium"

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,39 +49,79 @@ function isSessionBased(planType?: PlanType | null) {
 }
 
 export function NewMembershipDialog({ open, onClose, member, activeMembership }: Props) {
+  if (!open) return null;
+  return <NewMembershipDialogLoader onClose={onClose} member={member} activeMembership={activeMembership} />;
+}
+
+// 프리셋이 로드된 후에야 Body 를 mount → useState 초기값으로 default preset 적용
+function NewMembershipDialogLoader({ onClose, member, activeMembership }: Omit<Props, "open">) {
+  const presetsQ = useQuery({
+    queryKey: ["branch-plan-presets-active", member.branch_id],
+    queryFn: () => listBranchPlanPresets(member.branch_id, false),
+    staleTime: 60_000,
+  });
+
+  if (presetsQ.isLoading) {
+    return (
+      <Dialog open={true} onClose={onClose} title="이용권 등록">
+        <div className="grid grid-cols-2 gap-2 py-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-[72px] rounded-xl bg-muted animate-pulse" />
+          ))}
+        </div>
+      </Dialog>
+    );
+  }
+
+  return (
+    <NewMembershipDialogBody
+      onClose={onClose}
+      member={member}
+      activeMembership={activeMembership}
+      allPresets={presetsQ.data ?? []}
+    />
+  );
+}
+
+function NewMembershipDialogBody({
+  onClose,
+  member,
+  activeMembership,
+  allPresets,
+}: Omit<Props, "open"> & { allPresets: BranchPlanPreset[] }) {
   const qc = useQueryClient();
 
   // ── 탭 모드 (신규 / 연장)
   const canExtend = !!activeMembership && activeMembership.status === "active";
-  const [tabMode, setTabMode] = useState<TabMode>(canExtend ? "extend" : "new");
+  const initialTab: TabMode = canExtend ? "extend" : "new";
+  const initialStartDate =
+    initialTab === "extend" && activeMembership?.end_date
+      ? addDays(activeMembership.end_date, 1)
+      : todayIso();
+
+  // ── 기본 프리셋: 첫 번째
+  const defaultPreset = allPresets[0] ?? null;
+
+  const [tabMode, setTabMode] = useState<TabMode>(initialTab);
 
   // ── 카테고리 필터
   const [categoryFilter, setCategoryFilter] = useState<PlanType | "all">("all");
 
   // ── 플랜 선택
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(defaultPreset?.id ?? null);
   const [isCustom, setIsCustom] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customPlanType, setCustomPlanType] = useState<PlanType>("period");
 
-  // ── 기간/세션/가격
-  const [days, setDays] = useState(30);
-  const [price, setPrice] = useState(0);
-  const [maxSessions, setMaxSessions] = useState<number | "">(10);
+  // ── 기간/세션/가격 (기본 프리셋 기반)
+  const [days, setDays] = useState(defaultPreset?.days ?? 30);
+  const [price, setPrice] = useState(defaultPreset ? Number(defaultPreset.price) : 0);
+  const [maxSessions, setMaxSessions] = useState<number | "">(defaultPreset?.max_sessions ?? 10);
 
   // ── 날짜
-  const [startDate, setStartDate] = useState(todayIso());
+  const [startDate, setStartDate] = useState(initialStartDate);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("paid");
   const [error, setError] = useState<string | null>(null);
-
-  // ── 지점 플랜 프리셋 로드
-  const presetsQ = useQuery({
-    queryKey: ["branch-plan-presets-active", member.branch_id],
-    queryFn: () => listBranchPlanPresets(member.branch_id, false),
-    staleTime: 60_000,
-    enabled: open,
-  });
-  const allPresets = presetsQ.data ?? [];
 
   // ── 카테고리 필터링
   const presets = useMemo<BranchPlanPreset[]>(() => {
@@ -94,62 +134,13 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
   const activePlanType: PlanType | null = isCustom ? customPlanType : (selectedPreset?.plan_type ?? null);
 
   // ── 연장 시작일 계산
-  const extendStartDate = useMemo(() => {
-    if (tabMode === "extend" && activeMembership?.end_date) {
-      return addDays(activeMembership.end_date, 1);
-    }
-    return todayIso();
-  }, [tabMode, activeMembership?.end_date]);
-
-  const endDate = useMemo(() => addDays(startDate, days), [startDate, days]);
-  const planName = isCustom ? customName : (selectedPreset?.name ?? "");
-
-  // ── 다이얼로그 열릴 때 초기화
-  useEffect(() => {
-    if (!open) return;
-    const mode = canExtend ? "extend" : "new";
-    setTabMode(mode);
-    setCategoryFilter("all");
-    setSelectedPresetId(null);
-    setIsCustom(false);
-    setCustomName("");
-    setCustomPlanType("period");
-    setDays(30);
-    setPrice(0);
-    setMaxSessions(10);
-    setStartDate(mode === "extend" && activeMembership?.end_date
+  const extendStartDate =
+    tabMode === "extend" && activeMembership?.end_date
       ? addDays(activeMembership.end_date, 1)
-      : todayIso()
-    );
-    setPaymentStatus("paid");
-    setError(null);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+      : todayIso();
 
-  // ── 탭 변경 시 시작일 업데이트
-  useEffect(() => {
-    if (tabMode === "extend" && activeMembership?.end_date) {
-      setStartDate(addDays(activeMembership.end_date, 1));
-    } else {
-      setStartDate(todayIso());
-    }
-  }, [tabMode, activeMembership?.end_date]);
-
-  // ── 프리셋 로드 완료 시 첫 번째 자동 선택
-  useEffect(() => {
-    if (open && presets.length > 0 && !selectedPresetId && !isCustom) {
-      applyPreset(presets[0]!);
-    }
-  }, [open, presets.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── 카테고리 변경 시 첫 번째 프리셋 선택
-  useEffect(() => {
-    if (presets.length > 0) {
-      applyPreset(presets[0]!);
-      setIsCustom(false);
-    } else if (categoryFilter !== "all") {
-      setSelectedPresetId(null);
-    }
-  }, [categoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const endDate = addDays(startDate, days);
+  const planName = isCustom ? customName : (selectedPreset?.name ?? "");
 
   function applyPreset(p: BranchPlanPreset) {
     setSelectedPresetId(p.id);
@@ -166,6 +157,25 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
   function handleCustomSelect() {
     setIsCustom(true);
     setSelectedPresetId(null);
+  }
+
+  function handleTabChange(mode: TabMode) {
+    setTabMode(mode);
+    setStartDate(
+      mode === "extend" && activeMembership?.end_date
+        ? addDays(activeMembership.end_date, 1)
+        : todayIso()
+    );
+  }
+
+  function handleCategoryChange(cat: PlanType | "all") {
+    setCategoryFilter(cat);
+    const filtered = cat === "all" ? allPresets : allPresets.filter((p) => p.plan_type === cat);
+    if (filtered.length > 0) {
+      applyPreset(filtered[0]!);
+    } else if (cat !== "all") {
+      setSelectedPresetId(null);
+    }
   }
 
   const mutation = useMutation({
@@ -206,7 +216,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
   const dialogTitle = tabMode === "extend" ? "이용권 연장" : "이용권 등록";
 
   return (
-    <Dialog open={open} onClose={onClose} title={dialogTitle}>
+    <Dialog open={true} onClose={onClose} title={dialogTitle}>
       <form onSubmit={handleSubmit} className="space-y-5">
 
         {/* 회원 정보 */}
@@ -229,7 +239,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
               <button
                 key={mode}
                 type="button"
-                onClick={() => setTabMode(mode)}
+                onClick={() => handleTabChange(mode)}
                 className={cn(
                   "flex-1 py-2 text-sm font-semibold transition-colors",
                   tabMode === mode
@@ -258,7 +268,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
             <button
               type="button"
-              onClick={() => setCategoryFilter("all")}
+              onClick={() => handleCategoryChange("all")}
               className={cn(
                 "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition-all",
                 categoryFilter === "all"
@@ -275,7 +285,7 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
                 <button
                   key={type}
                   type="button"
-                  onClick={() => setCategoryFilter(type)}
+                  onClick={() => handleCategoryChange(type)}
                   className={cn(
                     "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition-all",
                     categoryFilter === type
@@ -294,28 +304,20 @@ export function NewMembershipDialog({ open, onClose, member, activeMembership }:
         <div>
           <Label className="mb-2 block">플랜 선택</Label>
 
-          {presetsQ.isLoading && (
-            <div className="grid grid-cols-2 gap-2">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-[72px] rounded-xl bg-muted animate-pulse" />
-              ))}
-            </div>
-          )}
-
-          {!presetsQ.isLoading && allPresets.length === 0 && (
+          {allPresets.length === 0 && (
             <div className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
               등록된 플랜이 없습니다.{" "}
               <span className="text-primary font-semibold">지점 설정</span>에서 플랜을 추가하세요.
             </div>
           )}
 
-          {!presetsQ.isLoading && allPresets.length > 0 && presets.length === 0 && (
+          {allPresets.length > 0 && presets.length === 0 && (
             <div className="rounded-xl border border-dashed border-border px-4 py-3 text-center text-sm text-muted-foreground">
               이 카테고리에 플랜이 없습니다.
             </div>
           )}
 
-          {!presetsQ.isLoading && presets.length > 0 && (
+          {presets.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
               {presets.map((p) => {
                 const isSelected = !isCustom && selectedPresetId === p.id;

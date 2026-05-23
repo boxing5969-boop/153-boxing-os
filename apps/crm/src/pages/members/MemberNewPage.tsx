@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { listBranches, listCoaches } from "@/services/lookups";
 import { createMember } from "@/services/members";
@@ -27,9 +27,9 @@ function formatPhoneInput(v: string): string {
 
 function SectionTitle({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
   return (
-    <div className="flex items-center gap-2 mb-4">
-      <div className="flex size-6 items-center justify-center rounded-md bg-primary/10">
-        <Icon className="size-3.5 text-primary" />
+    <div className="mb-5 flex items-center gap-2.5">
+      <div className="flex size-8 items-center justify-center rounded-xl bg-primary/10">
+        <Icon className="size-4 text-primary" />
       </div>
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
     </div>
@@ -45,24 +45,24 @@ interface SuccessViewProps {
 function SuccessView({ memberId, memberName, onRegisterMembership }: SuccessViewProps) {
   const navigate = useNavigate();
   return (
-    <div className="flex flex-col items-center gap-6 py-10 text-center">
-      <div className="flex size-16 items-center justify-center rounded-full bg-success/10">
-        <CheckCircle2 className="size-8 text-success" />
+    <div className="flex flex-col items-center gap-6 py-12 text-center">
+      <div className="flex size-20 items-center justify-center rounded-full bg-success/10 shadow-card">
+        <CheckCircle2 className="size-9 text-success" />
       </div>
       <div>
-        <h2 className="text-xl font-black text-foreground">
+        <h2 className="text-2xl font-black tracking-tight text-foreground">
           {memberName}님 등록 완료!
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1.5 text-sm text-muted-foreground">
           이용권을 바로 등록하시겠어요?
         </p>
       </div>
-      <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
-        <Button className="flex-1 gap-2" onClick={onRegisterMembership}>
+      <div className="flex w-full max-w-sm flex-col gap-3 sm:flex-row">
+        <Button className="h-11 flex-1 gap-2 rounded-full" onClick={onRegisterMembership}>
           <CreditCard className="size-4" />
           이용권 바로 등록
         </Button>
-        <Button variant="outline" className="flex-1 gap-2" onClick={() => navigate(`/members/${memberId}`)}>
+        <Button variant="outline" className="h-11 flex-1 gap-2 rounded-full" onClick={() => navigate(`/members/${memberId}`)}>
           회원 상세 보기
           <ChevronRight className="size-4" />
         </Button>
@@ -70,7 +70,7 @@ function SuccessView({ memberId, memberName, onRegisterMembership }: SuccessView
       <button
         type="button"
         onClick={() => navigate("/members")}
-        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
         목록으로 돌아가기
       </button>
@@ -79,6 +79,12 @@ function SuccessView({ memberId, memberName, onRegisterMembership }: SuccessView
 }
 
 export default function MemberNewPage() {
+  const { profile } = useAuth();
+  // profile.branch_id 가 늦게 로드되면 fresh mount 되도록 key 로 분리
+  return <MemberNewPageBody key={profile?.branch_id ?? "_loading"} />;
+}
+
+function MemberNewPageBody() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile } = useAuth();
@@ -101,10 +107,6 @@ export default function MemberNewPage() {
   const [error, setError] = useState<string | null>(null);
   const [createdMember, setCreatedMember] = useState<{ id: string; name: string } | null>(null);
   const [showMembershipDialog, setShowMembershipDialog] = useState(false);
-
-  useEffect(() => {
-    if (!isHq && profile?.branch_id) setBranchId(profile.branch_id);
-  }, [isHq, profile?.branch_id]);
 
   const selectedBranch = useMemo(
     () => branchesQuery.data?.find((b) => b.id === branchId) ?? null,
@@ -179,7 +181,7 @@ export default function MemberNewPage() {
       </div>
 
       {createdMember ? (
-        <Card className="p-6">
+        <Card className="rounded-2xl p-6">
           <SuccessView
             memberId={createdMember.id}
             memberName={createdMember.name}
@@ -192,8 +194,8 @@ export default function MemberNewPage() {
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* 기본 정보 섹션 */}
-          <Card>
-            <CardContent className="pt-5">
+          <Card className="rounded-2xl">
+            <CardContent className="pt-6">
               <SectionTitle icon={User2} title="기본 정보" />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* 이름 */}
@@ -256,9 +258,9 @@ export default function MemberNewPage() {
                         type="button"
                         onClick={() => setGender(opt.value)}
                         className={cn(
-                          "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
+                          "flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
                           gender === opt.value
-                            ? "border-primary bg-primary/10 text-primary"
+                            ? "border-primary bg-primary/10 text-primary shadow-card"
                             : "border-border bg-card text-muted-foreground hover:border-primary/50"
                         )}
                       >
@@ -272,8 +274,8 @@ export default function MemberNewPage() {
           </Card>
 
           {/* 등록 설정 섹션 */}
-          <Card>
-            <CardContent className="pt-5">
+          <Card className="rounded-2xl">
+            <CardContent className="pt-6">
               <SectionTitle icon={Users} title="등록 설정" />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* 초기 상태 */}
@@ -291,9 +293,9 @@ export default function MemberNewPage() {
                         type="button"
                         onClick={() => setStatus(opt.value as MemberStatus)}
                         className={cn(
-                          "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
+                          "flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
                           status === opt.value
-                            ? "border-primary bg-primary/10 text-primary"
+                            ? "border-primary bg-primary/10 text-primary shadow-card"
                             : "border-border bg-card text-muted-foreground hover:border-primary/50"
                         )}
                       >
@@ -322,7 +324,7 @@ export default function MemberNewPage() {
                       ))}
                     </Select>
                   ) : (
-                    <div className="flex h-10 items-center rounded-lg border border-border bg-muted/40 px-3 text-sm text-muted-foreground">
+                    <div className="flex h-10 items-center rounded-xl border border-border bg-muted/40 px-3 text-sm text-muted-foreground">
                       {branchLabel}
                     </div>
                   )}
@@ -352,8 +354,8 @@ export default function MemberNewPage() {
 
           {/* 에러 */}
           {error && (
-            <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
-              <div className="size-1.5 rounded-full bg-danger shrink-0" />
+            <div className="flex items-center gap-2 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 shadow-card">
+              <div className="size-1.5 shrink-0 rounded-full bg-danger" />
               <p className="text-sm text-danger">{error}</p>
             </div>
           )}
@@ -363,11 +365,11 @@ export default function MemberNewPage() {
             <Button
               type="submit"
               disabled={createMutation.isPending || !name.trim()}
-              className="gap-2 px-6"
+              className="h-11 gap-2 rounded-full px-7"
             >
               {createMutation.isPending ? (
                 <>
-                  <span className="size-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                   등록 중…
                 </>
               ) : (
@@ -375,7 +377,7 @@ export default function MemberNewPage() {
               )}
             </Button>
             <Link to="/members">
-              <Button type="button" variant="ghost" className="text-muted-foreground">
+              <Button type="button" variant="ghost" className="rounded-full text-muted-foreground">
                 취소
               </Button>
             </Link>

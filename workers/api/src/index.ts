@@ -29,12 +29,21 @@ const app = new Hono<{ Bindings: Env }>();
 app.use("*", corsMiddleware);
 app.onError(errorHandler);
 
-app.get("/health", (c) =>
-  c.json({
-    success: true,
-    data: { ok: true, environment: c.env.ENVIRONMENT, time: new Date().toISOString() },
-  })
-);
+const VERSION = "1.0.0-beta";
+
+const healthResponse = (env: Env) => ({
+  success: true,
+  data: {
+    ok: true,
+    environment: env.ENVIRONMENT,
+    version: VERSION,
+    time: new Date().toISOString(),
+  },
+});
+
+app.get("/health", (c) => c.json(healthResponse(c.env)));
+// alias — 외부 모니터링 도구가 /api/* 만 통과시키도록 라우팅한 경우 대비
+app.get("/api/health", (c) => c.json(healthResponse(c.env)));
 
 app.route("/api/access", accessRoutes);
 app.route("/api/devices", devicesRoutes);

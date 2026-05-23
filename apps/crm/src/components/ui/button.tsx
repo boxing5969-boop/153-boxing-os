@@ -16,9 +16,11 @@ const variantClasses: Record<ButtonVariant, string> = {
   destructive: "bg-danger text-danger-foreground hover:opacity-90 shadow-sm",
 };
 
+// 모바일에서 sm/md 는 살짝 키워 iOS 권장 44pt 터치 영역에 접근.
+// icon 버튼은 표시 영역 자체가 작으므로 그대로 유지.
 const sizeClasses: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-xs",
-  md: "h-10 px-4 text-sm",
+  sm: "h-9 px-3 text-xs sm:h-8",
+  md: "h-11 px-4 text-sm sm:h-10",
   lg: "h-12 px-6 text-base",
   icon: "h-10 w-10",
 };
@@ -29,9 +31,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       type={type}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors",
+        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all",
+        "active:scale-[0.97]",
         "focus:outline-none focus:ring-2 focus:ring-foreground/20",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100",
         variantClasses[variant],
         sizeClasses[size],
         className

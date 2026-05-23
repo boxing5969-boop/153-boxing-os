@@ -2,7 +2,6 @@
  * 실시간 SMS/LMS/MMS/카카오 미리보기 — 스마트폰 프레임 렌더링
  */
 import { useMemo } from "react";
-import { Image } from "lucide-react";
 import type { MsgChannel } from "@/services/messaging";
 
 // ── 바이트 계산 (EUC-KR 기준: 한글 2byte, ASCII 1byte) ─────────────

@@ -1,10 +1,9 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { createBranch, updateBranch, type BranchDetail, type BranchStats } from "@/services/branches";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
@@ -17,23 +16,23 @@ interface Props {
 }
 
 export default function BranchFormDialog({ open, onClose, onSuccess, branch }: Props) {
+  if (!open) return null;
+  return <BranchFormDialogBody onClose={onClose} onSuccess={onSuccess} branch={branch} />;
+}
+
+function BranchFormDialogBody({
+  onClose,
+  onSuccess,
+  branch,
+}: Omit<Props, "open">) {
   const { profile } = useAuth();
   const isEdit = !!branch;
 
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [phone, setPhone] = useState("");
-  const [status, setStatus] = useState("active");
+  const [name, setName] = useState(branch?.name ?? "");
+  const [address, setAddress] = useState(branch?.address ?? "");
+  const [phone, setPhone] = useState(branch?.phone ?? "");
+  const [status, setStatus] = useState(branch?.status ?? "active");
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setName(branch?.name ?? "");
-    setAddress(branch?.address ?? "");
-    setPhone(branch?.phone ?? "");
-    setStatus(branch?.status ?? "active");
-    setError(null);
-  }, [open, branch]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -62,7 +61,7 @@ export default function BranchFormDialog({ open, onClose, onSuccess, branch }: P
   ];
 
   return (
-    <Dialog open={open} onClose={onClose} title={isEdit ? "지점 편집" : "지점 추가"}>
+    <Dialog open={true} onClose={onClose} title={isEdit ? "지점 편집" : "지점 추가"}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="branch-name">지점명 <span className="text-danger">*</span></Label>

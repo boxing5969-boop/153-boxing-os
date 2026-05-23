@@ -3,12 +3,12 @@ import { Button } from "@/components/ui/button";
 
 export default function NotFoundPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="text-center space-y-4">
-        <h1 className="text-3xl font-bold">404</h1>
-        <p className="text-sm opacity-70">페이지를 찾을 수 없습니다.</p>
+    <main className="flex min-h-screen items-center justify-center p-6">
+      <div className="space-y-4 text-center">
+        <h1 className="text-4xl font-black tracking-tight text-foreground">404</h1>
+        <p className="text-sm text-muted-foreground">페이지를 찾을 수 없습니다.</p>
         <Link to="/">
-          <Button>대시보드로 이동</Button>
+          <Button className="h-11 gap-2 rounded-full px-6">대시보드로 이동</Button>
         </Link>
       </div>
     </main>

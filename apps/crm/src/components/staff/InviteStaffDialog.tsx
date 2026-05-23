@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Check, AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -24,6 +24,11 @@ interface Props {
 const BRANCH_REQUIRED: UserRole[] = ["branch_owner", "branch_manager", "coach"];
 
 export function InviteStaffDialog({ open, onClose }: Props) {
+  if (!open) return null;
+  return <InviteStaffDialogBody onClose={onClose} />;
+}
+
+function InviteStaffDialogBody({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
@@ -48,23 +53,8 @@ export function InviteStaffDialog({ open, onClose }: Props) {
   const branchesQuery = useQuery({
     queryKey: ["branches"],
     queryFn: listBranches,
-    enabled: open,
     staleTime: 60_000,
   });
-
-  useEffect(() => {
-    if (!open) return;
-    setStep("form");
-    setEmail("");
-    setName("");
-    setRole("coach");
-    setBranchId("");
-    setPhone("");
-    setError(null);
-    setResult(null);
-    setAcknowledged(false);
-    setCopiedField(null);
-  }, [open]);
 
   const mutation = useMutation({
     mutationFn: inviteStaff,
@@ -117,7 +107,7 @@ export function InviteStaffDialog({ open, onClose }: Props) {
 
   return (
     <Dialog
-      open={open}
+      open={true}
       onClose={handleClose}
       title={step === "form" ? "직원 초대" : "초대 완료 — 임시 비밀번호 1회 노출"}
       className="max-w-lg"

@@ -17,6 +17,29 @@ import { cn } from "@/lib/cn";
 
 const AUTO_RESET_SECONDS = 30;
 
+// AutoResetCountdown: summary/not_found 뷰가 마운트되는 동안만 카운트다운 — 외부 시스템(setInterval)을 useEffect 안에서 관리
+function AutoResetCountdown({ onExpire }: { onExpire: () => void }) {
+  const [secondsLeft, setSecondsLeft] = useState(AUTO_RESET_SECONDS);
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          clearInterval(id);
+          onExpireRef.current();
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{secondsLeft}초 후 자동 초기화</>;
+}
+
 type ViewState =
   | { kind: "input" }
   | { kind: "loading" }
@@ -30,30 +53,10 @@ export default function KioskHomePage() {
   const [phoneSuffix, setPhoneSuffix] = useState("");
   const [view, setView] = useState<ViewState>({ kind: "input" });
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (view.kind === "summary" || view.kind === "not_found") {
-      setSecondsLeft(AUTO_RESET_SECONDS);
-      const id = setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s === null || s <= 1) {
-            clearInterval(id);
-            reset();
-            return null;
-          }
-          return s - 1;
-        });
-      }, 1000);
-      return () => clearInterval(id);
-    }
-    setSecondsLeft(null);
-    return;
-  }, [view.kind]);
 
   if (authLoading) {
     return (
-      <main className="min-h-screen flex items-center justify-center text-sm opacity-70">
+      <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
         로딩 중…
       </main>
     );
@@ -113,14 +116,14 @@ export default function KioskHomePage() {
 
   return (
     <main className="min-h-screen flex flex-col bg-background text-foreground">
-      <header className="border-b border-foreground/10 px-6 py-3 flex items-center justify-between">
+      <header className="flex items-center justify-between border-b border-border px-6 py-3">
         <div>
           <h1 className="text-xl font-bold">153 BOXING — 회원 정보</h1>
-          <p className="text-xs opacity-60">
+          <p className="text-xs text-muted-foreground">
             {profile.name} ({profile.role}) · 키오스크 모드
           </p>
         </div>
-        <Link to="/" className="text-xs opacity-70 underline flex items-center gap-1">
+        <Link to="/" className="flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:underline">
           <ArrowLeft className="size-3" />
           CRM 으로
         </Link>
@@ -130,7 +133,7 @@ export default function KioskHomePage() {
         <div className="w-full max-w-md space-y-6">
           {view.kind === "input" && (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="block text-center text-base opacity-80" htmlFor="kphone">
+              <label className="block text-center text-base text-muted-foreground" htmlFor="kphone">
                 휴대폰 뒷자리 4자리를 입력하세요
               </label>
               <Input
@@ -142,11 +145,11 @@ export default function KioskHomePage() {
                 value={phoneSuffix}
                 onChange={(e) => setPhoneSuffix(e.target.value.replace(/[^0-9]/g, ""))}
                 placeholder="1234"
-                className="h-16 text-center text-3xl font-mono tracking-widest"
+                className="h-16 rounded-2xl text-center font-mono text-3xl tracking-widest"
                 autoFocus
                 maxLength={11}
               />
-              <Button type="submit" size="lg" className="w-full h-14 text-lg">
+              <Button type="submit" size="lg" className="h-14 w-full rounded-2xl text-lg">
                 <Search className="size-5" />
                 조회
               </Button>
@@ -154,28 +157,28 @@ export default function KioskHomePage() {
           )}
 
           {view.kind === "loading" && (
-            <div className="text-center text-lg opacity-70 py-12">조회 중…</div>
+            <div className="py-12 text-center text-lg text-muted-foreground">조회 중…</div>
           )}
 
           {view.kind === "multiple" && (
             <div className="space-y-3">
               <h2 className="text-base font-semibold">동일 뒷자리 회원이 여러 명입니다</h2>
-              <p className="text-sm opacity-70">본인의 정보를 선택하세요</p>
+              <p className="text-sm text-muted-foreground">본인의 정보를 선택하세요</p>
               <ul className="space-y-2">
                 {view.candidates.map((c) => (
                   <li key={c.id}>
                     <button
                       type="button"
-                      className="w-full rounded-lg border border-foreground/20 p-4 text-left hover:bg-foreground/5"
+                      className="w-full rounded-2xl border border-border bg-card p-5 text-left shadow-card transition-colors hover:bg-muted/40"
                       onClick={() => handleSelectCandidate(c.id)}
                     >
                       <div className="font-medium">{maskName(c.name)}</div>
-                      <div className="text-xs opacity-70 mt-1">{maskPhone(c.phone)}</div>
+                      <div className="mt-1 text-xs text-muted-foreground tabular">{maskPhone(c.phone)}</div>
                     </button>
                   </li>
                 ))}
               </ul>
-              <Button variant="outline" onClick={reset} className="w-full">
+              <Button variant="outline" onClick={reset} className="h-11 w-full rounded-full">
                 <RotateCcw className="size-4" />
                 다시 조회
               </Button>
@@ -183,21 +186,21 @@ export default function KioskHomePage() {
           )}
 
           {view.kind === "summary" && (
-            <SummaryView summary={view.summary} secondsLeft={secondsLeft} onReset={reset} />
+            <SummaryView summary={view.summary} onReset={reset} onAutoReset={reset} />
           )}
 
           {view.kind === "not_found" && (
             <div className="space-y-4 text-center">
-              <div className="rounded-full bg-yellow-100 p-6 inline-block">
-                <Search className="size-10 text-yellow-700" />
+              <div className="inline-block rounded-2xl bg-warning/10 p-6 shadow-card">
+                <Search className="size-10 text-warning" />
               </div>
               <p className="text-lg">해당 뒷자리 회원이 없습니다</p>
-              <p className="text-sm opacity-70">
+              <p className="text-sm text-muted-foreground">
                 정확한 4자리 또는 전체 번호로 다시 조회해주세요. 신규 등록은 카운터에 문의.
               </p>
-              {secondsLeft !== null && (
-                <p className="text-xs opacity-60">{secondsLeft}초 후 자동 초기화</p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                <AutoResetCountdown onExpire={reset} />
+              </p>
               <Button onClick={reset} size="lg" className="w-full">
                 <RotateCcw className="size-4" />
                 다시 조회
@@ -224,12 +227,12 @@ export default function KioskHomePage() {
 
 function SummaryView({
   summary,
-  secondsLeft,
   onReset,
+  onAutoReset,
 }: {
   summary: KioskSummary;
-  secondsLeft: number | null;
   onReset: () => void;
+  onAutoReset: () => void;
 }) {
   return (
     <div className="space-y-5">
@@ -261,7 +264,7 @@ function SummaryView({
               <span
                 className={cn(
                   summary.days_remaining <= 3
-                    ? "text-red-600 font-bold"
+                    ? "font-bold text-danger"
                     : summary.days_remaining <= 7
                       ? "text-yellow-600 font-bold"
                       : ""
@@ -282,10 +285,10 @@ function SummaryView({
           <Row
             label="최근 방문"
             value={
-              <span className="opacity-80">
+              <span className="text-muted-foreground">
                 {formatDateTime(summary.last_visit_at)}
                 {summary.last_visit_result === "denied" && (
-                  <span className="ml-2 text-red-600">(거절)</span>
+                  <span className="ml-2 text-danger">(거절)</span>
                 )}
               </span>
             }
@@ -293,13 +296,11 @@ function SummaryView({
         )}
       </div>
 
-      {secondsLeft !== null && (
-        <p className="text-xs text-center opacity-60">
-          {secondsLeft}초 후 자동 초기화
-        </p>
-      )}
+      <p className="text-center text-xs text-muted-foreground tabular">
+        <AutoResetCountdown onExpire={onAutoReset} />
+      </p>
 
-      <Button onClick={onReset} size="lg" className="w-full h-14 text-lg" variant="outline">
+      <Button onClick={onReset} size="lg" className="h-14 w-full rounded-2xl text-lg" variant="outline">
         <RotateCcw className="size-4" />
         다시 조회
       </Button>
@@ -309,9 +310,9 @@ function SummaryView({
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-foreground/5 pb-2 last:border-b-0 last:pb-0">
-      <span className="opacity-60">{label}</span>
-      <span>{value}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-b-0 last:pb-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }

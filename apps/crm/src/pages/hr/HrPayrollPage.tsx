@@ -144,8 +144,8 @@ export default function HrPayrollPage() {
           </div>
 
           {summary ? (
-            <Card>
-              <CardContent className="pt-5">
+            <Card className="rounded-2xl">
+              <CardContent className="pt-6">
                 {summary.monthly.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">급여 데이터가 없습니다</p>
                 ) : (
@@ -170,7 +170,7 @@ export default function HrPayrollPage() {
                       })}
                     </div>
                     {/* 연간 합계 */}
-                    <div className="grid grid-cols-3 gap-4 pt-3 border-t border-border text-center">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-3 border-t border-border text-center">
                       <div>
                         <p className="text-xs text-muted-foreground">연간 총 인건비</p>
                         <p className="text-lg font-bold text-foreground">{formatKRW(summary.annual_total)}</p>
@@ -191,7 +191,7 @@ export default function HrPayrollPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="h-36 flex items-center justify-center text-muted-foreground text-sm">
+            <Card className="flex h-36 items-center justify-center rounded-2xl text-sm text-muted-foreground">
               {!branchId ? "직원을 등록하면 인건비 현황이 표시됩니다" : "급여 명세 데이터가 없습니다"}
             </Card>
           )}
@@ -206,8 +206,8 @@ export default function HrPayrollPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 입력 패널 */}
-            <Card>
-              <CardContent className="pt-5 space-y-4">
+            <Card className="rounded-2xl">
+              <CardContent className="space-y-4 pt-6">
                 {/* 직원 / 년월 */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 space-y-1.5">
@@ -291,7 +291,7 @@ export default function HrPayrollPage() {
                 </div>
 
                 <Button
-                  className="w-full gap-2"
+                  className="h-11 w-full gap-2 rounded-full"
                   onClick={() => calcMutation.mutate()}
                   disabled={(!calcForm.base_pay && !calcForm.hourly_wage) || calcMutation.isPending}
                 >
@@ -302,8 +302,8 @@ export default function HrPayrollPage() {
             </Card>
 
             {/* 결과 패널 */}
-            <Card>
-              <CardContent className="pt-5">
+            <Card className="rounded-2xl">
+              <CardContent className="pt-6">
                 {!calcResult ? (
                   <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 py-12">
                     <Calculator className="size-10 opacity-30" />
@@ -318,11 +318,11 @@ export default function HrPayrollPage() {
                     </button>
                     {showDetail && (
                       <div className="w-full text-xs border border-border rounded-lg overflow-hidden">
-                        <div className="grid grid-cols-3 bg-muted px-3 py-1.5 font-semibold text-muted-foreground">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 bg-muted px-3 py-1.5 font-semibold text-muted-foreground">
                           <span>항목</span><span className="text-center">근로자</span><span className="text-center">사업주</span>
                         </div>
                         {INSURANCE_RATES.map(r => (
-                          <div key={r.label} className="grid grid-cols-3 px-3 py-1.5 border-t border-border text-foreground">
+                          <div key={r.label} className="grid grid-cols-2 sm:grid-cols-3 px-3 py-1.5 border-t border-border text-foreground">
                             <span>{r.label}</span>
                             <span className="text-center">{r.employee}</span>
                             <span className="text-center">{r.employer}</span>

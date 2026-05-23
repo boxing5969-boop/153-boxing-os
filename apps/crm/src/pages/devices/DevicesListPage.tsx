@@ -2,9 +2,8 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "@/lib/errors";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, RefreshCw, Key } from "lucide-react";
+import { Plus, RefreshCw, Key, SlidersHorizontal, Cpu, ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
-import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -83,7 +82,7 @@ export default function DevicesListPage() {
         title="장비"
         description="단말기 목록 + 상태. 등록 시 발급된 api_key 는 1회만 노출되니 즉시 단말기 측에 입력하세요."
         action={
-          <Button onClick={() => setOpenNew(true)}>
+          <Button onClick={() => setOpenNew(true)} className="gap-2 rounded-full">
             <Plus className="size-4" />
             장비 등록
           </Button>
@@ -91,102 +90,99 @@ export default function DevicesListPage() {
       />
 
       {actionMessage && (
-        <p className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{actionMessage}</p>
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary shadow-card">
+          {actionMessage}
+        </div>
       )}
 
-      <Card className="p-4">
-        <Select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as DeviceStatus | "")}
-          className="max-w-xs"
-        >
-          <option value="">상태 전체</option>
-          {DEVICE_STATUS_VALUES.map((s) => (
-            <option key={s} value={s}>
-              {deviceStatusLabel(s)}
-            </option>
-          ))}
-        </Select>
-      </Card>
+      {/* 필터 */}
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5">
+          <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" />
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as DeviceStatus | "")}
+            className="min-w-[150px] max-w-xs border-0 bg-transparent px-1 shadow-none focus:ring-0"
+          >
+            <option value="">상태 전체</option>
+            {DEVICE_STATUS_VALUES.map((s) => (
+              <option key={s} value={s}>
+                {deviceStatusLabel(s)}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
-            <tr>
-              <th className="px-4 py-3">장비명</th>
-              <th className="px-4 py-3">지점</th>
-              <th className="px-4 py-3">종류</th>
-              <th className="px-4 py-3">벤더</th>
-              <th className="px-4 py-3">상태</th>
-              <th className="px-4 py-3">대기</th>
-              <th className="px-4 py-3">키 지문</th>
-              <th className="px-4 py-3">마지막 통신</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {devicesQuery.isLoading && (
-              <tr>
-                <td colSpan={9} className="px-4 py-12 text-center opacity-60">
-                  로딩 중…
-                </td>
-              </tr>
-            )}
-            {devicesQuery.isError && (
-              <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-red-600">
-                  오류:{" "}
-                  {errorMessage(devicesQuery.error)}
-                </td>
-              </tr>
-            )}
-            {!devicesQuery.isLoading &&
-              !devicesQuery.isError &&
-              (devicesQuery.data?.length ?? 0) === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center opacity-60">
-                    등록된 장비가 없습니다. 우상단 "장비 등록" 으로 시작하세요.
-                  </td>
-                </tr>
-              )}
+      {/* 장비 리스트 */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+        {devicesQuery.isLoading && (
+          <div className="px-5 py-16 text-center text-sm text-muted-foreground">로딩 중…</div>
+        )}
+        {devicesQuery.isError && (
+          <div className="px-5 py-16 text-center text-sm text-danger">
+            오류: {errorMessage(devicesQuery.error)}
+          </div>
+        )}
+        {!devicesQuery.isLoading && !devicesQuery.isError && (devicesQuery.data?.length ?? 0) === 0 && (
+          <div className="flex flex-col items-center gap-2 px-5 py-16 text-center">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+              <Cpu className="size-6 text-muted-foreground/60" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">등록된 장비가 없습니다</p>
+            <p className="text-xs text-muted-foreground">
+              우상단 "장비 등록"으로 시작하세요
+            </p>
+          </div>
+        )}
+        {!devicesQuery.isLoading && !devicesQuery.isError && (devicesQuery.data?.length ?? 0) > 0 && (
+          <ul className="divide-y divide-border/60">
             {(devicesQuery.data ?? []).map((d) => {
               const pending = pendingMap[d.id] ?? 0;
               const fingerprint = (d as { api_key_fingerprint?: string | null }).api_key_fingerprint;
               return (
-                <tr
+                <li
                   key={d.id}
-                  className="border-b border-foreground/5 hover:bg-foreground/5 cursor-pointer"
+                  className="group flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-muted/40"
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest("button")) return;
                     navigate(`/devices/${d.id}`);
                   }}
                 >
-                  <td className="px-4 py-3 font-medium">{d.device_name}</td>
-                  <td className="px-4 py-3 opacity-80">{d.branch_name ?? "—"}</td>
-                  <td className="px-4 py-3 opacity-80">{deviceTypeLabel(d.device_type)}</td>
-                  <td className="px-4 py-3 opacity-80">{deviceVendorLabel(d.vendor)}</td>
-                  <td className="px-4 py-3">
-                    <DeviceStatusBadge status={d.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {pending > 0 ? (
-                      <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-800">
-                        {pending}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-semibold text-foreground">{d.device_name}</span>
+                      <DeviceStatusBadge status={d.status} />
+                      {pending > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+                          <span className="size-1.5 rounded-full bg-warning" />
+                          대기 {pending}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span>{d.branch_name ?? "—"}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span>{deviceTypeLabel(d.device_type)}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span>{deviceVendorLabel(d.vendor)}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="tabular">
+                        {d.last_seen_at ? formatDateTime(d.last_seen_at) : "통신 없음"}
                       </span>
-                    ) : (
-                      <span className="opacity-60">0</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs opacity-70">
-                    {fingerprint ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 opacity-70">
-                    {d.last_seen_at ? formatDateTime(d.last_seen_at) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {fingerprint && (
+                        <>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span className="font-mono">{fingerprint}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <Button
                       size="sm"
                       variant="outline"
+                      className="h-8 gap-1 rounded-full px-3 text-xs"
                       disabled={forceSyncMutation.isPending}
                       onClick={() => {
                         setActionMessage(null);
@@ -195,22 +191,24 @@ export default function DevicesListPage() {
                     >
                       <RefreshCw className="size-3" />
                       동기화
-                    </Button>{" "}
+                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="h-8 gap-1 rounded-full px-3 text-xs"
                       onClick={() => setRotateConfirmId(d.id)}
                     >
                       <Key className="size-3" />
                       키 회전
                     </Button>
-                  </td>
-                </tr>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+                  </div>
+                </li>
               );
             })}
-          </tbody>
-        </table>
-      </Card>
+          </ul>
+        )}
+      </div>
 
       <NewDeviceDialog open={openNew} onClose={() => setOpenNew(false)} />
 
@@ -249,17 +247,17 @@ export default function DevicesListPage() {
       >
         {rotatedKey && (
           <div className="space-y-4">
-            <p className="rounded-md bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+            <p className="rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
               이 키는 다시 조회할 수 없습니다. 단말기 측에 즉시 입력하세요.
             </p>
-            <code className="block break-all rounded-md border border-foreground/20 bg-muted px-3 py-2 text-xs font-mono">
+            <code className="block break-all rounded-xl border border-border bg-muted px-3 py-2.5 font-mono text-xs">
               {rotatedKey.api_key}
             </code>
-            <p className="text-xs opacity-70">
-              지문: <code>{rotatedKey.api_key_fingerprint}</code>
+            <p className="text-xs text-muted-foreground">
+              지문: <code className="font-mono">{rotatedKey.api_key_fingerprint}</code>
             </p>
             <div className="flex justify-end">
-              <Button onClick={() => setRotatedKey(null)}>확인</Button>
+              <Button className="rounded-full" onClick={() => setRotatedKey(null)}>확인</Button>
             </div>
           </div>
         )}

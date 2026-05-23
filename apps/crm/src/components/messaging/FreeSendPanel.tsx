@@ -190,7 +190,7 @@ export default function FreeSendPanel() {
         {/* 수신자 */}
         <div className="space-y-2.5">
           <p className={SECTION_LABEL}>수신자</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <PickButton active={mode === "individual"} onClick={() => { setMode("individual"); reset(); }}
               title="개인" desc="회원 1명 검색 발송" />
             <PickButton active={mode === "active"} onClick={() => { setMode("active"); reset(); }}
@@ -297,7 +297,7 @@ export default function FreeSendPanel() {
           <p className="text-sm font-semibold text-foreground">발송 완료</p>
           {sentMsg && <p className="text-sm text-success">{sentMsg}</p>}
           {report && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 { label: "전체", value: report.total, tone: "text-foreground" },
                 { label: "성공", value: report.success, tone: "text-success" },

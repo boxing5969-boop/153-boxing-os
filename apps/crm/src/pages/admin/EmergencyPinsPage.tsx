@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { errorMessage } from "@/lib/errors";
+import { LoadingState, EmptyState, ErrorState } from "@/components/ui/states";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, Ban } from "lucide-react";
@@ -41,10 +42,6 @@ export default function EmergencyPinsPage() {
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-  if (profile && !ALLOWED_ROLES.has(profile.role)) {
-    return <Navigate to="/" replace />;
-  }
-
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["emergency-pins"],
     queryFn: listEmergencyPins,
@@ -64,13 +61,17 @@ export default function EmergencyPinsPage() {
     },
   });
 
+  if (profile && !ALLOWED_ROLES.has(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="비상 PIN"
         description="단말기 장애·본인확인 불가 시 발급. 발급된 PIN 은 1회만 노출되며, 단말기에서 credential_type=pin 으로 검증됩니다."
         action={
-          <Button onClick={() => setOpenIssue(true)}>
+          <Button onClick={() => setOpenIssue(true)} className="gap-2 rounded-full">
             <Plus className="size-4" />
             PIN 발급
           </Button>
@@ -78,12 +79,13 @@ export default function EmergencyPinsPage() {
       />
 
       {actionMsg && (
-        <p className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{actionMsg}</p>
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary shadow-card">{actionMsg}</div>
       )}
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
+      <Card className="overflow-hidden rounded-2xl">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px] text-sm">
+          <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-3">상태</th>
               <th className="px-4 py-3">지점</th>
@@ -97,28 +99,16 @@ export default function EmergencyPinsPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr>
-                <td colSpan={8} className="px-4 py-12 text-center opacity-60">
-                  로딩 중…
-                </td>
-              </tr>
+              <tr><td colSpan={8}><LoadingState /></td></tr>
             )}
             {isError && (
-              <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-red-600">
-                  오류: {errorMessage(error)}
-                </td>
-              </tr>
+              <tr><td colSpan={8}><ErrorState error={error} /></td></tr>
             )}
             {!isLoading && !isError && (data?.length ?? 0) === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-12 text-center opacity-60">
-                  발급 이력이 없습니다.
-                </td>
-              </tr>
+              <tr><td colSpan={8}><EmptyState icon={KeyRound} title="발급 이력이 없습니다" /></td></tr>
             )}
             {(data ?? []).map((p) => (
-              <tr key={p.id} className="border-b border-foreground/5">
+              <tr key={p.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
                 <td className="px-4 py-3">
                   <span
                     className={cn(
@@ -129,11 +119,11 @@ export default function EmergencyPinsPage() {
                     {EMERGENCY_PIN_STATUS_LABELS[p.status]}
                   </span>
                 </td>
-                <td className="px-4 py-3 opacity-80">{p.branch_name ?? "—"}</td>
-                <td className="px-4 py-3 opacity-80">{p.purpose ?? "—"}</td>
-                <td className="px-4 py-3 opacity-80">{p.issuer_name ?? "—"}</td>
-                <td className="px-4 py-3 opacity-70">{formatDateTime(p.issued_at)}</td>
-                <td className="px-4 py-3 opacity-70">{formatDateTime(p.expires_at)}</td>
+                <td className="px-4 py-3 text-muted-foreground">{p.branch_name ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{p.purpose ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{p.issuer_name ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDateTime(p.issued_at)}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDateTime(p.expires_at)}</td>
                 <td className="px-4 py-3">
                   {p.used_count} / {p.max_uses}
                 </td>
@@ -156,6 +146,7 @@ export default function EmergencyPinsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
 
       <IssueEmergencyPinDialog open={openIssue} onClose={() => setOpenIssue(false)} />
@@ -168,7 +159,7 @@ export default function EmergencyPinsPage() {
         title="PIN 취소"
         description={
           <span className="flex gap-2">
-            <KeyRound className="size-4 shrink-0 mt-0.5 opacity-60" />
+            <KeyRound className="size-4 shrink-0 mt-0.5 text-muted-foreground/60" />
             <span>PIN 을 즉시 무효화합니다. 발급 후 사용 전이라면 사용 불가가 됩니다.</span>
           </span>
         }

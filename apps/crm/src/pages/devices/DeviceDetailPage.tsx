@@ -77,10 +77,10 @@ export default function DeviceDetailPage() {
     },
   });
 
-  if (isLoading) return <p className="text-sm opacity-60">로딩 중…</p>;
+  if (isLoading) return <p className="text-sm text-muted-foreground">로딩 중…</p>;
   if (isError) {
     return (
-      <p className="text-sm text-red-600">
+      <p className="text-sm text-danger">
         오류: {errorMessage(error)}
       </p>
     );
@@ -114,7 +114,7 @@ export default function DeviceDetailPage() {
         description={
           <span className="flex items-center gap-2">
             <DeviceStatusBadge status={d.status} />
-            <span className="opacity-60">
+            <span className="text-muted-foreground">
               {d.branch_name ?? "지점 미지정"} · {deviceTypeLabel(d.device_type)} ·{" "}
               {deviceVendorLabel(d.vendor)}
             </span>
@@ -122,12 +122,13 @@ export default function DeviceDetailPage() {
         }
         action={
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/devices")}>
+            <Button variant="outline" className="gap-1.5 rounded-full" onClick={() => navigate("/devices")}>
               <ArrowLeft className="size-4" />
               목록으로
             </Button>
             <Button
               variant="outline"
+              className="gap-1.5 rounded-full"
               disabled={forceSyncMutation.isPending}
               onClick={() => forceSyncMutation.mutate(d.id)}
             >
@@ -136,6 +137,7 @@ export default function DeviceDetailPage() {
             </Button>
             <Button
               variant="ghost"
+              className="gap-1.5 rounded-full"
               disabled={rotateMutation.isPending}
               onClick={() => {
                 if (window.confirm("기존 키를 즉시 무효화합니다. 계속할까요?")) {
@@ -151,48 +153,50 @@ export default function DeviceDetailPage() {
       />
 
       {actionMsg && (
-        <p className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{actionMsg}</p>
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary shadow-card">
+          {actionMsg}
+        </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="rounded-2xl">
           <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80">기본 정보</h2>
+            <h2 className="text-sm font-semibold text-foreground">기본 정보</h2>
           </CardHeader>
           <CardContent>
-            <dl className="grid grid-cols-3 gap-y-2 text-sm">
-              <dt className="opacity-60">시리얼</dt>
-              <dd className="col-span-2 break-all">{d.device_identifier ?? "—"}</dd>
-              <dt className="opacity-60">모델</dt>
-              <dd className="col-span-2">{d.model_name ?? "—"}</dd>
-              <dt className="opacity-60">API URL</dt>
-              <dd className="col-span-2 break-all opacity-80">{d.api_endpoint ?? "—"}</dd>
-              <dt className="opacity-60">키 지문</dt>
+            <dl className="grid grid-cols-3 gap-y-3 text-sm">
+              <dt className="text-muted-foreground">시리얼</dt>
+              <dd className="col-span-2 break-all font-medium text-foreground">{d.device_identifier ?? "—"}</dd>
+              <dt className="text-muted-foreground">모델</dt>
+              <dd className="col-span-2 font-medium text-foreground">{d.model_name ?? "—"}</dd>
+              <dt className="text-muted-foreground">API URL</dt>
+              <dd className="col-span-2 break-all text-muted-foreground">{d.api_endpoint ?? "—"}</dd>
+              <dt className="text-muted-foreground">키 지문</dt>
               <dd className="col-span-2 font-mono text-xs">
                 {d.api_key_fingerprint ?? "—"}
               </dd>
-              <dt className="opacity-60">마지막 통신</dt>
-              <dd className="col-span-2 opacity-80">
+              <dt className="text-muted-foreground">마지막 통신</dt>
+              <dd className="col-span-2 text-muted-foreground tabular">
                 {d.last_seen_at ? formatDateTime(d.last_seen_at) : "—"}
               </dd>
             </dl>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl">
           <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80">동기화 상태</h2>
+            <h2 className="text-sm font-semibold text-foreground">동기화 상태</h2>
           </CardHeader>
           <CardContent>
-            <dl className="grid grid-cols-3 gap-y-2 text-sm">
-              <dt className="opacity-60">대기 작업</dt>
-              <dd className="col-span-2">{pendingJobs.length}건</dd>
-              <dt className="opacity-60">실패 잔존</dt>
-              <dd className={cn("col-span-2", failedJobs.length > 0 && "text-red-600")}>
+            <dl className="grid grid-cols-3 gap-y-3 text-sm">
+              <dt className="text-muted-foreground">대기 작업</dt>
+              <dd className="col-span-2 font-semibold text-foreground tabular">{pendingJobs.length}건</dd>
+              <dt className="text-muted-foreground">실패 잔존</dt>
+              <dd className={cn("col-span-2 font-semibold tabular", failedJobs.length > 0 ? "text-danger" : "text-foreground")}>
                 {failedJobs.length}건
               </dd>
-              <dt className="opacity-60">최근 50건 성공률</dt>
-              <dd className="col-span-2">
+              <dt className="text-muted-foreground">최근 50건 성공률</dt>
+              <dd className="col-span-2 font-semibold text-foreground tabular">
                 {syncJobs.length === 0
                   ? "—"
                   : `${Math.round(
@@ -205,25 +209,25 @@ export default function DeviceDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl">
           <CardHeader>
-            <h2 className="text-sm font-semibold opacity-80">출입 이력 (최근 20건)</h2>
+            <h2 className="text-sm font-semibold text-foreground">출입 이력 (최근 20건)</h2>
           </CardHeader>
           <CardContent>
             {recentLogs.length === 0 ? (
-              <p className="text-sm opacity-60">출입 이력이 없습니다.</p>
+              <p className="text-sm text-muted-foreground">출입 이력이 없습니다.</p>
             ) : (
-              <dl className="grid grid-cols-2 gap-y-2 text-sm">
-                <dt className="opacity-60">성공</dt>
-                <dd className="text-green-700">
+              <dl className="grid grid-cols-2 gap-y-3 text-sm">
+                <dt className="text-muted-foreground">성공</dt>
+                <dd className="font-semibold text-success tabular">
                   {recentLogs.filter((l) => l.result === "success").length}건
                 </dd>
-                <dt className="opacity-60">거절</dt>
-                <dd className="text-red-700">
+                <dt className="text-muted-foreground">거절</dt>
+                <dd className="font-semibold text-danger tabular">
                   {recentLogs.filter((l) => l.result === "denied").length}건
                 </dd>
-                <dt className="opacity-60">오류</dt>
-                <dd className="text-orange-700">
+                <dt className="text-muted-foreground">오류</dt>
+                <dd className="font-semibold text-warning tabular">
                   {recentLogs.filter((l) => l.result === "error").length}건
                 </dd>
               </dl>
@@ -232,118 +236,122 @@ export default function DeviceDetailPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80">동기화 작업 (최근 50건)</h2>
+          <h2 className="text-sm font-semibold text-foreground">동기화 작업 (최근 50건)</h2>
         </CardHeader>
         <CardContent className="p-0">
           {syncJobs.length === 0 ? (
-            <p className="px-4 py-6 text-sm opacity-60">작업 이력이 없습니다.</p>
+            <p className="px-5 py-10 text-center text-sm text-muted-foreground">작업 이력이 없습니다.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
-                <tr>
-                  <th className="px-4 py-2">상태</th>
-                  <th className="px-4 py-2">유형</th>
-                  <th className="px-4 py-2">대상 회원</th>
-                  <th className="px-4 py-2">재시도</th>
-                  <th className="px-4 py-2">생성</th>
-                  <th className="px-4 py-2">처리</th>
-                  <th className="px-4 py-2">에러</th>
-                </tr>
-              </thead>
-              <tbody>
-                {syncJobs.map((j) => (
-                  <tr key={j.id} className="border-b border-foreground/5">
-                    <td className="px-4 py-2">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                          SYNC_STATUS_STYLES[j.status]
-                        )}
-                      >
-                        {SYNC_STATUS_LABELS[j.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 opacity-80">{j.job_type}</td>
-                    <td className="px-4 py-2 opacity-80">
-                      {j.target_member_id ? (
-                        <Link
-                          className="underline opacity-90 hover:opacity-100"
-                          to={`/members/${j.target_member_id}`}
-                        >
-                          {j.target_member_id.slice(0, 8)}…
-                        </Link>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-4 py-2">{j.retry_count}</td>
-                    <td className="px-4 py-2 opacity-70">{formatDateTime(j.created_at)}</td>
-                    <td className="px-4 py-2 opacity-70">
-                      {j.processed_at ? formatDateTime(j.processed_at) : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-red-600 max-w-xs truncate">
-                      {j.error_message ?? "—"}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-5 py-3">상태</th>
+                    <th className="px-5 py-3">유형</th>
+                    <th className="px-5 py-3">대상 회원</th>
+                    <th className="px-5 py-3">재시도</th>
+                    <th className="px-5 py-3">생성</th>
+                    <th className="px-5 py-3">처리</th>
+                    <th className="px-5 py-3">에러</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {syncJobs.map((j) => (
+                    <tr key={j.id} className="transition-colors hover:bg-muted/40">
+                      <td className="px-5 py-3">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                            SYNC_STATUS_STYLES[j.status]
+                          )}
+                        >
+                          {SYNC_STATUS_LABELS[j.status]}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{j.job_type}</td>
+                      <td className="px-5 py-3 text-muted-foreground">
+                        {j.target_member_id ? (
+                          <Link
+                            className="font-mono text-primary underline-offset-2 hover:underline"
+                            to={`/members/${j.target_member_id}`}
+                          >
+                            {j.target_member_id.slice(0, 8)}…
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-5 py-3 tabular">{j.retry_count}</td>
+                      <td className="px-5 py-3 text-muted-foreground tabular">{formatDateTime(j.created_at)}</td>
+                      <td className="px-5 py-3 text-muted-foreground tabular">
+                        {j.processed_at ? formatDateTime(j.processed_at) : "—"}
+                      </td>
+                      <td className="max-w-xs truncate px-5 py-3 text-xs text-danger">
+                        {j.error_message ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <h2 className="text-sm font-semibold opacity-80">최근 출입 (20건)</h2>
+          <h2 className="text-sm font-semibold text-foreground">최근 출입 (20건)</h2>
         </CardHeader>
         <CardContent className="p-0">
           {recentLogs.length === 0 ? (
-            <p className="px-4 py-6 text-sm opacity-60">출입 이력이 없습니다.</p>
+            <p className="px-5 py-10 text-center text-sm text-muted-foreground">출입 이력이 없습니다.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="border-b border-foreground/10 text-left text-xs uppercase opacity-60">
-                <tr>
-                  <th className="px-4 py-2">시각</th>
-                  <th className="px-4 py-2">결과</th>
-                  <th className="px-4 py-2">자격</th>
-                  <th className="px-4 py-2">회원</th>
-                  <th className="px-4 py-2">사유</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentLogs.map((l) => (
-                  <tr key={l.id} className="border-b border-foreground/5">
-                    <td className="px-4 py-2 opacity-80">{formatDateTime(l.occurred_at)}</td>
-                    <td className="px-4 py-2">
-                      <AccessResultBadge result={l.result} />
-                    </td>
-                    <td className="px-4 py-2 opacity-80">
-                      {credentialLabel(l.credential_type)}
-                    </td>
-                    <td className="px-4 py-2 opacity-80">
-                      {l.member_id ? (
-                        <Link
-                          className="underline opacity-90 hover:opacity-100"
-                          to={`/members/${l.member_id}`}
-                        >
-                          {l.member_id.slice(0, 8)}…
-                        </Link>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-4 py-2 opacity-70">
-                      {l.denied_reason
-                        ? (DENIED_REASON_LABELS[l.denied_reason as DeniedReason] ??
-                          l.denied_reason)
-                        : "—"}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-5 py-3">시각</th>
+                    <th className="px-5 py-3">결과</th>
+                    <th className="px-5 py-3">자격</th>
+                    <th className="px-5 py-3">회원</th>
+                    <th className="px-5 py-3">사유</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {recentLogs.map((l) => (
+                    <tr key={l.id} className="transition-colors hover:bg-muted/40">
+                      <td className="px-5 py-3 text-muted-foreground tabular">{formatDateTime(l.occurred_at)}</td>
+                      <td className="px-5 py-3">
+                        <AccessResultBadge result={l.result} />
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">
+                        {credentialLabel(l.credential_type)}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">
+                        {l.member_id ? (
+                          <Link
+                            className="font-mono text-primary underline-offset-2 hover:underline"
+                            to={`/members/${l.member_id}`}
+                          >
+                            {l.member_id.slice(0, 8)}…
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">
+                        {l.denied_reason
+                          ? (DENIED_REASON_LABELS[l.denied_reason as DeniedReason] ??
+                            l.denied_reason)
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -356,17 +364,17 @@ export default function DeviceDetailPage() {
       >
         {rotatedKey && (
           <div className="space-y-4">
-            <p className="rounded-md bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+            <p className="rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
               이 키는 다시 조회할 수 없습니다. 단말기 측에 즉시 입력하세요.
             </p>
-            <code className="block break-all rounded-md border border-foreground/20 bg-muted px-3 py-2 text-xs font-mono">
+            <code className="block break-all rounded-xl border border-border bg-muted px-3 py-2.5 font-mono text-xs">
               {rotatedKey.api_key}
             </code>
-            <p className="text-xs opacity-70">
-              지문: <code>{rotatedKey.api_key_fingerprint}</code>
+            <p className="text-xs text-muted-foreground">
+              지문: <code className="font-mono">{rotatedKey.api_key_fingerprint}</code>
             </p>
             <div className="flex justify-end">
-              <Button onClick={() => setRotatedKey(null)}>확인</Button>
+              <Button className="rounded-full" onClick={() => setRotatedKey(null)}>확인</Button>
             </div>
           </div>
         )}

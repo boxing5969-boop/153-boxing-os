@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,16 +17,14 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function LinkRankingAppDialog({ open, onClose, member }: Props) {
+  if (!open) return null;
+  return <LinkRankingAppDialogBody onClose={onClose} member={member} />;
+}
+
+function LinkRankingAppDialogBody({ onClose, member }: Omit<Props, "open">) {
   const qc = useQueryClient();
   const [rankingId, setRankingId] = useState(member.ranking_app_user_id ?? "");
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setRankingId(member.ranking_app_user_id ?? "");
-      setError(null);
-    }
-  }, [open, member.ranking_app_user_id]);
 
   const mutation = useMutation({
     mutationFn: (id: string | null) => linkRankingAppUser(member.id, id),
@@ -49,7 +47,7 @@ export function LinkRankingAppDialog({ open, onClose, member }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="랭킹업앱 연결">
+    <Dialog open={true} onClose={onClose} title="랭킹업앱 연결">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="rid">랭킹업 user.id (uuid)</Label>

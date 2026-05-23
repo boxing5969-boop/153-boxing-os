@@ -170,6 +170,9 @@ function NavItemLink({ item }: { item: NavItem }) {
   );
 }
 
+/**
+ * 데스크톱(md+) 전용 사이드바. 모바일에서는 BottomTabBar 가 네비게이션 담당.
+ */
 export default function Sidebar() {
   const { profile } = useAuth();
 
@@ -181,10 +184,9 @@ export default function Sidebar() {
   })).filter((group) => group.items.length > 0);
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
+    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
       {/* 로고 영역 */}
       <div className="flex h-14 items-center gap-2.5 px-4 border-b border-sidebar-border">
-        {/* 복싱 글러브 마크 */}
         <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-brand shadow-sm">
           <span className="text-xs font-black text-white leading-none">153</span>
         </div>

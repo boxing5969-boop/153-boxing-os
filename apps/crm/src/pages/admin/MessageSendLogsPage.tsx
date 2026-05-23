@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, MessageSquare, Phone, Layers } from "lucide-react";
 import { listMessageSendLogs, type MessageSendLog } from "@/services/messaging";
 import { useAuth } from "@/contexts/AuthContext";
+import { LoadingState, EmptyState } from "@/components/ui/states";
 import { cn } from "@/lib/cn";
 
 // ── 채널 레이블 ─────────────────────────────────────────────
@@ -78,16 +79,16 @@ export default function MessageSendLogsPage() {
       </div>
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">전체 발송</p>
           <p className="mt-1 text-2xl font-black tabular">{logs.length}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">성공</p>
           <p className="mt-1 text-2xl font-black text-success tabular">{totalSent}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <p className="text-xs text-muted-foreground">실패</p>
           <p className={cn("mt-1 text-2xl font-black tabular", totalFailed > 0 ? "text-danger" : "text-foreground")}>
             {totalFailed}
@@ -96,7 +97,7 @@ export default function MessageSendLogsPage() {
       </div>
 
       {/* 테이블 */}
-      <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+      <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
         {/* 탭 */}
         <div className="flex gap-1 border-b border-border px-4 pt-3">
           {filterTabs.map(tab => (
@@ -116,15 +117,12 @@ export default function MessageSendLogsPage() {
         </div>
 
         {isLoading ? (
-          <div className="flex items-center justify-center p-12 text-sm opacity-50">불러오는 중…</div>
+          <LoadingState />
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 p-12 text-muted-foreground">
-            <MessageSquare className="size-8 opacity-30" />
-            <p className="text-sm">발송 이력이 없습니다.</p>
-          </div>
+          <EmptyState icon={MessageSquare} title="발송 이력이 없습니다" />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[800px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">발송 시각</th>

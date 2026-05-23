@@ -40,7 +40,7 @@ function OpportunityCard({
   return (
     <Link
       to={`/members/${o.member_id}`}
-      className="block rounded-lg border border-border bg-card px-3 py-2.5 hover:bg-muted/50 transition-colors"
+      className="block rounded-xl border border-border bg-card px-3 py-2.5 hover:bg-muted/50 transition-colors"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-bold text-foreground truncate">
@@ -72,7 +72,7 @@ function Column({
   render: (o: RevenueOpportunity) => { score: number; context: string };
 }) {
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardContent className="space-y-2">
         <h2 className="flex items-center gap-1.5 text-sm font-bold text-foreground">
           <Icon className="size-4" />{title}
@@ -203,7 +203,7 @@ function Summary({
   icon: typeof CalendarClock;
 }) {
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardContent className="space-y-1">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Icon className="size-3.5" />{label}

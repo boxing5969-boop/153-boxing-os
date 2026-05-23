@@ -63,9 +63,9 @@ function ActionRow({ member }: { member: AtRiskMember }) {
   const Icon = meta.icon;
   const hasPhone = !!member.member_phone;
 
-  const days = Math.floor(
-    (Date.now() - new Date(member.since_date).getTime()) / 86_400_000
-  );
+  // 마운트 시점의 현재 시각 — useState 초기 함수는 첫 렌더에만 실행됨 (impure 호출 격리)
+  const [now] = useState(() => Date.now());
+  const days = Math.floor((now - new Date(member.since_date).getTime()) / 86_400_000);
 
   async function handleNotify() {
     setNotifyState("sending");

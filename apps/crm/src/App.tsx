@@ -10,6 +10,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 // 나머지 페이지: lazy (코드 분할 — 첫 로드 시 다운로드 안 함)
+const MoreMenuPage = lazy(() => import("@/pages/MoreMenuPage"));
 const MembersListPage = lazy(() => import("@/pages/members/MembersListPage"));
 const MemberNewPage = lazy(() => import("@/pages/members/MemberNewPage"));
 const MemberDetailPage = lazy(() => import("@/pages/members/MemberDetailPage"));
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/kiosk" element={<KioskHomePage />} />
             <Route element={<AppLayout />}>
               <Route path="/" element={<DashboardPage />} />
+              <Route path="/more" element={<MoreMenuPage />} />
               <Route path="/kpi" element={<KpiDashboardPage />} />
               {/* FC AI Care Center */}
               <Route path="/fc/tasks" element={<FcTaskInboxPage />} />

@@ -1,7 +1,7 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus, Pencil, Trash2,
+  ChevronLeft, ChevronRight, Plus, Trash2,
   TrendingUp, TrendingDown, Minus, RotateCcw, Check, X,
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -121,7 +121,7 @@ function ExpenseRow({
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 group hover:border-primary/20 transition-colors">
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 group hover:border-primary/20 transition-colors">
       {/* 이름 */}
       <div className="flex-1 min-w-0">
         {editingName ? (

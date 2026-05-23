@@ -319,10 +319,12 @@ export default function MessageTemplatesPage() {
       {isLoading ? (
         <div className="flex items-center justify-center p-12 text-sm opacity-50">불러오는 중…</div>
       ) : templates.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 p-16 text-muted-foreground rounded-xl border border-dashed border-border">
-          <FileText className="size-8 opacity-30" />
-          <p className="text-sm">저장된 템플릿이 없습니다.</p>
-          <p className="text-xs opacity-70">새 템플릿을 만들어 빠르게 재사용하세요.</p>
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border p-16 text-muted-foreground">
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+            <FileText className="size-6 text-muted-foreground/60" />
+          </div>
+          <p className="text-sm font-semibold text-foreground">저장된 템플릿이 없습니다.</p>
+          <p className="text-xs text-muted-foreground">새 템플릿을 만들어 빠르게 재사용하세요.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -369,7 +371,7 @@ function TemplateCard({
   return (
     <div className={cn(
       "rounded-xl border bg-card p-4 shadow-card transition-all",
-      t.is_active ? "border-border" : "border-border/50 opacity-60"
+      t.is_active ? "border-border" : "border-border/50 opacity-70"
     )}>
       <div className="flex items-start gap-3">
         {/* 아이콘 */}

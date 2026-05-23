@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Copy, Check } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -22,6 +22,11 @@ interface Props {
 const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
 
 export function IssueEmergencyPinDialog({ open, onClose }: Props) {
+  if (!open) return null;
+  return <IssueEmergencyPinDialogBody onClose={onClose} />;
+}
+
+function IssueEmergencyPinDialogBody({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const isHq = profile ? HQ_ROLES.has(profile.role) : false;
@@ -29,7 +34,7 @@ export function IssueEmergencyPinDialog({ open, onClose }: Props) {
   const branchesQuery = useQuery({
     queryKey: ["branches"],
     queryFn: listBranches,
-    enabled: open && isHq,
+    enabled: isHq,
     staleTime: 60_000,
   });
 
@@ -42,19 +47,6 @@ export function IssueEmergencyPinDialog({ open, onClose }: Props) {
   const [result, setResult] = useState<IssueEmergencyPinResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setStep("form");
-    setBranchId(profile?.branch_id ?? "");
-    setPurpose("");
-    setTtl(10);
-    setMaxUses(1);
-    setError(null);
-    setResult(null);
-    setCopied(false);
-    setAcknowledged(false);
-  }, [open, profile?.branch_id]);
 
   const mutation = useMutation({
     mutationFn: issueEmergencyPin,
@@ -101,7 +93,7 @@ export function IssueEmergencyPinDialog({ open, onClose }: Props) {
 
   return (
     <Dialog
-      open={open}
+      open={true}
       onClose={handleClose}
       title={step === "form" ? "비상 PIN 발급" : "PIN 발급 완료 — 1회 노출"}
       className="max-w-md"

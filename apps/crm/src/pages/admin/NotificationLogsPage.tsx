@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Clock, MessageCircle } from "lucide-react";
 import { getNotificationLogs } from "@/services/notificationLogs";
+import { LoadingState, EmptyState } from "@/components/ui/states";
 import { cn } from "@/lib/cn";
 
 // 알림 유형 한글 레이블
@@ -74,17 +75,17 @@ export default function NotificationLogsPage() {
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <p className="text-xs text-muted-foreground">전체 발송 시도</p>
           <p className="mt-1 text-2xl font-black text-foreground tabular">
             {(allData ?? []).length}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <p className="text-xs text-muted-foreground">성공</p>
           <p className="mt-1 text-2xl font-black text-success tabular">{totalSent}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <p className="text-xs text-muted-foreground">실패</p>
           <p className={cn("mt-1 text-2xl font-black tabular", totalFailed > 0 ? "text-danger" : "text-foreground")}>
             {totalFailed}
@@ -93,7 +94,7 @@ export default function NotificationLogsPage() {
       </div>
 
       {/* 필터 탭 + 테이블 */}
-      <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         {/* 탭 */}
         <div className="flex gap-1 border-b border-border px-4 pt-3">
           {filterTabs.map(tab => (
@@ -114,20 +115,16 @@ export default function NotificationLogsPage() {
 
         {/* 테이블 */}
         {isLoading ? (
-          <div className="flex items-center justify-center p-12 text-sm opacity-50">
-            불러오는 중…
-          </div>
+          <LoadingState />
         ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 p-12 text-muted-foreground">
-            <MessageCircle className="size-8 opacity-30" />
-            <p className="text-sm">발송 이력이 없습니다.</p>
-            {statusFilter !== "all" && (
-              <p className="text-xs opacity-70">다른 필터를 선택해보세요.</p>
-            )}
-          </div>
+          <EmptyState
+            icon={MessageCircle}
+            title="발송 이력이 없습니다"
+            description={statusFilter !== "all" ? "다른 필터를 선택해보세요." : undefined}
+          />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[800px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">발송 시각</th>
