@@ -95,7 +95,7 @@ adminRoutes.post("/door/open", requireJwt, async (c) => {
 
 // ── Branch Kakao AlimTalk settings ──────────────────────────
 const kakaoSettingsSchema = z.object({
-  kakao_pfid:           z.string().min(1),
+  kakao_pfid:           z.string().optional(),
   kakao_sender_phone:   z.string().min(1),
   kakao_tpl_d7:         z.string().optional(),
   kakao_tpl_d3:         z.string().optional(),
@@ -145,7 +145,7 @@ adminRoutes.put("/branches/:id/kakao", requireJwt, async (c) => {
   }
 
   const { error } = await db.from("branches").update({
-    kakao_pfid:            parsed.data.kakao_pfid,
+    kakao_pfid:            parsed.data.kakao_pfid ?? null,
     kakao_sender_phone:    parsed.data.kakao_sender_phone,
     kakao_tpl_d7:          parsed.data.kakao_tpl_d7 ?? null,
     kakao_tpl_d3:          parsed.data.kakao_tpl_d3 ?? null,
