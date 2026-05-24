@@ -28,3 +28,7 @@ Thumbs.db
 # Misc
 *.local
 supabase/.temp/
+
+# FUSE / OS temp files
+.fuse_hidden*
+_tmp_*

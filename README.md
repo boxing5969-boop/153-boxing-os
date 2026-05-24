@@ -133,3 +133,7 @@ docs/                      # 아키텍처 문서
 - [x] Phase 17: 사고 알림 자동화 (alert_events + 5분 cron + Slack webhook + /admin/alerts)
 - [x] Phase 18: 매출/회계 보고 (이용권 가격 + 매출 RPC + 미납 reconciliation + CSV)
 - [x] Phase 19: 모바일 키오스크 (/kiosk — 휴대폰 4자리 lookup + 출입가능 표시 + 30초 자동 초기화)
+
+## 라이선스
+
+MIT License — [LICENSE](./LICENSE) 참고.
