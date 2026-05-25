@@ -61,6 +61,14 @@ const SurveySendPage = lazy(() => import("@/pages/surveys/SurveySendPage"));
 const SurveyResultsPage = lazy(() => import("@/pages/surveys/SurveyResultsPage"));
 // 공개 설문 응답 페이지 (로그인 불필요)
 const PublicSurveyPage = lazy(() => import("@/pages/surveys/PublicSurveyPage"));
+// B2B SaaS — 운영 크레딧 / 외부 연동 (Phase 20C)
+const WalletPage = lazy(() => import("@/pages/billing/WalletPage"));
+const B2BMessageSendPage = lazy(() => import("@/pages/billing/B2BMessageSendPage"));
+const B2BMessageTemplatesPage = lazy(() => import("@/pages/billing/B2BMessageTemplatesPage"));
+const InvoiceSendPage = lazy(() => import("@/pages/billing/InvoiceSendPage"));
+const InvoicesListPage = lazy(() => import("@/pages/billing/InvoicesListPage"));
+const HqUsagePage = lazy(() => import("@/pages/billing/HqUsagePage"));
+const IntegrationSettingsPage = lazy(() => import("@/pages/billing/IntegrationSettingsPage"));
 
 function PageFallback() {
   return (
@@ -115,6 +123,14 @@ export default function App() {
               <Route path="/admin/send-logs" element={<MessageSendLogsPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/help" element={<HelpPage />} />
+              {/* B2B SaaS — 운영 크레딧 (Phase 20C) */}
+              <Route path="/billing/wallet" element={<WalletPage />} />
+              <Route path="/billing/messages/send" element={<B2BMessageSendPage />} />
+              <Route path="/billing/messages/templates" element={<B2BMessageTemplatesPage />} />
+              <Route path="/billing/invoices/send" element={<InvoiceSendPage />} />
+              <Route path="/billing/invoices" element={<InvoicesListPage />} />
+              <Route path="/billing/integrations" element={<IntegrationSettingsPage />} />
+              <Route path="/billing/hq-usage" element={<HqUsagePage />} />
               {/* 수업/PT */}
               <Route path="/classes" element={<ClassSchedulePage />} />
               {/* 본사 */}

@@ -34,6 +34,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/cn";
 import type { UserRole } from "@153/shared";
+import { BranchSelector } from "./BranchSelector";
 
 interface NavItem {
   to: string;
@@ -117,6 +118,18 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "운영 크레딧",
+    items: [
+      { to: "/billing/wallet",              label: "운영 크레딧",   icon: Wallet,          roles: BRANCH_AND_HQ },
+      { to: "/billing/messages/send",       label: "문자 발송",     icon: SendHorizontal,  roles: BRANCH_AND_HQ },
+      { to: "/billing/messages/templates",  label: "문자 템플릿",   icon: FileText,        roles: BRANCH_AND_HQ },
+      { to: "/billing/invoices/send",       label: "청구서 발송",   icon: Receipt,         roles: BRANCH_AND_HQ },
+      { to: "/billing/invoices",            label: "청구서 내역",   icon: ScrollText,      roles: BRANCH_AND_HQ },
+      { to: "/billing/integrations",        label: "통합 설정",     icon: Settings,        roles: BRANCH_AND_HQ },
+      { to: "/billing/hq-usage",            label: "본사 운영 현황", icon: TrendingUp,     roles: ["super_admin", "hq_admin", "owner"] },
+    ],
+  },
+  {
     label: "관리",
     items: [
       { to: "/hq",       label: "본사 현황", icon: BarChart3,  roles: ["super_admin", "hq_admin"] },
@@ -197,6 +210,9 @@ export default function Sidebar() {
           </span>
         </div>
       </div>
+
+      {/* 테넌트/지점 선택기 */}
+      <BranchSelector />
 
       {/* 네비게이션 */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
