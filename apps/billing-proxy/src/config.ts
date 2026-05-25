@@ -37,6 +37,14 @@ const EnvSchema = z.object({
   MOCK_PROVIDERS: z.coerce.boolean().default(false),
   CLOUD_TASKS_QUEUE: z.string().optional(),
 
+  // Cloud Tasks (운영 큐 — 미설정 시 LocalImmediateQueue 자동 fallback)
+  CLOUD_TASKS_PROJECT_ID:     z.string().optional(),
+  CLOUD_TASKS_LOCATION:       z.string().optional(),          // e.g. asia-northeast3
+  CLOUD_TASKS_QUEUE_MESSAGES: z.string().optional(),
+  CLOUD_TASKS_QUEUE_INVOICES: z.string().optional(),
+  CLOUD_RUN_BASE_URL:         z.string().url().optional(),     // 본 서비스 base URL (콜백 대상)
+  OIDC_INVOKER_SERVICE_ACCOUNT: z.string().optional(),        // OIDC 토큰 발급용 SA 이메일
+
   // Misc
   WEBHOOK_SECRET: z.string().optional(),
 });

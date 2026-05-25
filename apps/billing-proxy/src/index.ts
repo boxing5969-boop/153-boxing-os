@@ -11,6 +11,12 @@ import { messagesRouter } from "./routes/messages";
 import { invoicesRouter } from "./routes/invoices";
 import { webhooksPayssamRouter } from "./routes/webhooksPayssam";
 import { tasksMessagesRouter } from "./routes/tasksMessages";
+import { tasksInvoicesRouter } from "./routes/tasksInvoices";
+import { messagesBulkRouter } from "./routes/messagesBulk";
+import { invoicesBulkRouter } from "./routes/invoicesBulk";
+import { buildQueue } from "./queue/factory";
+import { processMessageJob } from "./messages/processMessageJob";
+import { processInvoiceJob } from "./invoices/processInvoiceJob";
 
 export function buildApp(): express.Express {
   const app = express();
@@ -46,11 +52,24 @@ export function buildApp(): express.Express {
     next();
   });
 
+  // Queue — Local 모드일 때 worker 함수 주입 (async fire-and-forget)
+  const queue = buildQueue({
+    messageProcessor: async (jobId) => {
+      await processMessageJob(jobId);
+    },
+    invoiceProcessor: async (jobId) => {
+      await processInvoiceJob(jobId);
+    },
+  });
+
   app.use(healthRouter());
   app.use(messagesRouter());
   app.use(invoicesRouter());
+  app.use(messagesBulkRouter(queue));
+  app.use(invoicesBulkRouter(queue));
   app.use(webhooksPayssamRouter());
   app.use(tasksMessagesRouter());
+  app.use(tasksInvoicesRouter());
 
   // 404
   app.use((_req, res) => {
@@ -69,7 +88,6 @@ function start(): void {
     logger.info({ port: cfg.PORT, env: cfg.NODE_ENV, mock: cfg.MOCK_PROVIDERS }, "billing-proxy listening");
   });
 
-  // Graceful shutdown (Cloud Run SIGTERM)
   const shutdown = (signal: string) => {
     logger.info({ signal }, "shutting down");
     server.close(() => {
