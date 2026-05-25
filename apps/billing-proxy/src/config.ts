@@ -34,7 +34,8 @@ const EnvSchema = z.object({
   INTERNAL_TASK_SECRET: z.string().min(16).optional(),
 
   // Toggles
-  MOCK_PROVIDERS: z.coerce.boolean().default(false),
+  PROVIDER_MODE: z.enum(["mock", "live"]).optional(),    // 명시되면 우선, 그 외 MOCK_PROVIDERS / NODE_ENV 로 결정
+  MOCK_PROVIDERS: z.coerce.boolean().default(false),     // (deprecated, backward compat)
   CLOUD_TASKS_QUEUE: z.string().optional(),
 
   // Cloud Tasks (운영 큐 — 미설정 시 LocalImmediateQueue 자동 fallback)

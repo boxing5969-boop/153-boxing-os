@@ -89,26 +89,28 @@ export async function processMessageJob(
     return { ok: false, retryable: false, status: "refunded", reason: "missing sender" };
   }
 
-  // 5) Aligo 호출
-  const providerRes = await aligo.sendMessage({
-    sender,
-    receiver: recipient,
-    msg: content,
-    msgType,
-  });
+  // 5) Aligo 호출 — 타입별 분기
+  const title = msgType !== "SMS" ? content.slice(0, 30) : undefined;
+  const providerRes = await (
+    msgType === "SMS"
+      ? aligo.sendSms({ sender, receiver: recipient, msg: content })
+      : msgType === "LMS"
+      ? aligo.sendLms({ sender, receiver: recipient, msg: content, title })
+      : aligo.sendMms({ sender, receiver: recipient, msg: content, title })
+  );
 
   await logExternalApiCall({
     tenantId: String(job.company_id),
     provider: "aligo",
-    endpoint: "POST https://apis.aligo.in/send/ (queued)",
+    endpoint: `POST aligo ${msgType} (queued)`,
     requestId: providerRes.providerMessageId,
-    status: providerRes.ok ? "success" : "error",
-    requestPayload: { sender, receiver: recipient, msgType, contentLength: content.length, attempt: Number(job.retry_count ?? 0) + 1 },
+    status: providerRes.success ? "success" : "error",
+    requestPayload: { sender, receiverMasked: recipient.slice(0, 3) + "****" + recipient.slice(-4), msgType, contentLength: content.length, attempt: Number(job.retry_count ?? 0) + 1 },
     responsePayload: providerRes.raw,
-    errorMessage: providerRes.ok ? undefined : providerRes.resultMessage,
+    errorMessage: providerRes.success ? undefined : providerRes.errorMessage,
   });
 
-  if (providerRes.ok) {
+  if (providerRes.success) {
     await supa.from("message_logs").insert({
       tenant_id: job.company_id,
       message_job_id: jobId,
@@ -131,7 +133,7 @@ export async function processMessageJob(
   const decision = classifyProviderError({
     provider: "aligo",
     resultCode: providerRes.resultCode,
-    resultMessage: providerRes.resultMessage,
+    resultMessage: providerRes.errorMessage,
   });
 
   // 항상 log 적재
@@ -143,7 +145,7 @@ export async function processMessageJob(
     message_type: msgTypeLower,
     status: decision === "retry" ? "retry" : "failed",
     response_payload: providerRes.raw,
-    error_message: `${providerRes.resultCode}: ${providerRes.resultMessage}`,
+    error_message: `${providerRes.resultCode}: ${providerRes.errorMessage ?? ""}`,
   });
 
   if (decision === "retry") {
@@ -153,7 +155,7 @@ export async function processMessageJob(
       .update({ status: "retry", retry_count: Number(job.retry_count ?? 0) + 1 })
       .eq("id", jobId);
     log.warn({ resultCode: providerRes.resultCode }, "transient failure — will retry");
-    return { ok: false, retryable: true, status: "failed", reason: providerRes.resultMessage };
+    return { ok: false, retryable: true, status: "failed", reason: providerRes.errorMessage };
   }
 
   // 영구 실패 — 환불 처리 + status='refunded'
@@ -163,14 +165,14 @@ export async function processMessageJob(
       tenantId: String(job.company_id),
       amountKrw: charge,
       idempotencyKey: `refund:task:${jobId}`,
-      memo: `refund: aligo ${providerRes.resultCode} ${providerRes.resultMessage}`,
+      memo: `refund: aligo ${providerRes.resultCode} ${providerRes.errorMessage ?? ""}`,
     });
   }
   await supa
     .from("message_jobs")
     .update({ status: "refunded", processed_at: new Date().toISOString() })
     .eq("id", jobId);
-  return { ok: false, retryable: false, status: "refunded", reason: providerRes.resultMessage };
+  return { ok: false, retryable: false, status: "refunded", reason: providerRes.errorMessage };
 }
 
 async function markFailed(supa: ReturnType<typeof getSupabase>, jobId: string, reason: string): Promise<void> {

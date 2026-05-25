@@ -105,8 +105,9 @@ describe("createInvoice", () => {
 
     const failingPayssam: PayssamProvider = {
       async createInvoice(_input: PayssamCreateInvoiceInput): Promise<PayssamCreateInvoiceResult> {
-        return { ok: false, resultCode: "500", resultMessage: "provider down", raw: {} };
+        return { success: false, status: "failed", resultCode: "500", errorMessage: "provider down", raw: {} };
       },
+      parsePaymentWebhook: () => ({ valid: false, status: "unknown", raw: null }),
     };
 
     await expect(createInvoice(baseInput(), "user-1", { payssam: failingPayssam })).rejects.toBeInstanceOf(ProviderError);

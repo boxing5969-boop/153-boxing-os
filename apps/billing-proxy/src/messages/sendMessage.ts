@@ -221,29 +221,30 @@ export async function sendMessage(
     messageJobId = String(ins.data.id);
   }
 
-  // 8) Aligo 호출
-  const providerRes = await aligo.sendMessage({
-    sender,
-    receiver: recipient,
-    msg: finalContent,
-    msgType,
-    title: msgType !== "SMS" ? input.content.slice(0, 30) : undefined,
-  });
+  // 8) Aligo 호출 — 메시지 타입별 분기 (API key/userId 로깅 노출 없음 — Provider 내부에서만 사용)
+  const title = msgType !== "SMS" ? input.content.slice(0, 30) : undefined;
+  const providerRes = await (
+    msgType === "SMS"
+      ? aligo.sendSms({ sender, receiver: recipient, msg: finalContent })
+      : msgType === "LMS"
+      ? aligo.sendLms({ sender, receiver: recipient, msg: finalContent, title })
+      : aligo.sendMms({ sender, receiver: recipient, msg: finalContent, title })
+  );
 
-  // external_api_logs 기록 (best-effort)
+  // external_api_logs 기록 — API key 미포함, 수신번호 마스킹
   await logExternalApiCall({
     tenantId: input.tenant_id,
     provider: "aligo",
-    endpoint: "POST https://apis.aligo.in/send/",
+    endpoint: `POST aligo ${msgType}`,
     requestId: providerRes.providerMessageId,
-    status: providerRes.ok ? "success" : "error",
-    requestPayload: { sender, receiver: recipient, msgType, contentLength: finalContent.length },
+    status: providerRes.success ? "success" : "error",
+    requestPayload: { sender, receiverMasked: recipient.slice(0, 3) + "****" + recipient.slice(-4), msgType, contentLength: finalContent.length },
     responsePayload: providerRes.raw,
-    errorMessage: providerRes.ok ? undefined : providerRes.resultMessage,
+    errorMessage: providerRes.success ? undefined : providerRes.errorMessage,
   });
 
   // 9) 결과 분기
-  if (providerRes.ok) {
+  if (providerRes.success) {
     await supa.from("message_logs").insert({
       tenant_id: input.tenant_id,
       message_job_id: messageJobId,
@@ -267,7 +268,7 @@ export async function sendMessage(
       balanceAfterKrw: debit.balanceAfterKrw,
       providerMessageId: providerRes.providerMessageId,
       status: "sent",
-      resultMessage: providerRes.resultMessage,
+      resultMessage: providerRes.errorMessage,
     };
   }
 
@@ -277,7 +278,7 @@ export async function sendMessage(
     tenantId: input.tenant_id,
     amountKrw: price.chargeKrw,
     idempotencyKey: refundKeyOf(input.idempotency_key),
-    memo: `refund: aligo ${providerRes.resultCode} ${providerRes.resultMessage}`,
+    memo: `refund: aligo ${providerRes.resultCode} ${providerRes.errorMessage ?? ""}`,
   });
   await supa.from("message_logs").insert({
     tenant_id: input.tenant_id,
@@ -287,7 +288,7 @@ export async function sendMessage(
     message_type: usageType,
     status: "failed",
     response_payload: providerRes.raw,
-    error_message: `${providerRes.resultCode}: ${providerRes.resultMessage}`,
+    error_message: `${providerRes.resultCode}: ${providerRes.errorMessage ?? ""}`,
   });
   await supa
     .from("message_jobs")
@@ -295,7 +296,7 @@ export async function sendMessage(
     .eq("id", messageJobId);
 
   // 비-네트워크 결정적 실패는 502 로 표현 (라우트에서 변환)
-  throw new ProviderError("aligo", `${providerRes.resultCode}: ${providerRes.resultMessage}`, {
+  throw new ProviderError("aligo", `${providerRes.resultCode}: ${providerRes.errorMessage ?? ""}`, {
     messageJobId,
     refundTransactionId: refund.transactionId,
     balanceAfterKrw: refund.balanceAfterKrw,

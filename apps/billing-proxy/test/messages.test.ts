@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearSupabase, injectSupabase, makeMockSupabase, setupTestEnv } from "./_mocks";
 import { sendMessage } from "../src/messages/sendMessage";
 import { MockAligoProvider } from "../src/providers/aligo";
-import type { AligoProvider, AligoSendInput, AligoSendResult } from "../src/providers/types";
+import type { AligoProvider, AligoSendResult } from "../src/providers/types";
 import type { SendMessageInput } from "../src/validation/schemas";
 import { ProviderError } from "../src/lib/errors";
 
@@ -113,16 +113,18 @@ describe("sendMessage", () => {
     const state: State = { walletBalance: 1000, debitCalls: 0, refundCalls: 0, inserts: [] };
     injectSupabase(makeStatefulSupabase(state));
 
-    // 강제 실패 mock — receiver 가 999... 로 시작하면 MockAligoProvider 가 실패 반환
+    // 강제 실패 mock — 모든 메서드 동일 응답
+    const failResult: AligoSendResult = {
+      success: false,
+      status: "failed",
+      resultCode: "-99",
+      errorMessage: "forced failure for test",
+      raw: { test: true },
+    };
     const failingAligo: AligoProvider = {
-      async sendMessage(_input: AligoSendInput): Promise<AligoSendResult> {
-        return {
-          ok: false,
-          resultCode: "-99",
-          resultMessage: "forced failure for test",
-          raw: { test: true },
-        };
-      },
+      async sendSms() { return failResult; },
+      async sendLms() { return failResult; },
+      async sendMms() { return failResult; },
     };
 
     const input = { ...baseInput(), idempotency_key: "idem-fail-1234" };
@@ -139,11 +141,12 @@ describe("sendMessage", () => {
   it("insufficient balance — debit raises, no Aligo call, no refund", async () => {
     const state: State = { walletBalance: 5, debitCalls: 0, refundCalls: 0, inserts: [] };
     injectSupabase(makeStatefulSupabase(state));
-    const aligoSpy = { sendMessage: vi.fn() };
+    const aligoSpy = { sendSms: vi.fn(), sendLms: vi.fn(), sendMms: vi.fn() };
     await expect(
       sendMessage(baseInput(), "user-1", { aligo: aligoSpy as unknown as AligoProvider })
     ).rejects.toMatchObject({ code: "INSUFFICIENT_BALANCE" });
-    expect(aligoSpy.sendMessage).not.toHaveBeenCalled();
+    expect(aligoSpy.sendSms).not.toHaveBeenCalled();
+    expect(aligoSpy.sendLms).not.toHaveBeenCalled();
     expect(state.refundCalls).toBe(0);
   });
 });

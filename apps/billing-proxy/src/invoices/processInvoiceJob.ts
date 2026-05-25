@@ -75,13 +75,13 @@ export async function processInvoiceJob(
     provider: "payssam",
     endpoint: "POST /api/v1/invoices (queued)",
     requestId: providerRes.providerInvoiceId,
-    status: providerRes.ok ? "success" : "error",
+    status: providerRes.success ? "success" : "error",
     requestPayload: { amountKrw: inv.amount_krw, customerPhone, itemName: bundle.item_name },
     responsePayload: providerRes.raw,
-    errorMessage: providerRes.ok ? undefined : providerRes.resultMessage,
+    errorMessage: providerRes.success ? undefined : providerRes.errorMessage ?? "",
   });
 
-  if (providerRes.ok) {
+  if (providerRes.success) {
     await supa
       .from("service_invoices")
       .update({ status: "sent", provider_invoice_id: providerRes.providerInvoiceId ?? null })
@@ -92,12 +92,12 @@ export async function processInvoiceJob(
   const decision = classifyProviderError({
     provider: "payssam",
     resultCode: providerRes.resultCode,
-    resultMessage: providerRes.resultMessage,
+    resultMessage: providerRes.errorMessage ?? "",
   });
 
   if (decision === "retry") {
     log.warn({ resultCode: providerRes.resultCode }, "invoice transient failure — will retry");
-    return { ok: false, retryable: true, status: "failed", reason: providerRes.resultMessage };
+    return { ok: false, retryable: true, status: "failed", reason: providerRes.errorMessage ?? "" };
   }
 
   // 영구 실패 — 환불 + 'failed'
@@ -107,9 +107,9 @@ export async function processInvoiceJob(
       tenantId: String(inv.tenant_id),
       amountKrw: charge,
       idempotencyKey: `refund:inv-task:${invoiceId}`,
-      memo: `refund: payssam ${providerRes.resultCode} ${providerRes.resultMessage}`,
+      memo: `refund: payssam ${providerRes.resultCode} ${providerRes.errorMessage ?? ""}`,
     });
   }
   await supa.from("service_invoices").update({ status: "failed" }).eq("id", invoiceId);
-  return { ok: false, retryable: false, status: "refunded", reason: providerRes.resultMessage };
+  return { ok: false, retryable: false, status: "refunded", reason: providerRes.errorMessage ?? "" };
 }

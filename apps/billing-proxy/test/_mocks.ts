@@ -82,6 +82,12 @@ export function makeMockSupabase(opts: MockSupabaseOptions = {}): SupabaseClient
 }
 
 export function setupTestEnv(extra: Record<string, string> = {}): void {
+  // 테스트 간 leak 방지 — 토글 변수 명시 초기화
+  delete process.env.PROVIDER_MODE;
+  delete process.env.ALIGO_API_KEY;
+  delete process.env.ALIGO_USER_ID;
+  delete process.env.PAYSSAM_API_KEY;
+
   process.env.NODE_ENV = "test";
   process.env.SUPABASE_URL = "https://test.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key-1234567890";
@@ -89,6 +95,7 @@ export function setupTestEnv(extra: Record<string, string> = {}): void {
   process.env.INTERNAL_TASK_SECRET = "test-internal-secret-1234567890";
   process.env.MOCK_PROVIDERS = "true";
   process.env.ALIGO_SENDER_DEFAULT = "0212345678";
+  process.env.PAYSSAM_API_BASE_URL = "https://api.payssam.example.com";
   for (const [k, v] of Object.entries(extra)) process.env[k] = v;
   resetConfigCache();
 }

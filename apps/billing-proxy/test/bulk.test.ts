@@ -238,7 +238,7 @@ describe("processMessageJob — duplicate task delivery", () => {
   afterEach(() => clearSupabase());
 
   it("이미 sent 인 job 재호출 → skip (no double send)", async () => {
-    const aligoSpy = { sendMessage: vi.fn() };
+    const aligoSpy = { sendSms: vi.fn(), sendLms: vi.fn(), sendMms: vi.fn() };
     injectSupabase(
       makeMockSupabase({
         table: ({ tableName, op }) => {
@@ -263,7 +263,7 @@ describe("processMessageJob — duplicate task delivery", () => {
     );
     const r = await processMessageJob("job-already-sent", { aligo: aligoSpy as unknown as AligoProvider });
     expect(r.status).toBe("skipped");
-    expect(aligoSpy.sendMessage).not.toHaveBeenCalled();
+    expect(aligoSpy.sendSms).not.toHaveBeenCalled();
   });
 
   it("transient provider 실패 → retryable=true, 환불 안함", async () => {
@@ -297,10 +297,11 @@ describe("processMessageJob — duplicate task delivery", () => {
         },
       })
     );
+    const transientRes: AligoSendResult = { success: false, status: "failed", resultCode: "-99", errorMessage: "server error", raw: {} };
     const transientAligo: AligoProvider = {
-      async sendMessage(): Promise<AligoSendResult> {
-        return { ok: false, resultCode: "-99", resultMessage: "server error", raw: {} };
-      },
+      async sendSms() { return transientRes; },
+      async sendLms() { return transientRes; },
+      async sendMms() { return transientRes; },
     };
     const r = await processMessageJob("job-1", { aligo: transientAligo });
     expect(r.ok).toBe(false);
@@ -343,10 +344,11 @@ describe("processMessageJob — duplicate task delivery", () => {
         },
       })
     );
+    const permRes: AligoSendResult = { success: false, status: "failed", resultCode: "-101", errorMessage: "invalid phone", raw: {} };
     const permAligo: AligoProvider = {
-      async sendMessage(): Promise<AligoSendResult> {
-        return { ok: false, resultCode: "-101", resultMessage: "invalid phone", raw: {} };
-      },
+      async sendSms() { return permRes; },
+      async sendLms() { return permRes; },
+      async sendMms() { return permRes; },
     };
     const r = await processMessageJob("job-p", { aligo: permAligo });
     expect(r.ok).toBe(false);

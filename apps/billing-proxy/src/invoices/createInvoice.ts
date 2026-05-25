@@ -130,13 +130,13 @@ export async function createInvoice(
     provider: "payssam",
     endpoint: "POST /api/v1/invoices",
     requestId: providerRes.providerInvoiceId,
-    status: providerRes.ok ? "success" : "error",
+    status: providerRes.success ? "success" : "error",
     requestPayload: { amountKrw: input.amount_krw, customerPhone, itemName: input.item_name },
     responsePayload: providerRes.raw,
-    errorMessage: providerRes.ok ? undefined : providerRes.resultMessage,
+    errorMessage: providerRes.success ? undefined : providerRes.errorMessage ?? "",
   });
 
-  if (providerRes.ok) {
+  if (providerRes.success) {
     await supa
       .from("service_invoices")
       .update({
@@ -162,14 +162,14 @@ export async function createInvoice(
     tenantId: input.tenant_id,
     amountKrw: price.chargeKrw,
     idempotencyKey: refundKeyOf(input.idempotency_key),
-    memo: `refund: payssam ${providerRes.resultCode} ${providerRes.resultMessage}`,
+    memo: `refund: payssam ${providerRes.resultCode} ${providerRes.errorMessage ?? ""}`,
   });
   await supa
     .from("service_invoices")
     .update({ status: "failed" })
     .eq("id", invoiceId);
 
-  throw new ProviderError("payssam", `${providerRes.resultCode}: ${providerRes.resultMessage}`, {
+  throw new ProviderError("payssam", `${providerRes.resultCode}: ${providerRes.errorMessage ?? ""}`, {
     invoiceId,
     refundTransactionId: refund.transactionId,
     balanceAfterKrw: refund.balanceAfterKrw,
