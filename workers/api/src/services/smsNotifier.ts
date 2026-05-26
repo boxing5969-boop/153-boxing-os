@@ -1,13 +1,7 @@
 /**
- * SMS 발송 via 알리고(Aligo)
- * - API Key + User ID 방식 (HMAC 불필요, 단순 POST form)
- * - SMS: 8.4원/건, LMS: 25원/건 (Solapi 대비 30~40% 저렴)
- * - 알리고 API 문서: https://smartsms.aligo.in/admin/api/spec.html
- *
- * DB 컬럼 매핑 (Solapi → 알리고 재활용, DB 변경 없음):
- *   kakao_api_key_enc    → 알리고 API Key (암호화 저장)
- *   kakao_api_secret_enc → 알리고 User ID (암호화 저장)
- *   sms_sender_phone     → SMS 발신번호
+ * SMS 발송 via Solapi
+ * 카카오 알림톡과 동일한 Solapi 계정 / HMAC 인증 사용
+ * LMS 타입으로 장문 문자 발송
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -21,18 +15,8 @@ export interface SmsSendResult {
 
 interface BranchSmsConfig {
   apiKey: string;
-  userId: string;
+  apiSecret: string;
   senderPhone: string;
-}
-
-// EUC-KR 바이트 계산 (한글 2byte, ASCII 1byte)
-function calcBytes(text: string): number {
-  let count = 0;
-  for (const ch of text) {
-    const code = ch.codePointAt(0) ?? 0;
-    count += code > 127 ? 2 : 1;
-  }
-  return count;
 }
 
 async function getBranchSmsConfig(
@@ -42,7 +26,7 @@ async function getBranchSmsConfig(
 ): Promise<BranchSmsConfig | null> {
   const { data } = await db
     .from("branches")
-    .select("kakao_api_key_enc,kakao_api_secret_enc,sms_sender_phone,kakao_sender_phone")
+    .select("kakao_api_key_enc,kakao_api_secret_enc,sms_sender_phone,kakao_sender_phone,kakao_enabled")
     .eq("id", branchId)
     .maybeSingle();
 
@@ -51,6 +35,7 @@ async function getBranchSmsConfig(
     kakao_api_secret_enc: string | null;
     sms_sender_phone: string | null;
     kakao_sender_phone: string | null;
+    kakao_enabled: boolean;
   };
   const b = data as BranchRow | null;
   if (!b) return null;
@@ -59,14 +44,27 @@ async function getBranchSmsConfig(
   // SMS 발신번호: sms_sender_phone 우선, 없으면 kakao_sender_phone
   const senderPhone = b.sms_sender_phone ?? b.kakao_sender_phone;
   if (!senderPhone) return null;
-  if (!env.DEVICE_KMS_KEY) return null;
 
-  const [apiKey, userId] = await Promise.all([
+  if (!env.DEVICE_KMS_KEY) return null;
+  const [apiKey, apiSecret] = await Promise.all([
     decryptDeviceKey(env.DEVICE_KMS_KEY, b.kakao_api_key_enc),
     decryptDeviceKey(env.DEVICE_KMS_KEY, b.kakao_api_secret_enc),
   ]);
 
-  return { apiKey, userId, senderPhone };
+  return { apiKey, apiSecret, senderPhone };
+}
+
+async function makeAuthHeader(apiKey: string, apiSecret: string): Promise<string> {
+  const date = new Date().toISOString();
+  const salt = crypto.randomUUID().replace(/-/g, "");
+  const message = apiKey + date + salt;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(apiSecret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  const signature = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return `HMAC-SHA256 apiKey=${apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
 }
 
 /** 변수 치환: #{회원명} #{만료일} #{남은일수} #{지점명} #{플랜명} #{설문링크} */
@@ -90,7 +88,6 @@ export function substituteVars(
     .replace(/#{설문링크}/g, vars.survey_url ?? "");
 }
 
-/** 알리고 SMS/LMS 발송 */
 export async function sendSms(
   db: SupabaseClient,
   env: Env,
@@ -100,7 +97,7 @@ export async function sendSms(
 ): Promise<SmsSendResult> {
   const config = await getBranchSmsConfig(db, env, branchId);
   if (!config) {
-    return { success: false, error: "SMS 설정 없음 (알리고 API 키 또는 발신번호 미설정)" };
+    return { success: false, error: "SMS 설정 없음 (Solapi API 키 또는 발신번호 미설정)" };
   }
 
   const recipientPhone = toPhone.replace(/\D/g, "");
@@ -108,37 +105,29 @@ export async function sendSms(
     return { success: false, error: `유효하지 않은 번호: ${toPhone}` };
   }
 
-  // EUC-KR 기준 90바이트 초과 시 LMS
-  const byteLen = calcBytes(content);
+  // 90바이트 초과면 LMS, 이하면 SMS
+  const byteLen = new TextEncoder().encode(content).length;
   const msgType = byteLen > 90 ? "LMS" : "SMS";
 
-  const params = new URLSearchParams({
-    key: config.apiKey,
-    user_id: config.userId,
-    sender: config.senderPhone.replace(/\D/g, ""),
-    receiver: recipientPhone,
-    msg: content,
-    msg_type: msgType,
-  });
-  if (msgType === "LMS") params.set("title", "153복싱짐 안내");
+  const body = {
+    message: {
+      to: recipientPhone,
+      from: config.senderPhone.replace(/\D/g, ""),
+      text: content,
+      type: msgType,
+    },
+  };
 
   try {
-    const res = await fetch("https://apis.aligo.in/send/", {
+    const authHeader = await makeAuthHeader(config.apiKey, config.apiSecret);
+    const res = await fetch("https://api.solapi.com/messages/v4/send", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      body: JSON.stringify(body),
     });
-
-    const json = await res.json() as {
-      result_code: string;
-      message: string;
-      success_cnt?: number;
-      error_cnt?: number;
-    };
-
-    // result_code "1" = 성공
-    if (json.result_code !== "1") {
-      return { success: false, error: `알리고 [${json.result_code}] ${json.message}` };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { success: false, error: `Solapi SMS ${res.status}: ${text.slice(0, 200)}` };
     }
     return { success: true };
   } catch (err) {

@@ -1,18 +1,11 @@
 /**
- * 카카오 알림톡 발송 via 알리고(Aligo)
- * - API Key + User ID + Sender Key 방식
- * - 알림톡: 4.8원/건 (Solapi 8원 대비 40% 저렴)
- * - 알리고 알림톡 API 문서: https://smartsms.aligo.in/alimapi.html
+ * Kakao AlimTalk via Solapi -- per-branch billing
  *
- * DB 컬럼 매핑 (Solapi → 알리고 재활용, DB 변경 없음):
- *   kakao_api_key_enc    → 알리고 API Key (암호화)
- *   kakao_api_secret_enc → 알리고 User ID (암호화)
- *   kakao_pfid           → 알리고 Sender Key (발신프로필 키, 40자 해시)
- *   kakao_sender_phone   → 발신번호
- *   kakao_tpl_d7/d3/d1   → 알리고 템플릿 코드
+ * Each branch has its own Solapi account and Kakao channel.
+ * Credentials are stored encrypted in branches table.
+ * The HQ fallback (env vars) is used only if branch has no credentials.
  *
- * ※ 알림톡은 카카오 승인 템플릿만 발송 가능.
- *   자유문자(공지 등)는 messageDispatcher에서 SMS로 처리.
+ * 발송 대상: 회원 본인 번호 (마케팅 동의 회원만 DB RPC에서 필터)
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -29,7 +22,7 @@ export interface NotificationTarget {
   notification_type: string;
   branch_id: string;
   branch_name: string;
-  member_phone: string | null;
+  member_phone: string | null; // 회원 본인 번호
 }
 
 export interface SendResult {
@@ -39,10 +32,10 @@ export interface SendResult {
 
 interface BranchKakaoConfig {
   apiKey: string;
-  userId: string;
-  senderKey: string;   // 알리고 발신프로필 키 (구 Solapi pfId)
+  apiSecret: string;
+  pfId: string;
   senderPhone: string;
-  templateCode: string; // 알리고 템플릿 코드 (구 Solapi templateId)
+  templateId: string;
 }
 
 async function getBranchKakaoConfig(
@@ -67,31 +60,40 @@ async function getBranchKakaoConfig(
     kakao_tpl_d1: string | null;
     kakao_enabled: boolean;
   };
-
   const b = data as BranchRow | null;
   if (!b || !b.kakao_enabled) return null;
   if (!b.kakao_api_key_enc || !b.kakao_api_secret_enc) return null;
   if (!b.kakao_pfid || !b.kakao_sender_phone) return null;
 
-  const tplCode = notificationType === "expiry_d7" ? b.kakao_tpl_d7
-               : notificationType === "expiry_d3" ? b.kakao_tpl_d3
-               : notificationType === "expiry_d1" ? b.kakao_tpl_d1
-               : null;
-  if (!tplCode) return null;
+  const tpl = notificationType === "expiry_d7" ? b.kakao_tpl_d7
+            : notificationType === "expiry_d3" ? b.kakao_tpl_d3
+            : notificationType === "expiry_d1" ? b.kakao_tpl_d1
+            : null;
+  if (!tpl) return null;
+
   if (!env.DEVICE_KMS_KEY) return null;
 
-  const [apiKey, userId] = await Promise.all([
+  const [apiKey, apiSecret] = await Promise.all([
     decryptDeviceKey(env.DEVICE_KMS_KEY, b.kakao_api_key_enc),
     decryptDeviceKey(env.DEVICE_KMS_KEY, b.kakao_api_secret_enc),
   ]);
 
-  return { apiKey, userId, senderKey: b.kakao_pfid, senderPhone: b.kakao_sender_phone, templateCode: tplCode };
+  return { apiKey, apiSecret, pfId: b.kakao_pfid, senderPhone: b.kakao_sender_phone, templateId: tpl };
 }
 
-/**
- * 만료 예정 알림톡 발송 (템플릿 기반)
- * 알리고 endpoint: POST https://kakaoapi.aligo.in/brandtalk/send/
- */
+async function makeAuthHeader(apiKey: string, apiSecret: string): Promise<string> {
+  const date = new Date().toISOString();
+  const salt = crypto.randomUUID().replace(/-/g, "");
+  const message = apiKey + date + salt;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(apiSecret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  const signature = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2,"0")).join("");
+  return `HMAC-SHA256 apiKey=${apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
+}
+
 export async function sendExpiryNotification(
   db: SupabaseClient,
   env: Env,
@@ -99,9 +101,10 @@ export async function sendExpiryNotification(
 ): Promise<SendResult> {
   const config = await getBranchKakaoConfig(db, env, target.branch_id, target.notification_type);
   if (!config) {
-    return { success: false, error: `알림톡 미설정: ${target.branch_name}` };
+    return { success: false, error: `Kakao not configured for branch: ${target.branch_name}` };
   }
 
+  // 회원 본인 번호로 발송
   if (!target.member_phone) {
     return { success: false, error: `회원 번호 없음: ${target.member_name}` };
   }
@@ -110,53 +113,40 @@ export async function sendExpiryNotification(
     return { success: false, error: `유효하지 않은 번호: ${target.member_phone}` };
   }
 
-  // 템플릿 변수 치환 메시지 (알리고는 message_1에 완성된 텍스트 전달)
-  const message = [
-    `안녕하세요 ${target.member_name}님,`,
-    `${target.branch_name}입니다.`,
-    ``,
-    `${target.plan_name} 이용권이 ${target.days_left}일 후`,
-    `${target.end_date.replace(/-/g, ".")}에 만료됩니다.`,
-    ``,
-    `재등록 문의는 지점으로 연락 주세요.`,
-  ].join("\n");
-
-  const params = new URLSearchParams({
-    apikey: config.apiKey,
-    userid: config.userId,
-    senderkey: config.senderKey,
-    tpl_code: config.templateCode,
-    sender: config.senderPhone.replace(/\D/g, ""),
-    receiver_1: recipientPhone,
-    subject_1: `${target.branch_name} 이용권 만료 안내`,
-    message_1: message,
-    // 알림톡 실패 시 SMS 자동 폴백 (알리고 자체 기능)
-    failoverYn: "Y",
-    failover_type: "LMS",
-    failover_subject: `${target.branch_name} 이용권 만료 안내`,
-    failover_content: message,
-  });
+  const body = {
+    message: {
+      to: recipientPhone,
+      from: config.senderPhone,
+      kakaoOptions: {
+        pfId: config.pfId,
+        templateId: config.templateId,
+        variables: {
+          "#{지점명}": target.branch_name,
+          "#{회원명}": target.member_name,
+          "#{플랜명}": target.plan_name,
+          "#{만료일}": target.end_date.replace(/-/g, "."),
+          "#{남은일수}": String(target.days_left),
+        },
+      },
+    },
+  };
 
   try {
-    const res = await fetch("https://kakaoapi.aligo.in/brandtalk/send/", {
+    const authHeader = await makeAuthHeader(config.apiKey, config.apiSecret);
+    const res = await fetch("https://api.solapi.com/messages/v4/send", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      body: JSON.stringify(body),
     });
-
-    const json = await res.json() as { code: number; message: string };
-
-    // code 0 = 성공
-    if (json.code !== 0) {
-      return { success: false, error: `알리고 알림톡 [${json.code}] ${json.message}` };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { success: false, error: `Solapi ${res.status}: ${text.slice(0, 200)}` };
     }
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "fetch error" };
   }
 }
-
-// ── 일괄 발송 ──────────────────────────────────────────────
 
 export interface ExpiryNotificationReport {
   total: number; sent: number; failed: number; skipped: number;
@@ -185,13 +175,13 @@ export async function runExpiryNotifications(
 
     if (result.success) {
       sent++;
-      console.log(`[alimtalk] 발송 완료 → ${target.member_name} (${target.member_phone}) / ${target.notification_type}`);
-    } else if (result.error?.includes("미설정")) {
+      console.log(`[alimtalk] sent → ${target.member_name} (${target.member_phone}) / ${target.notification_type}`);
+    } else if (result.error?.includes("not configured")) {
       skipped++;
-      console.log(`[alimtalk] 스킵 → ${target.branch_name}: ${result.error}`);
+      console.log(`[alimtalk] skip → ${target.branch_name}: ${result.error}`);
     } else {
       failed++;
-      console.error(`[alimtalk] 실패 → ${target.member_name}: ${result.error}`);
+      console.error(`[alimtalk] fail → ${target.member_name}: ${result.error}`);
     }
   }
 
