@@ -80,6 +80,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/kpi", label: "KPI 대시보드", icon: BarChart3, roles: BRANCH_AND_HQ },
       { to: "/staff/roles", label: "역할 배정", icon: ShieldCheck, roles: ["super_admin", "hq_admin", "owner"] },
       { to: "/members", label: "회원", icon: Users },
+      { to: "/crm/pipeline", label: "CRM 파이프라인", icon: ClipboardList, roles: FC_ROLES },
       { to: "/memberships", label: "이용권", icon: CreditCard, roles: BRANCH_AND_HQ },
       { to: "/visitors", label: "방문자", icon: UserCheck, roles: BRANCH_AND_HQ },
     ],

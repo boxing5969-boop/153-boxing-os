@@ -584,6 +584,21 @@ export async function runTrialEndSurvey(env: Env): Promise<void> {
 // substituteVars re-export for use in other modules
 export { substituteVars };
 
+/**
+ * Phase 20F — CRM 8단계 파이프라인 자동 전이.
+ * 매일 1회 cron 에서 실행. 같은 stage 면 RPC 가 no-op (멱등).
+ */
+export async function runCrmStageAdvance(env: Env): Promise<void> {
+  const db = getServiceClient(env);
+  const { data, error } = await db.rpc("cron_advance_crm_stages");
+  if (error) {
+    console.error("[cron_advance_crm_stages] error:", error.message);
+    return;
+  }
+  const count = Array.isArray(data) ? data.length : 0;
+  console.log(`[cron_advance_crm_stages] moved ${count} members`);
+}
+
 export async function runQrCleanup(env: Env): Promise<void> {
   const db = getServiceClient(env);
   const { data, error } = await db.rpc("cleanup_qr_used_tokens");

@@ -61,6 +61,8 @@ const SurveySendPage = lazy(() => import("@/pages/surveys/SurveySendPage"));
 const SurveyResultsPage = lazy(() => import("@/pages/surveys/SurveyResultsPage"));
 // 공개 설문 응답 페이지 (로그인 불필요)
 const PublicSurveyPage = lazy(() => import("@/pages/surveys/PublicSurveyPage"));
+// CRM 8단계 파이프라인 (Phase 20F)
+const PipelineBoardPage = lazy(() => import("@/pages/crm/PipelineBoardPage"));
 
 function PageFallback() {
   return (
@@ -94,6 +96,8 @@ export default function App() {
               <Route path="/members/new" element={<MemberNewPage />} />
               <Route path="/members/:id" element={<MemberDetailPage />} />
               <Route path="/memberships" element={<MembershipsListPage />} />
+              {/* Phase 20F — CRM 8단계 파이프라인 */}
+              <Route path="/crm/pipeline" element={<PipelineBoardPage />} />
               <Route path="/access-logs" element={<AccessLogsPage />} />
               <Route path="/devices" element={<DevicesListPage />} />
               <Route path="/devices/:id" element={<DeviceDetailPage />} />

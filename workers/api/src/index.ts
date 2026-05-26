@@ -15,6 +15,7 @@ import { surveysRoutes } from "./routes/surveys";
 import { fcRoutes } from "./routes/fc";
 import {
   processNextSyncJobs,
+  runCrmStageAdvance,
   runDailyExpiry,
   runFcDailyRun,
   runQrCleanup,
@@ -63,7 +64,7 @@ async function handleScheduled(
   ctx: ExecutionContext
 ): Promise<void> {
   if (controller.cron === DAILY_EXPIRY_CRON) {
-    // 만료 처리 + 알림톡 + 일일 리포트 SMS + FC 일배치 (순차)
+    // 만료 처리 + 알림톡 + 일일 리포트 SMS + FC 일배치 + CRM 단계 자동 전이 (Phase 20F)
     ctx.waitUntil(
       runDailyExpiry(env)
         .then(() => runDailyReport(env))
@@ -73,6 +74,10 @@ async function handleScheduled(
         .then(() => runFcDailyRun(env))
         .then(() => {
           console.log("[scheduled:fcDailyRun] done");
+        })
+        .then(() => runCrmStageAdvance(env))
+        .then(() => {
+          console.log("[scheduled:crmStageAdvance] done");
         })
     );
     return;
