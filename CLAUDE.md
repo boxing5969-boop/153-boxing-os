@@ -381,6 +381,49 @@ AccessDeviceAdapter 인터페이스 메서드:
 └── docs/                 # 아키텍처 문서
 ```
 
+### 6. 호스팅 아키텍처 → Cloudflare Workers 유지 확정
+- API 백엔드는 Cloudflare Workers에 둔다. 고정 IP 확보를 위한 전용 서버 이전이나 중계 서버 추가는 하지 않는다.
+- 근거: Workers는 자동 확장·무(無)서버관리·고가용성으로 수십~수백 매장 SaaS에 적합하다. 전통 서버로 옮기면 서버 관리·확장 설정·이중화·보안 패치 부담을 떠안게 되어 작은 팀 운영에 불리하다.
+- Workers의 구조적 제약(반드시 인지): ① outbound 고정 IP가 없다 ② 요청당 CPU 시간 제한이 있다.
+
+### 7. 외부 서비스 연동 원칙
+- 외부 API를 연동할 때는 **IP 화이트리스트가 필요 없는** 서비스만 채택한다. 인증은 API 키 또는 HMAC 서명 방식이어야 한다. (Workers는 발신 IP가 고정되지 않기 때문.)
+- IP 등록(발송 서버 IP 화이트리스트)을 요구하는 서비스는 채택하지 않는다. 고정 IP 중계 서버를 두는 우회책도 금지한다 — 전 매장 공용 단일 장애점이 되기 때문이다.
+
+### 8. 문자(SMS/LMS/MMS) 발송
+- 문자 발송사는 IP 화이트리스트가 없는 곳을 사용한다 — NCP SENS(권장, 정액 단가) 또는 Solapi.
+- 알리고(Aligo)는 발송 서버 IP 등록을 요구하여 Cloudflare Workers와 부적합하므로 사용하지 않는다.
+- 대량 발송·일괄 처리는 한 요청에 몰지 않고 크론 + 분할 처리한다 (요청당 CPU 제한 때문). 현재의 크론 + 디스패처 구조를 유지한다.
+
+### 9. 확장 로드맵 — 성장 시 점검 (지금은 불필요)
+- 진짜 확장 병목은 Workers가 아니라 DB(Supabase Postgres)의 동시 연결 수다.
+- 매장 수가 수십 개를 넘어서는 시점에 점검·업그레이드할 것: Supabase 연결 풀러 또는 Cloudflare Hyperdrive 도입, RLS 정책 효율, 인덱스, 필요 시 읽기 복제본.
+- 현재 단계에서는 도입하지 않는다. 성장 단계에서 검토 후 업그레이드한다.
+
+## Phase 1 문자 정책 (확정 2026-05-23)
+이 정책은 결정 6~9번의 운영 단계를 명확히 한다.
+
+**Phase 1 (현재) — 라이브 발송 경로**
+- 문자(SMS/LMS/MMS) 라이브 발송은 **Solapi 또는 NHN Cloud**만 사용한다.
+- 알리고(Aligo)는 **disabled/legacy provider**다. main의 라이브 경로에서 호출되지 않게 한다.
+- main 브랜치는 항상 "Workers + Solapi/NHN Cloud" 상태를 유지한다. Solapi → 알리고 전환 커밋(`46e49f2`)은 revert로 롤백되어 있어야 한다.
+
+**Phase 2 (보류) — 알리고 + 고정 IP 게이트웨이**
+- 알리고를 라이브로 쓰기 위한 Cloud Run billing-proxy / Cloud NAT / 고정 IP 중계서버 작업은 main에 반영하지 않는다.
+- 관련 작업 브랜치(`claude/phase-20a~f` 시리즈)는 `archive/aligo-static-ip-gateway-phase2` 브랜치로 보관한다.
+- Phase 2 재개 조건: 매장 수가 충분히 많아져 알리고 단가 절감이 게이트웨이 운영비를 상회하고, HA 구성을 안정적으로 운영할 인력·예산이 확보되었을 때.
+
+**금지**
+- 알리고를 main의 라이브 provider로 설정하지 않는다 (`MESSAGE_PROVIDER=aligo` 금지, `ALIGO_ENABLED=true` 금지).
+- Cloud Run / Cloud NAT / 고정 IP 인프라를 main에서 새로 배포·구성하지 않는다.
+- 프론트엔드에서 알리고를 라이브 발송 옵션처럼 노출하지 않는다.
+
+**재사용 가능 추상화 — Phase 2 재평가용 (현재 Phase 1엔 끌어오지 않음)**
+- message provider interface (Phase 20E `apps/billing-proxy/src/providers/types.ts`)
+- `message_logs` 테이블 (Phase 20 B2B messaging layer migration)
+- idempotency 구조, 발신번호 저장 구조
+- → Phase 2 재개 시 위 추상화 재활용 가능성 검토 후 끌어온다.
+
 ## 환경 분리 원칙
 - local: 로컬 개발 (Neon/Supabase 개발 DB)
 - staging: 테스트 배포 환경
