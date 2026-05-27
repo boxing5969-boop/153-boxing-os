@@ -75,7 +75,7 @@ fitnessRoutes.post("/members/:memberId/measurements", requireJwt, async (c) => {
     .single();
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
-  return ok(c, data, 201);
+  return ok(c, data, undefined, 201);
 });
 
 /** DELETE /api/fitness/measurements/:id */
@@ -144,7 +144,7 @@ fitnessRoutes.post("/members/:memberId/workouts", requireJwt, async (c) => {
     .single();
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
-  return ok(c, data, 201);
+  return ok(c, data, undefined, 201);
 });
 
 /** DELETE /api/fitness/workouts/:id */

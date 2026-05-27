@@ -2,7 +2,6 @@
  * 실시간 SMS/LMS/MMS/카카오 미리보기 — 스마트폰 프레임 렌더링
  */
 import { useMemo } from "react";
-import { Image } from "lucide-react";
 import type { MsgChannel } from "@/services/messaging";
 
 // ── 바이트 계산 (EUC-KR 기준: 한글 2byte, ASCII 1byte) ─────────────
@@ -23,12 +22,12 @@ export function getMsgType(channel: MsgChannel, bytes: number, hasImage: boolean
   return bytes > 90 ? "LMS" : "SMS";
 }
 
-// 단가 (원/건, 알리고 기준 — VAT 포함)
+// 단가 (원/건, Solapi 기준 평균)
 const UNIT_PRICE: Record<MsgType, number> = {
-  SMS: 9,    // 알리고 8.4원
-  LMS: 28,   // 알리고 25원
-  MMS: 66,   // 알리고 60원
-  KAKAO: 5,  // 알리고 4.8원
+  SMS: 9,
+  LMS: 30,
+  MMS: 90,
+  KAKAO: 8,
 };
 
 export function calcCost(type: MsgType, count: number): number {

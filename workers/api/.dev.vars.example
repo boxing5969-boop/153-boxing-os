@@ -19,3 +19,21 @@ PARTNER_API_KEY=
 # 선택 — Slack Incoming Webhook URL (Phase 17). 미설정 시 알림 미발송 (DB 기록만).
 # https://api.slack.com/messaging/webhooks
 SLACK_WEBHOOK_URL=
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 1 라이브 SMS 발송: NAVER Cloud SENS
+# ─────────────────────────────────────────────────────────────────────────
+# 운영에서는 지점별 인증정보를 branches 테이블에 암호화 저장하여 사용한다.
+# 아래 변수는 (1) 로컬 개발용 기본값 또는 (2) 향후 HQ 공통 발송 경로용 문서.
+# docs/sens-migration.md 참고.
+#
+# 콘솔: https://console.ncloud.com/sens/project
+NCP_ACCESS_KEY=
+NCP_SECRET_KEY=
+NCP_SENS_SERVICE_ID=
+NCP_SENS_FROM=
+
+# Phase 1 정책 — 알리고 라이브 발송 금지 (CLAUDE.md 결정 6~9 + Phase 1 문자 정책 참고)
+# MESSAGE_PROVIDER=aligo 금지, ALIGO_ENABLED=true 금지
+MESSAGE_PROVIDER=sens
+ALIGO_ENABLED=false

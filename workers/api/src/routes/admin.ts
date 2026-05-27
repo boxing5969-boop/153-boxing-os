@@ -408,7 +408,7 @@ adminRoutes.post("/notify/broadcast", requireJwt, async (c) => {
     allowedIds = new Set((consentRows ?? []).map((r: Record<string, unknown>) => r.member_id as string));
   }
 
-  const targets = (memberRows ?? [] as MemberRow[])
+  const targets = ((memberRows ?? []) as unknown as MemberRow[])
     .filter((m: MemberRow) => m.phone && (allowedIds === null || allowedIds.has(m.id)))
     .map((m: MemberRow) => ({
       member_id: m.id,

@@ -14,14 +14,13 @@ import {
   BarChart3, Users,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   getSurveyTemplate,
   getSurveyResponseList,
   createFollowup, updateFollowup,
   calcAvgByKeyword, calcNps, filterLowScoreResponses, extractTextAnswers,
-  type SurveyResponseDetail, type ResponseFollowup, type NpsResult,
+  type SurveyResponseDetail, type NpsResult,
 } from "@/services/surveys";
 import { cn } from "@/lib/cn";
 
@@ -126,7 +125,6 @@ function LowScoreCard({
   branchId: string;
   onFollowupChange: () => void;
 }) {
-  const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [showFollowupForm, setShowFollowupForm] = useState(false);
   const [notes, setNotes] = useState(response.followup?.notes ?? "");
@@ -280,7 +278,7 @@ export default function SurveyResultsPage() {
   });
 
   // 응답 목록 (RPC)
-  const { data: responseData, isLoading: rLoading, refetch } = useQuery({
+  const { data: responseData, isLoading: rLoading } = useQuery({
     queryKey: ["survey-response-list", id],
     queryFn: () => getSurveyResponseList(id!),
     enabled: !!id,
