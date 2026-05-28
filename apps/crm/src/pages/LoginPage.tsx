@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Lock, Mail, CheckCircle2 } from "lucide-react";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 
 interface LocationState {
   from?: { pathname?: string };
@@ -237,6 +238,11 @@ export default function LoginPage() {
               무료로 시작하기
             </Link>
           </p>
+
+          {/* PWA 앱 설치 안내 — 이미 설치된 경우 자체 숨김 */}
+          <div className="mt-4 flex justify-center">
+            <PwaInstallPrompt variant="button" />
+          </div>
         </div>
       </div>
     </main>

@@ -22,6 +22,7 @@ import { TodayActionStrip } from "@/components/dashboard/TodayActionStrip";
 import { ContactActionBoard } from "@/components/dashboard/ContactActionBoard";
 import { VisitorFunnelCard } from "@/components/dashboard/VisitorFunnelCard";
 import { LossPreventionCard } from "@/components/dashboard/LossPreventionCard";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { cn } from "@/lib/cn";
 
 interface KpiSpec {
@@ -109,10 +110,14 @@ function WelcomeBanner({ name, role }: { name?: string; role?: string }) {
           {role} · 오늘의 운영 현황을 확인하세요
         </p>
       </div>
-      <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 shadow-card">
-        <TrendingUp className="size-4 text-primary" />
-        <span className="text-sm font-semibold text-foreground">실시간 현황</span>
-        <span className="size-2 rounded-full bg-success" />
+      <div className="flex items-center gap-2">
+        {/* PWA 앱 설치 버튼 — 이미 설치된 경우 자체 숨김 */}
+        <PwaInstallPrompt variant="icon" />
+        <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 shadow-card">
+          <TrendingUp className="size-4 text-primary" />
+          <span className="text-sm font-semibold text-foreground">실시간 현황</span>
+          <span className="size-2 rounded-full bg-success" />
+        </div>
       </div>
     </div>
   );

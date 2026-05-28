@@ -1,9 +1,43 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["favicon.ico", "robots.txt", "icons/apple-touch-icon.png"],
+      manifest: {
+        name: "153OS — 153복싱짐 운영 시스템",
+        short_name: "153OS",
+        description: "153복싱짐 프랜차이즈 CRM·출입통제 운영 콘솔",
+        lang: "ko",
+        theme_color: "#0F1B2D",
+        background_color: "#FFFFFF",
+        display: "standalone",
+        orientation: "portrait",
+        scope: "/",
+        start_url: "/",
+        icons: [
+          { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+          { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
+      },
+      workbox: {
+        // CRM은 동적 데이터(회원·출입 로그)가 많아 API 응답은 캐싱하지 않는다.
+        // 정적 자산(JS·CSS·이미지·폰트)만 자동 캐싱.
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,woff,woff2}"],
+        navigateFallbackDenylist: [/^\/api/],
+      },
+      devOptions: {
+        // 개발 모드에서는 PWA 비활성 (불필요한 SW 등록 방지)
+        enabled: false,
+      },
+    }),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
