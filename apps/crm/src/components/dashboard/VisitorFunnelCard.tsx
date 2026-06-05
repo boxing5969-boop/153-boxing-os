@@ -105,7 +105,7 @@ export function VisitorFunnelCard() {
   ];
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-card">
+    <div className="rounded-2xl border border-border bg-card shadow-card">
       {/* 헤더 */}
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <div className="flex items-center gap-2">
