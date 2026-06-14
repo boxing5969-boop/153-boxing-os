@@ -51,6 +51,8 @@ const HrPayrollPage = lazy(() => import("@/pages/hr/HrPayrollPage"));
 const CoachDashboardPage = lazy(() => import("@/pages/coach/CoachDashboardPage"));
 // KPI 대시보드
 const KpiDashboardPage = lazy(() => import("@/pages/kpi/KpiDashboardPage"));
+const DailyReportFormPage = lazy(() => import("@/pages/reports/DailyReportFormPage"));
+const DailyReportViewPage = lazy(() => import("@/pages/reports/DailyReportViewPage"));
 // FC AI Care Center
 const FcTaskInboxPage = lazy(() => import("@/pages/fc/FcTaskInboxPage"));
 const RevenueBoardPage = lazy(() => import("@/pages/fc/RevenueBoardPage"));
@@ -87,6 +89,8 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/kpi" element={<KpiDashboardPage />} />
+              <Route path="/reports/daily" element={<DailyReportFormPage />} />
+              <Route path="/reports/daily/view" element={<DailyReportViewPage />} />
               {/* FC AI Care Center */}
               <Route path="/fc/tasks" element={<FcTaskInboxPage />} />
               <Route path="/fc/revenue-board" element={<RevenueBoardPage />} />
