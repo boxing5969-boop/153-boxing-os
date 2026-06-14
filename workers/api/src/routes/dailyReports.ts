@@ -31,10 +31,11 @@ interface ProfileRow {
 async function getProfile(db: SupabaseClient, authUserId: string): Promise<ProfileRow | null> {
   const { data } = await db
     .from("profiles")
-    .select("id, role, branch_id")
+    .select("id, role, branch_id, status")
     .eq("auth_user_id", authUserId)
     .maybeSingle();
-  return (data as ProfileRow | null) ?? null;
+  const p = data as (ProfileRow & { status?: string }) | null;
+  return p && p.status === "active" ? p : null; // 승인(active) 계정만 허용
 }
 
 function canAccessBranch(profile: ProfileRow, branchId: string): boolean {

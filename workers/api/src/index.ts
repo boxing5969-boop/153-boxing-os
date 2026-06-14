@@ -14,6 +14,7 @@ import { fitnessRoutes } from "./routes/fitness";
 import { surveysRoutes } from "./routes/surveys";
 import { fcRoutes } from "./routes/fc";
 import { dailyReportsRoutes } from "./routes/dailyReports";
+import { branchAppRoutes } from "./routes/branchApp";
 import {
   processNextSyncJobs,
   runDailyExpiry,
@@ -49,6 +50,7 @@ app.route("/api/classes", classesRoutes);
 app.route("/api/fitness", fitnessRoutes);
 app.route("/api/fc", fcRoutes);
 app.route("/api/reports", dailyReportsRoutes);
+app.route("/api/branch-app", branchAppRoutes);
 
 app.notFound((c) =>
   c.json({ success: false, error: { code: "NOT_FOUND", message: "Route not found" } }, 404)

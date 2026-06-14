@@ -10,6 +10,8 @@ function isAllowedOrigin(origin: string): boolean {
   if (origin === "http://localhost:5173") return true;
   if (origin === "https://153-boxing-os.pages.dev") return true;
   if (/^https:\/\/[a-z0-9-]+\.153-boxing-os\.pages\.dev$/i.test(origin)) return true;
+  if (origin === "https://153-branch-report.pages.dev") return true;
+  if (/^https:\/\/[a-z0-9-]+\.153-branch-report\.pages\.dev$/i.test(origin)) return true;
   return false;
 }
 
