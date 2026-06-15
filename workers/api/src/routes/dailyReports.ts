@@ -16,6 +16,10 @@ import type { Env } from "../lib/env";
 import { fail, ok } from "../lib/responses";
 import { requireJwt } from "../middleware/jwt";
 import { getServiceClient } from "../lib/supabase";
+import {
+  generateTasks, generateAlerts, computeScore,
+  type OpsInput, type ReportIn, type FollowupIn, type PtIn, type RefundIn, type LeadIn, type SnapshotIn, type IssueIn,
+} from "../lib/autoOps";
 
 export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -474,4 +478,845 @@ dailyReportsRoutes.delete("/followups/:id", requireJwt, async (c) => {
   const { error } = await db.from("member_followups").delete().eq("id", id);
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   return ok(c, { id }, "삭제되었습니다");
+});
+
+// ── 매출 등록 (수강권·물품·단증) ─────────────────────────────
+interface SalesRow {
+  id: string; branch_id: string; sale_date: string; member_name: string;
+  category: string; product: string; is_new: boolean; payment_method: string; amount: number;
+}
+dailyReportsRoutes.get("/sales", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("sales_entries").select("*").eq("branch_id", branchId).eq("sale_date", date).order("created_at", { ascending: false });
+  return ok(c, { sales: (data as SalesRow[] | null) ?? [] });
+});
+
+const salesCreateSchema = z.object({
+  branch_id: z.string().uuid(),
+  sale_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  member_name: z.string().min(1, "이름을 입력하세요"),
+  category: z.enum(["수강권", "물품", "단증"]),
+  product: z.string().min(1),
+  is_new: z.boolean().default(true),
+  payment_method: z.enum(["현금", "카드", "계좌이체"]),
+  amount: z.number().int().min(0).default(0),
+});
+dailyReportsRoutes.post("/sales", requireJwt, async (c) => {
+  const parsed = salesCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { data, error } = await db.from("sales_entries").insert({ ...parsed.data, created_by: profile.id }).select().maybeSingle();
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, data, "등록되었습니다");
+});
+
+dailyReportsRoutes.delete("/sales/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("sales_entries").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { error } = await db.from("sales_entries").delete().eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "삭제되었습니다");
+});
+
+// ── 당일 매출 요약 (자동 합계 + 결제수단) ────────────────────
+dailyReportsRoutes.get("/sales-summary", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const [{ data: sRaw }, { data: pRaw }] = await Promise.all([
+    db.from("sales_entries").select("category,payment_method,amount").eq("branch_id", branchId).eq("sale_date", date),
+    db.from("pt_passes").select("payment_method,amount").eq("branch_id", branchId).eq("reg_date", date),
+  ]);
+  const sales = (sRaw as { category: string; payment_method: string; amount: number }[] | null) ?? [];
+  const pts = (pRaw as { payment_method: string | null; amount: number }[] | null) ?? [];
+  const sumCat = (cat: string): number => sales.filter((s) => s.category === cat).reduce((a, s) => a + s.amount, 0);
+  const pay = (m: string): number =>
+    sales.filter((s) => s.payment_method === m).reduce((a, s) => a + s.amount, 0) +
+    pts.filter((p) => p.payment_method === m).reduce((a, p) => a + p.amount, 0);
+  const ptAmount = pts.reduce((a, p) => a + p.amount, 0);
+  return ok(c, {
+    revenue: { membership: sumCat("수강권"), goods: sumCat("물품"), dan: sumCat("단증"), pt: ptAmount },
+    payment: { cash: pay("현금"), card: pay("카드"), transfer: pay("계좌이체") },
+  });
+});
+
+// ── 복싱 PT 회차 관리 ────────────────────────────────────────
+interface PtRow {
+  id: string; branch_id: string; member_name: string; total_sessions: number;
+  used_sessions: number; no_shows: number; payment_method: string | null; amount: number;
+  is_new: boolean; reg_date: string; status: string;
+}
+dailyReportsRoutes.get("/pt", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("pt_passes").select("*").eq("branch_id", branchId).order("created_at", { ascending: false });
+  return ok(c, { passes: (data as PtRow[] | null) ?? [] });
+});
+
+const ptCreateSchema = z.object({
+  branch_id: z.string().uuid(),
+  member_name: z.string().min(1, "이름을 입력하세요"),
+  total_sessions: z.number().int().min(1),
+  payment_method: z.enum(["현금", "카드", "계좌이체"]).nullish(),
+  amount: z.number().int().min(0).default(0),
+  is_new: z.boolean().default(true),
+  reg_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+});
+dailyReportsRoutes.post("/pt", requireJwt, async (c) => {
+  const parsed = ptCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { data, error } = await db.from("pt_passes").insert({
+    branch_id: parsed.data.branch_id,
+    member_name: parsed.data.member_name,
+    total_sessions: parsed.data.total_sessions,
+    payment_method: parsed.data.payment_method ?? null,
+    amount: parsed.data.amount,
+    is_new: parsed.data.is_new,
+    reg_date: parsed.data.reg_date ?? kstDateStr(),
+    created_by: profile.id,
+  }).select().maybeSingle();
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, data, "등록되었습니다");
+});
+
+const ptUpdateSchema = z.object({
+  used_sessions: z.number().int().min(0).optional(),
+  no_shows: z.number().int().min(0).optional(),
+  status: z.enum(["active", "완료"]).optional(),
+});
+dailyReportsRoutes.put("/pt/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = ptUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("pt_passes").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { error } = await db.from("pt_passes").update({ ...parsed.data, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+dailyReportsRoutes.delete("/pt/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("pt_passes").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { error } = await db.from("pt_passes").delete().eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "삭제되었습니다");
+});
+
+// ── 환불 자동 계산기 (저장/목록/상태) ────────────────────────
+const refundCreateSchema = z.object({
+  branch_id: z.string().uuid(),
+  member_name: z.string().min(1, "이름을 입력하세요"),
+  phone: z.string().nullish(),
+  product_name: z.string().nullish(),
+  contract_type: z.string().nullish(),
+  refund_reason_type: z.string().nullish(),
+  payment_method: z.string().nullish(),
+  payment_date: z.string().nullish(),
+  start_date: z.string().nullish(),
+  end_date: z.string().nullish(),
+  refund_requested_date: z.string().nullish(),
+  payment_amount: z.number().int().min(0).default(0),
+  tuition_amount: z.number().int().min(0).default(0),
+  total_days: z.number().int().default(0),
+  elapsed_days: z.number().int().default(0),
+  remaining_days: z.number().int().default(0),
+  total_sessions: z.number().int().default(0),
+  used_sessions: z.number().int().default(0),
+  remaining_sessions: z.number().int().default(0),
+  penalty_rate: z.number().default(0),
+  penalty_amount: z.number().int().default(0),
+  used_amount: z.number().int().default(0),
+  equipment_fee: z.number().int().default(0),
+  equipment_deducted: z.number().int().default(0),
+  additional_deduction_amount: z.number().int().default(0),
+  calculated_refund_amount: z.number().int().default(0),
+  final_refund_amount: z.number().int().default(0),
+  rounding_type: z.string().nullish(),
+  refund_method: z.string().nullish(),
+  refund_status: z.string().default("waiting_member_agreement"),
+  risk_level: z.string().nullish(),
+  risk_messages: z.array(z.unknown()).default([]),
+  member_message: z.string().nullish(),
+  internal_memo: z.string().nullish(),
+  card_approval_number: z.string().nullish(),
+  input_snapshot: z.unknown().optional(),
+});
+dailyReportsRoutes.post("/refunds", requireJwt, async (c) => {
+  const parsed = refundCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { data, error } = await db
+    .from("refund_requests")
+    .insert({ ...parsed.data, created_by: profile.id, processed_by: profile.id })
+    .select()
+    .maybeSingle();
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, data, "환불 요청이 저장되었습니다");
+});
+
+dailyReportsRoutes.get("/refunds", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db
+    .from("refund_requests")
+    .select("*")
+    .eq("branch_id", branchId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  return ok(c, { refunds: data ?? [] });
+});
+
+const refundUpdateSchema = z.object({
+  refund_status: z.string().optional(),
+  refund_method: z.string().nullish(),
+  card_approval_number: z.string().nullish(),
+  member_agreed: z.boolean().optional(),
+});
+dailyReportsRoutes.put("/refunds/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = refundUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("refund_requests").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const patch: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
+  if (parsed.data.member_agreed === true) patch.agreed_at = new Date().toISOString();
+  const { error } = await db.from("refund_requests").update(patch).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+// ── 문의/리드 CRM (lead_inquiries) ──────────────────────────
+const leadCreateSchema = z.object({
+  branch_id: z.string().uuid(),
+  lead_name: z.string().min(1),
+  phone: z.string().nullish(),
+  source: z.string().nullish(),
+  interest_product: z.string().nullish(),
+  status: z.string().default("inquiry"),
+  first_contact_at: z.string().nullish(),
+  trial_at: z.string().nullish(),
+  next_action_at: z.string().nullish(),
+  memo: z.string().nullish(),
+});
+dailyReportsRoutes.post("/leads", requireJwt, async (c) => {
+  const parsed = leadCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { data, error } = await db.from("lead_inquiries").insert({ ...parsed.data, created_by: profile.id }).select().maybeSingle();
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, data, "문의가 등록되었습니다");
+});
+
+dailyReportsRoutes.get("/leads", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("lead_inquiries").select("*").eq("branch_id", branchId).order("created_at", { ascending: false }).limit(200);
+  return ok(c, { leads: data ?? [] });
+});
+
+const leadUpdateSchema = z.object({
+  lead_name: z.string().optional(),
+  phone: z.string().nullish(),
+  source: z.string().nullish(),
+  interest_product: z.string().nullish(),
+  status: z.string().optional(),
+  first_contact_at: z.string().nullish(),
+  trial_at: z.string().nullish(),
+  next_action_at: z.string().nullish(),
+  memo: z.string().nullish(),
+  result_reason: z.string().nullish(),
+});
+dailyReportsRoutes.put("/leads/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = leadUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("lead_inquiries").select("branch_id,first_contact_at").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  const r = row as { branch_id: string; first_contact_at: string | null };
+  if (!canAccessBranch(profile, r.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const patch: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
+  // 편의: inquiry → 그 이후 상태로 전환 시 첫 응대 시각 자동 기록
+  if (parsed.data.status && parsed.data.status !== "inquiry" && !r.first_contact_at && parsed.data.first_contact_at == null) {
+    patch.first_contact_at = new Date().toISOString();
+  }
+  const { error } = await db.from("lead_inquiries").update(patch).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+// ── 회원 스냅샷 (브로제이 CSV 일괄 임포트) ──────────────────
+function phoneDigitsW(s: string | null | undefined): string { return (s ?? "").replace(/[^0-9]/g, ""); }
+const memberRowSchema = z.object({
+  member_name: z.string().min(1),
+  phone: z.string().nullish(),
+  product_name: z.string().nullish(),
+  membership_type: z.string().nullish(),
+  start_date: z.string().nullish(),
+  end_date: z.string().nullish(),
+  total_sessions: z.number().int().nullish(),
+  used_sessions: z.number().int().nullish(),
+  remaining_sessions: z.number().int().nullish(),
+  latest_visit_date: z.string().nullish(),
+  payment_amount: z.number().int().nullish(),
+  payment_method: z.string().nullish(),
+  assigned_coach: z.string().nullish(),
+  status: z.string().nullish(),
+  raw_payload: z.record(z.unknown()).optional(),
+});
+const memberImportSchema = z.object({
+  branch_id: z.string().uuid(),
+  file_name: z.string().nullish(),
+  import_type: z.string().default("broj_members"),
+  mapping: z.record(z.unknown()).optional(),
+  rows: z.array(memberRowSchema).min(1).max(5000),
+});
+dailyReportsRoutes.post("/members/import", requireJwt, async (c) => {
+  const parsed = memberImportSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const { branch_id, rows } = parsed.data;
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 가져올 수 없습니다", 403);
+
+  // 1) import_job 기록
+  const { data: job } = await db.from("import_jobs").insert({
+    branch_id, import_type: parsed.data.import_type, file_name: parsed.data.file_name ?? null,
+    status: "parsed", total_rows: rows.length, mapping: parsed.data.mapping ?? {}, created_by: profile.id,
+  }).select("id").maybeSingle();
+  const jobId = (job as { id: string } | null)?.id ?? null;
+
+  // 2) 기존 스냅샷 전화 정규화 맵
+  const { data: existRaw } = await db.from("member_snapshots").select("id,normalized_phone").eq("branch_id", branch_id);
+  const byPhone = new Map<string, string>();
+  for (const e of (existRaw as { id: string; normalized_phone: string | null }[] | null) ?? []) {
+    if (e.normalized_phone) byPhone.set(e.normalized_phone, e.id);
+  }
+
+  // 3) 파일 내 전화 중복 제거(마지막 우선)
+  const seen = new Map<string, number>();
+  const dedup: typeof rows = [];
+  for (const r of rows) {
+    const norm = phoneDigitsW(r.phone);
+    if (norm) {
+      const idx = seen.get(norm);
+      if (idx !== undefined) { dedup[idx] = r; continue; }
+      seen.set(norm, dedup.length);
+    }
+    dedup.push(r);
+  }
+
+  // 4) insert / update 분리
+  const toInsert: Record<string, unknown>[] = [];
+  const toUpdate: Record<string, unknown>[] = [];
+  for (const r of dedup) {
+    const base: Record<string, unknown> = {
+      branch_id, member_name: r.member_name, phone: r.phone ?? null,
+      product_name: r.product_name ?? null, membership_type: r.membership_type ?? null,
+      start_date: r.start_date ?? null, end_date: r.end_date ?? null,
+      total_sessions: r.total_sessions ?? null, used_sessions: r.used_sessions ?? null, remaining_sessions: r.remaining_sessions ?? null,
+      latest_visit_date: r.latest_visit_date ?? null, payment_amount: r.payment_amount ?? null,
+      payment_method: r.payment_method ?? null, assigned_coach: r.assigned_coach ?? null,
+      status: r.status ?? null, source: "broj_csv", import_job_id: jobId, raw_payload: r.raw_payload ?? {},
+      updated_at: new Date().toISOString(),
+    };
+    const norm = phoneDigitsW(r.phone);
+    const existId = norm ? byPhone.get(norm) : undefined;
+    if (existId) toUpdate.push({ id: existId, ...base });
+    else toInsert.push(base);
+  }
+
+  // 5) 반영 (normalized_phone 은 생성열이라 쓰지 않음)
+  let imported = 0; let failed = 0;
+  if (toInsert.length) {
+    const { error } = await db.from("member_snapshots").insert(toInsert);
+    if (error) failed += toInsert.length; else imported += toInsert.length;
+  }
+  if (toUpdate.length) {
+    const { error } = await db.from("member_snapshots").upsert(toUpdate, { onConflict: "id" });
+    if (error) failed += toUpdate.length; else imported += toUpdate.length;
+  }
+
+  if (jobId) {
+    await db.from("import_jobs").update({
+      status: failed > 0 && imported === 0 ? "failed" : "imported",
+      imported_rows: imported, failed_rows: failed, completed_at: new Date().toISOString(),
+    }).eq("id", jobId);
+  }
+  return ok(c, { job_id: jobId, total: rows.length, deduped: dedup.length, imported, updated: toUpdate.length, inserted: toInsert.length, failed }, `${imported}명 반영 완료`);
+});
+
+dailyReportsRoutes.get("/members", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db
+    .from("member_snapshots")
+    .select("id,member_name,phone,product_name,end_date,latest_visit_date,remaining_sessions,status,assigned_coach,updated_at")
+    .eq("branch_id", branchId)
+    .order("end_date", { ascending: true, nullsFirst: false })
+    .limit(1000);
+  return ok(c, { members: data ?? [] });
+});
+
+// ── 시설/장비 이슈 티켓 (issue_tickets) ─────────────────────
+const issueCreateSchema = z.object({
+  branch_id: z.string().uuid(),
+  title: z.string().min(1),
+  category: z.string().default("facility"),
+  severity: z.string().default("normal"),
+  status: z.string().default("open"),
+  location: z.string().nullish(),
+  description: z.string().nullish(),
+  photo_url: z.string().nullish(),
+  due_at: z.string().nullish(),
+  cost_amount: z.number().int().nullish(),
+  vendor_name: z.string().nullish(),
+});
+dailyReportsRoutes.post("/issues", requireJwt, async (c) => {
+  const parsed = issueCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 등록할 수 없습니다", 403);
+  const { data, error } = await db.from("issue_tickets").insert({ ...parsed.data, created_by: profile.id }).select().maybeSingle();
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, data, "이슈가 등록되었습니다");
+});
+dailyReportsRoutes.get("/issues", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("issue_tickets").select("*").eq("branch_id", branchId).order("created_at", { ascending: false }).limit(200);
+  return ok(c, { issues: data ?? [] });
+});
+const issueUpdateSchema = z.object({
+  title: z.string().optional(),
+  category: z.string().optional(),
+  severity: z.string().optional(),
+  status: z.string().optional(),
+  location: z.string().nullish(),
+  description: z.string().nullish(),
+  photo_url: z.string().nullish(),
+  due_at: z.string().nullish(),
+  cost_amount: z.number().int().nullish(),
+  vendor_name: z.string().nullish(),
+});
+dailyReportsRoutes.put("/issues/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = issueUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("issue_tickets").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const patch: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
+  if (parsed.data.status === "done") patch.completed_at = new Date().toISOString();
+  const { error } = await db.from("issue_tickets").update(patch).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+// ── 메시지 발송 로그 (ops_message_logs) ─────────────────────
+const msgLogSchema = z.object({
+  branch_id: z.string().uuid(),
+  recipient_name: z.string().nullish(),
+  phone: z.string().nullish(),
+  template_type: z.string().min(1),
+  related_type: z.string().nullish(),
+  related_id: z.string().uuid().nullish(),
+  content: z.string().min(1),
+  status: z.string().default("copied"),
+});
+dailyReportsRoutes.post("/messages/log", requireJwt, async (c) => {
+  const parsed = msgLogSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 기록할 수 없습니다", 403);
+  const { error } = await db.from("ops_message_logs").insert({ ...parsed.data, copied_at: new Date().toISOString(), created_by: profile.id });
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { ok: true }, "발송 기록됨");
+});
+dailyReportsRoutes.get("/messages", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db
+    .from("ops_message_logs")
+    .select("id,recipient_name,template_type,content,status,created_at")
+    .eq("branch_id", branchId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  return ok(c, { messages: data ?? [] });
+});
+
+// ── 일일 다이제스트 (복사용 요약) ───────────────────────────
+dailyReportsRoutes.get("/digest", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  let score = (await db.from("branch_daily_scores").select("total_score,grade").eq("branch_id", branchId).eq("score_date", date).maybeSingle()).data as { total_score: number; grade: string | null } | null;
+  if (!score && WRITE_ROLES.has(profile.role)) {
+    try { await runGenerate(db, branchId, date, profile.id); } catch { /* 무시 */ }
+    score = (await db.from("branch_daily_scores").select("total_score,grade").eq("branch_id", branchId).eq("score_date", date).maybeSingle()).data as { total_score: number; grade: string | null } | null;
+  }
+  const [brow, rep, tasksR, alertsR, refundR, issueR, summary] = await Promise.all([
+    db.from("branches").select("name").eq("id", branchId).maybeSingle(),
+    db.from("daily_reports").select("new_signups,re_signups,inquiry_count").eq("branch_id", branchId).eq("report_date", date).maybeSingle(),
+    db.from("operation_tasks").select("priority,status").eq("branch_id", branchId).eq("task_date", date),
+    db.from("operation_alerts").select("severity,status").eq("branch_id", branchId).eq("alert_date", date),
+    db.from("refund_requests").select("id").eq("branch_id", branchId).not("refund_status", "in", "(completed,canceled,rejected)"),
+    db.from("issue_tickets").select("id").eq("branch_id", branchId).in("status", ["open", "in_progress", "waiting_vendor"]),
+    computeSummary(db, branchId, date),
+  ]);
+  const branchName = (brow.data as { name: string } | null)?.name ?? "지점";
+  const report = rep.data as { new_signups: number; re_signups: number; inquiry_count: number } | null;
+  const tasks = (tasksR.data as { priority: string; status: string }[] | null) ?? [];
+  const alerts = (alertsR.data as { severity: string; status: string }[] | null) ?? [];
+  const active = tasks.filter((t) => t.status !== "done" && t.status !== "canceled" && t.status !== "skipped");
+  const done = tasks.filter((t) => t.status === "done").length;
+  const mustDo = active.filter((t) => t.priority === "urgent" || t.priority === "high").length;
+  const danger = alerts.filter((a) => (a.severity === "danger" || a.severity === "critical") && a.status !== "resolved" && a.status !== "dismissed").length;
+  const refundPending = ((refundR.data as unknown[] | null) ?? []).length;
+  const issueOpen = ((issueR.data as unknown[] | null) ?? []).length;
+  const ach = summary.achievement == null ? null : Math.round(summary.achievement * 100);
+  const gradeKo = score?.grade === "danger" ? "위험" : score?.grade === "watch" ? "주의" : score?.grade === "safe" ? "안전" : "-";
+  const wonFmt = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
+
+  const lines = [
+    `[${branchName}] ${date} 일일 요약`,
+    `운영점수 ${score?.total_score ?? "-"}점 (${gradeKo})`,
+    `순매출 ${wonFmt(summary.day_net)}${ach != null ? ` · 월목표 ${ach}%` : ""}`,
+    `신규 ${report?.new_signups ?? 0} · 재등록 ${report?.re_signups ?? 0} · 문의 ${report?.inquiry_count ?? 0}`,
+    `업무완료 ${done}/${tasks.length}${mustDo > 0 ? ` · 필수 미완 ${mustDo}` : ""}`,
+  ];
+  const risks: string[] = [];
+  if (danger > 0) risks.push(`위험알림 ${danger}`);
+  if (refundPending > 0) risks.push(`환불대기 ${refundPending}`);
+  if (issueOpen > 0) risks.push(`시설이슈 ${issueOpen}`);
+  lines.push(risks.length ? `[주의] ${risks.join(" · ")}` : `[정상] 예외 없음`);
+
+  return ok(c, {
+    date, branch_name: branchName,
+    total_score: score?.total_score ?? null, grade: score?.grade ?? null,
+    day_net: summary.day_net, month_achievement: ach,
+    new_signups: report?.new_signups ?? 0, re_signups: report?.re_signups ?? 0, inquiry_count: report?.inquiry_count ?? 0,
+    tasks_done: done, tasks_total: tasks.length, must_do_open: mustDo,
+    danger_alerts: danger, refund_pending: refundPending, issue_open: issueOpen,
+    text: lines.join("\n"),
+  });
+});
+
+// ── 오토운영 엔진: 태스크/알림/점수 생성·조회 ────────────────
+interface MonthRevRow { revenue_pt: number; revenue_membership: number; revenue_goods: number; revenue_dan: number; refund_amount: number }
+
+async function runGenerate(db: SupabaseClient, branchId: string, date: string, profileId: string) {
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const ym = date.slice(0, 7);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthStart = `${ym}-01`;
+  const monthEnd = `${ym}-${String(lastDay).padStart(2, "0")}`;
+  const monthProgressRatio = lastDay > 0 ? Number(date.slice(8, 10)) / lastDay : 0;
+  const kstHour = new Date(Date.now() + 9 * 3600 * 1000).getUTCHours();
+  const afterCloseCutoff = kstHour >= 22 || kstHour < 5;
+
+  const [rep, cl, fu, pt, rf, ld, sn, iss, tgt, monthRows] = await Promise.all([
+    db.from("daily_reports").select("*").eq("branch_id", branchId).eq("report_date", date).maybeSingle(),
+    db.from("daily_checklists").select("items").eq("branch_id", branchId).eq("report_date", date).maybeSingle(),
+    db.from("member_followups").select("id,member_name,status,expire_date").eq("branch_id", branchId).eq("status", "진행중"),
+    db.from("pt_passes").select("id,member_name,total_sessions,used_sessions,no_shows,status").eq("branch_id", branchId).eq("status", "active"),
+    db.from("refund_requests").select("id,member_name,refund_status,risk_level,refund_requested_date").eq("branch_id", branchId).not("refund_status", "in", "(completed,canceled,rejected)"),
+    db.from("lead_inquiries").select("id,lead_name,status,first_contact_at,trial_at,next_action_at").eq("branch_id", branchId).not("status", "in", "(registered,failed)"),
+    db.from("member_snapshots").select("id,member_name,phone,end_date,latest_visit_date,start_date,status").eq("branch_id", branchId).limit(1000),
+    db.from("issue_tickets").select("id,title,severity,status,due_at,created_at").eq("branch_id", branchId).in("status", ["open", "in_progress", "waiting_vendor"]),
+    db.from("monthly_targets").select("target_amount").eq("branch_id", branchId).eq("year", year).eq("month", month).maybeSingle(),
+    db.from("daily_reports").select("revenue_pt,revenue_membership,revenue_goods,revenue_dan,refund_amount").eq("branch_id", branchId).gte("report_date", monthStart).lte("report_date", monthEnd),
+  ]);
+
+  const rr = rep.data as (ReportIn & Record<string, unknown>) | null;
+  const items = ((cl.data as { items?: { no: number; done?: boolean; actual?: number }[] } | null)?.items) ?? [];
+  const monthNet = ((monthRows.data as MonthRevRow[] | null) ?? []).reduce(
+    (s, r) => s + (r.revenue_pt + r.revenue_membership + r.revenue_goods + r.revenue_dan - (r.refund_amount ?? 0)), 0);
+  const target = Number((tgt.data as { target_amount: number } | null)?.target_amount ?? 0);
+
+  const input: OpsInput = {
+    branchId, date, nowIso: new Date().toISOString(), afterCloseCutoff,
+    report: rr
+      ? { revenue_pt: rr.revenue_pt, revenue_membership: rr.revenue_membership, revenue_goods: rr.revenue_goods,
+          revenue_dan: rr.revenue_dan, refund_amount: rr.refund_amount ?? 0, new_signups: rr.new_signups,
+          re_signups: rr.re_signups, inquiry_count: rr.inquiry_count, morning_attendance: rr.morning_attendance,
+          lunch_attendance: rr.lunch_attendance, evening_attendance: rr.evening_attendance }
+      : null,
+    checklist: items.map((it) => ({ no: it.no, done: !!it.done, actual: it.actual ?? 0 })),
+    followups: (fu.data as FollowupIn[] | null) ?? [],
+    ptPasses: (pt.data as PtIn[] | null) ?? [],
+    refunds: (rf.data as RefundIn[] | null) ?? [],
+    leads: (ld.data as LeadIn[] | null) ?? [],
+    snapshots: (sn.data as SnapshotIn[] | null) ?? [],
+    issues: (iss.data as IssueIn[] | null) ?? [],
+    monthlyTarget: target, monthNetCumulative: monthNet, monthProgressRatio,
+  };
+
+  const taskDrafts = generateTasks(input);
+  const alertDrafts = generateAlerts(input);
+  const score = computeScore(input, taskDrafts);
+
+  if (taskDrafts.length)
+    await db.from("operation_tasks").upsert(
+      taskDrafts.map((d) => ({
+        branch_id: branchId, task_date: date, category: d.category, priority: d.priority, title: d.title,
+        description: d.description ?? null, action_label: d.action_label ?? null, source_type: d.source_type ?? null,
+        source_id: d.source_id ?? null, generated_key: d.generated_key, member_name: d.member_name ?? null,
+        member_phone: d.member_phone ?? null, due_at: d.due_at ?? null, metadata: d.metadata ?? {}, created_by: profileId,
+      })),
+      { onConflict: "branch_id,task_date,generated_key", ignoreDuplicates: true });
+  if (alertDrafts.length)
+    await db.from("operation_alerts").upsert(
+      alertDrafts.map((d) => ({
+        branch_id: branchId, alert_date: date, severity: d.severity, category: d.category, title: d.title,
+        message: d.message, source_type: d.source_type ?? null, source_id: d.source_id ?? null,
+        generated_key: d.generated_key, score_impact: d.score_impact ?? 0,
+      })),
+      { onConflict: "branch_id,alert_date,generated_key", ignoreDuplicates: true });
+  await db.from("branch_daily_scores").upsert(
+    { branch_id: branchId, score_date: date, total_score: score.total, report_score: score.report,
+      sales_score: score.sales, task_score: score.task, followup_score: score.followup, lead_score: score.lead,
+      checklist_score: score.checklist, refund_score: score.refund, facility_score: score.facility,
+      grade: score.grade, summary: score.summary, details: score.details, updated_at: new Date().toISOString() },
+    { onConflict: "branch_id,score_date" });
+
+  return { tasks: taskDrafts.length, alerts: alertDrafts.length, score };
+}
+
+const opsGenSchema = z.object({ branch_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish() });
+dailyReportsRoutes.post("/ops/generate", requireJwt, async (c) => {
+  const parsed = opsGenSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const date = parsed.data.date ?? kstDateStr();
+  const r = await runGenerate(db, parsed.data.branch_id, date, profile.id);
+  return ok(c, r, "오늘 업무·알림을 생성했습니다");
+});
+
+dailyReportsRoutes.get("/ops/today", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data: existing } = await db.from("branch_daily_scores").select("score_date").eq("branch_id", branchId).eq("score_date", date).maybeSingle();
+  if (!existing && WRITE_ROLES.has(profile.role)) await runGenerate(db, branchId, date, profile.id);
+
+  const [tasks, alerts, score] = await Promise.all([
+    db.from("operation_tasks").select("*").eq("branch_id", branchId).eq("task_date", date).order("priority").order("created_at"),
+    db.from("operation_alerts").select("*").eq("branch_id", branchId).eq("alert_date", date).neq("status", "dismissed").order("severity"),
+    db.from("branch_daily_scores").select("*").eq("branch_id", branchId).eq("score_date", date).maybeSingle(),
+  ]);
+  return ok(c, { date, tasks: tasks.data ?? [], alerts: alerts.data ?? [], score: score.data ?? null });
+});
+
+dailyReportsRoutes.get("/tasks", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("operation_tasks").select("*").eq("branch_id", branchId).eq("task_date", date).order("created_at");
+  return ok(c, { tasks: data ?? [] });
+});
+
+const taskUpdateSchema = z.object({
+  status: z.enum(["pending", "in_progress", "done", "skipped", "postponed", "canceled"]).optional(),
+  skipped_reason: z.string().nullish(),
+  memo: z.string().nullish(),
+});
+dailyReportsRoutes.put("/tasks/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = taskUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("operation_tasks").select("branch_id, metadata").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  const r = row as { branch_id: string; metadata: Record<string, unknown> | null };
+  if (!canAccessBranch(profile, r.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (parsed.data.status) {
+    patch.status = parsed.data.status;
+    if (parsed.data.status === "done") { patch.completed_at = new Date().toISOString(); patch.completed_by = profile.id; }
+  }
+  if (parsed.data.skipped_reason !== undefined) patch.skipped_reason = parsed.data.skipped_reason;
+  if (parsed.data.memo != null) patch.metadata = { ...(r.metadata ?? {}), memo: parsed.data.memo };
+  const { error } = await db.from("operation_tasks").update(patch).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+dailyReportsRoutes.get("/alerts", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("operation_alerts").select("*").eq("branch_id", branchId).eq("alert_date", date).order("created_at", { ascending: false });
+  return ok(c, { alerts: data ?? [] });
+});
+
+const alertUpdateSchema = z.object({ status: z.enum(["open", "acknowledged", "resolved", "dismissed"]) });
+dailyReportsRoutes.put("/alerts/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = alertUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("operation_alerts").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const patch: Record<string, unknown> = { status: parsed.data.status, updated_at: new Date().toISOString() };
+  if (parsed.data.status === "acknowledged") { patch.acknowledged_by = profile.id; patch.acknowledged_at = new Date().toISOString(); }
+  if (parsed.data.status === "resolved") { patch.resolved_by = profile.id; patch.resolved_at = new Date().toISOString(); }
+  const { error } = await db.from("operation_alerts").update(patch).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+// ── 본사 예외 관제 (HQ 전용) — 전 지점 점수·예외 집계 ────────
+dailyReportsRoutes.get("/hq-control", requireJwt, async (c) => {
+  const date = c.req.query("date") ?? kstDateStr();
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !HQ_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "본사 전용입니다", 403);
+
+  const { data: braw } = await db.from("branches").select("id,name").order("name");
+  const branches = (braw as BranchRow[] | null) ?? [];
+
+  const rows = await Promise.all(branches.map(async (b) => {
+    let score = (await db.from("branch_daily_scores").select("total_score,grade,summary").eq("branch_id", b.id).eq("score_date", date).maybeSingle()).data as { total_score: number; grade: string | null; summary: string | null } | null;
+    if (!score) {
+      try { await runGenerate(db, b.id, date, profile.id); } catch { /* 무시: 한 지점 실패가 전체를 막지 않게 */ }
+      score = (await db.from("branch_daily_scores").select("total_score,grade,summary").eq("branch_id", b.id).eq("score_date", date).maybeSingle()).data as { total_score: number; grade: string | null; summary: string | null } | null;
+    }
+    const [rep, tasksR, alertsR, refundR, issueR, summary] = await Promise.all([
+      db.from("daily_reports").select("updated_at").eq("branch_id", b.id).eq("report_date", date).maybeSingle(),
+      db.from("operation_tasks").select("priority,status").eq("branch_id", b.id).eq("task_date", date),
+      db.from("operation_alerts").select("severity,status").eq("branch_id", b.id).eq("alert_date", date),
+      db.from("refund_requests").select("id").eq("branch_id", b.id).not("refund_status", "in", "(completed,canceled,rejected)"),
+      db.from("issue_tickets").select("id").eq("branch_id", b.id).in("status", ["open", "in_progress", "waiting_vendor"]),
+      computeSummary(db, b.id, date),
+    ]);
+    const tasks = (tasksR.data as { priority: string; status: string }[] | null) ?? [];
+    const alerts = (alertsR.data as { severity: string; status: string }[] | null) ?? [];
+    const active = tasks.filter((t) => t.status !== "done" && t.status !== "canceled" && t.status !== "skipped");
+    return {
+      branch_id: b.id, branch_name: b.name,
+      total_score: score?.total_score ?? null, grade: score?.grade ?? null, summary: score?.summary ?? null,
+      report_submitted: !!rep.data, last_report_at: (rep.data as { updated_at?: string } | null)?.updated_at ?? null,
+      tasks_total: tasks.length, tasks_done: tasks.filter((t) => t.status === "done").length,
+      must_do_open: active.filter((t) => t.priority === "urgent" || t.priority === "high").length,
+      danger_alerts: alerts.filter((a) => (a.severity === "danger" || a.severity === "critical") && a.status !== "resolved" && a.status !== "dismissed").length,
+      refund_pending: ((refundR.data as unknown[] | null) ?? []).length,
+      facility_open: ((issueR.data as unknown[] | null) ?? []).length,
+      day_net: summary.day_net, month_achievement: summary.achievement == null ? null : Math.round(summary.achievement * 100), target_amount: summary.target_amount, gap: summary.gap, d_day: summary.d_day,
+    };
+  }));
+
+  const summary = {
+    total: rows.length,
+    safe: rows.filter((r) => r.grade === "safe").length,
+    watch: rows.filter((r) => r.grade === "watch").length,
+    danger: rows.filter((r) => r.grade === "danger").length,
+    no_report: rows.filter((r) => !r.report_submitted).length,
+    refund_pending: rows.filter((r) => r.refund_pending > 0).length,
+    facility: rows.filter((r) => r.facility_open > 0).length,
+  };
+  return ok(c, { date, summary, branches: rows });
 });
