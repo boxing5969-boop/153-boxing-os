@@ -1356,6 +1356,32 @@ dailyReportsRoutes.get("/game-profile", requireJwt, async (c) => {
   return ok(c, data ?? { total_xp: 0, level: 1, current_streak: 0, best_streak: 0, streak_freezes: 1, last_success_date: null, hp: 100, badges: [] });
 });
 
+// 복구권 사용 — 끊긴 스트릭을 어제로 브리지(오늘 미션 완료 시 연속 유지)
+const gameProfilePutSchema = z.object({ branch_id: z.string().uuid(), domain: z.string().default("branch_ops"), use_freeze: z.boolean().optional() });
+dailyReportsRoutes.put("/game-profile", requireJwt, async (c) => {
+  const parsed = gameProfilePutSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const { branch_id, domain } = parsed.data;
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const sel = "id,total_xp,level,current_streak,best_streak,streak_freezes,last_success_date,hp,badges";
+  const { data } = await db.from("game_profiles").select(sel).eq("branch_id", branch_id).eq("domain", domain).eq("owner_type", "branch").is("owner_id", null).maybeSingle();
+  const prev = data as { id: string; streak_freezes: number; last_success_date: string | null } | null;
+  if (parsed.data.use_freeze) {
+    if (!prev) return fail(c, "NO_PROFILE", "아직 활동 기록이 없습니다", 400);
+    const today = kstDateStr();
+    const yest = addDays(today, -1);
+    if (prev.last_success_date == null || prev.last_success_date >= yest) return fail(c, "NO_GAP", "복구할 끊긴 연속 기록이 없습니다", 400);
+    if (prev.streak_freezes <= 0) return fail(c, "NO_FREEZE", "남은 복구권이 없습니다", 400);
+    await db.from("game_profiles").update({ last_success_date: yest, streak_freezes: prev.streak_freezes - 1, updated_at: new Date().toISOString() }).eq("id", prev.id);
+    await db.from("reward_events").insert({ branch_id, domain, owner_type: "branch", owner_id: null, user_id: profile.id, event_date: today, reward_type: "recovery", title: "스트릭 복구", message: "복구권을 사용해 연속 기록을 지켰습니다.", xp_bonus: 0 });
+  }
+  const { data: updated } = await db.from("game_profiles").select(sel).eq("branch_id", branch_id).eq("domain", domain).eq("owner_type", "branch").is("owner_id", null).maybeSingle();
+  return ok(c, updated ?? {}, "저장되었습니다");
+});
+
 const taskUpdateSchema = z.object({
   status: z.enum(["pending", "in_progress", "done", "skipped", "postponed", "canceled"]).optional(),
   skipped_reason: z.string().nullish(),
