@@ -1303,6 +1303,59 @@ dailyReportsRoutes.get("/tasks", requireJwt, async (c) => {
   return ok(c, { tasks: data ?? [] });
 });
 
+// ── 게임 프로필(미션 영속): XP/레벨/스트릭 ───────────────────
+const GP_LEVELS: { min: number; level: number }[] = [
+  { min: 0, level: 1 }, { min: 200, level: 5 }, { min: 600, level: 10 },
+  { min: 1500, level: 20 }, { min: 3000, level: 30 }, { min: 6000, level: 50 },
+];
+function gpLevel(xp: number): number { let lv = 1; for (const l of GP_LEVELS) if (xp >= l.min) lv = l.level; return lv; }
+function taskXp(genKey: string | null, category: string): number {
+  const k = genKey ?? "";
+  if (k === "report_missing") return 10;
+  if (k === "open_check" || k === "close_check") return 5;
+  if (k.startsWith("action_1")) return 8;
+  if (k.startsWith("action_")) return 5;
+  switch (category) {
+    case "followup": return 8; case "member_care": return 5; case "refund": return 15;
+    case "facility": return 20; case "pt": return 8; case "lead": return 8; case "sales": return 15;
+    case "open": case "close": return 5; case "report": return 10; default: return 5;
+  }
+}
+interface GameProfileRow { id: string; total_xp: number; current_streak: number; best_streak: number; last_success_date: string | null; hp: number }
+async function awardGameXp(db: SupabaseClient, branchId: string, profileId: string, domain: string, opts: { taskId?: string; title: string; xp: number }) {
+  const today = kstDateStr();
+  const { data } = await db.from("game_profiles").select("id,total_xp,current_streak,best_streak,last_success_date,hp")
+    .eq("branch_id", branchId).eq("domain", domain).eq("owner_type", "branch").is("owner_id", null).maybeSingle();
+  const prev = data as GameProfileRow | null;
+  const newXp = (prev?.total_xp ?? 0) + opts.xp;
+  let streak = prev?.current_streak ?? 0;
+  if (!prev || prev.last_success_date !== today) {
+    streak = prev && prev.last_success_date === addDays(today, -1) ? (prev.current_streak ?? 0) + 1 : 1;
+  }
+  const best = Math.max(prev?.best_streak ?? 0, streak);
+  const payload = {
+    branch_id: branchId, domain, owner_type: "branch", owner_id: null,
+    total_xp: newXp, level: gpLevel(newXp), current_streak: streak, best_streak: best,
+    last_success_date: today, updated_at: new Date().toISOString(),
+  };
+  if (prev) await db.from("game_profiles").update(payload).eq("id", prev.id);
+  else await db.from("game_profiles").insert(payload);
+  await db.from("reward_events").insert({ branch_id: branchId, domain, owner_type: "branch", owner_id: null, user_id: profileId, event_date: today, reward_type: "xp", title: "미션 완료", message: opts.title, xp_bonus: opts.xp, related_task_id: opts.taskId ?? null });
+  await db.from("activity_logs").insert({ branch_id: branchId, domain, user_id: profileId, activity_date: today, activity_type: "mission_done", related_type: "operation_task", related_id: opts.taskId ?? null, memo: opts.title });
+}
+dailyReportsRoutes.get("/game-profile", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const domain = c.req.query("domain") ?? "branch_ops";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("game_profiles").select("total_xp,level,current_streak,best_streak,streak_freezes,last_success_date,hp,badges")
+    .eq("branch_id", branchId).eq("domain", domain).eq("owner_type", "branch").is("owner_id", null).maybeSingle();
+  return ok(c, data ?? { total_xp: 0, level: 1, current_streak: 0, best_streak: 0, streak_freezes: 1, last_success_date: null, hp: 100, badges: [] });
+});
+
 const taskUpdateSchema = z.object({
   status: z.enum(["pending", "in_progress", "done", "skipped", "postponed", "canceled"]).optional(),
   skipped_reason: z.string().nullish(),
@@ -1316,9 +1369,10 @@ dailyReportsRoutes.put("/tasks/:id", requireJwt, async (c) => {
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
-  const { data: row } = await db.from("operation_tasks").select("branch_id, metadata, task_date").eq("id", id).maybeSingle();
+  const { data: row } = await db.from("operation_tasks").select("branch_id, metadata, task_date, status, generated_key, category, title").eq("id", id).maybeSingle();
   if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
-  const r = row as { branch_id: string; metadata: Record<string, unknown> | null; task_date: string };
+  const r = row as { branch_id: string; metadata: Record<string, unknown> | null; task_date: string; status: string; generated_key: string | null; category: string; title: string };
+  const wasDone = r.status === "done";
   if (!canAccessBranch(profile, r.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -1356,6 +1410,12 @@ dailyReportsRoutes.put("/tasks/:id", requireJwt, async (c) => {
   if (metaChanged) patch.metadata = meta;
   const { error } = await db.from("operation_tasks").update(patch).eq("id", id);
   if (error) return fail(c, "DB_ERROR", error.message, 500);
+
+  // 미션 완료 전이 시 XP/스트릭 적립 (중복 방지: 이전 done 아님 + 이번에 done)
+  if (patch.status === "done" && !wasDone) {
+    try { await awardGameXp(db, r.branch_id, profile.id, "branch_ops", { taskId: id, title: r.title, xp: taskXp(r.generated_key, r.category) }); }
+    catch { /* 보상 적립 실패는 완료 처리를 막지 않음 */ }
+  }
   return ok(c, { id }, "저장되었습니다");
 });
 
