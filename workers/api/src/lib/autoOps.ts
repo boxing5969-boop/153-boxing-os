@@ -111,7 +111,8 @@ export function generateTasks(i: OpsInput): TaskDraft[] {
     const cur = actualOf(no);
     if (cur < def.target)
       t.push({ generated_key: `action_${no}`, category: def.cat, priority: no === 1 ? "high" : "normal",
-        title: `${def.label} ${cur}/${def.target}`, description: "오늘 목표 미달 — 남은 대상을 처리하세요.", action_label: "처리", source_type: "checklist" });
+        title: `${def.label}`, description: "회원을 처리할 때마다 +1 — 목표를 채우면 자동 완료됩니다.", action_label: "처리", source_type: "checklist",
+        metadata: { target: def.target, actual: cur, action_no: no } });
   }
 
   // D. 만료 팔로업 (member_followups 진행중)

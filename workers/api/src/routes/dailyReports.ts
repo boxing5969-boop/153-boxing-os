@@ -1083,6 +1083,89 @@ dailyReportsRoutes.get("/digest", requireJwt, async (c) => {
   });
 });
 
+// ── 월간 KPI (지점장 실력점수: 일일점수 평균 × 작성률 가중 + 익명 순위) ──
+interface KpiScoreRow { total_score: number; report_score: number; sales_score: number; task_score: number; followup_score: number; lead_score: number; checklist_score: number; refund_score: number; facility_score: number }
+function kpiMonthRange(month: string) {
+  const y = Number(month.slice(0, 4)); const m = Number(month.slice(5, 7));
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { start: `${month}-01`, end: `${month}-${String(lastDay).padStart(2, "0")}`, lastDay };
+}
+function kpiGrade(k: number): string { return k >= 90 ? "S" : k >= 80 ? "A" : k >= 70 ? "B" : k >= 60 ? "C" : "D"; }
+function prevMonthStr(month: string): string {
+  const y = Number(month.slice(0, 4)); const m = Number(month.slice(5, 7));
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+async function computeBranchKpi(db: SupabaseClient, branchId: string, month: string) {
+  const { start, end, lastDay } = kpiMonthRange(month);
+  const { data: sraw } = await db.from("branch_daily_scores")
+    .select("total_score,report_score,sales_score,task_score,followup_score,lead_score,checklist_score,refund_score,facility_score")
+    .eq("branch_id", branchId).gte("score_date", start).lte("score_date", end);
+  const scores = (sraw as KpiScoreRow[] | null) ?? [];
+  const daysScored = scores.length;
+  const today = kstDateStr();
+  const elapsed = today.slice(0, 7) === month ? Number(today.slice(8, 10)) : lastDay;
+  const { count } = await db.from("daily_reports").select("id", { count: "exact", head: true })
+    .eq("branch_id", branchId).gte("report_date", start).lte("report_date", end);
+  const reportsCount = count ?? 0;
+  const reportRate = elapsed > 0 ? Math.min(1, reportsCount / elapsed) : 0;
+  const avg = daysScored ? scores.reduce((s, r) => s + r.total_score, 0) / daysScored : 0;
+  const kpi = daysScored ? Math.round(avg * (0.7 + 0.3 * reportRate)) : 0;
+  const avgOf = (sel: (r: KpiScoreRow) => number) => daysScored ? Math.round((scores.reduce((s, r) => s + sel(r), 0) / daysScored) * 10) / 10 : 0;
+  return {
+    kpi, avg_score: Math.round(avg * 10) / 10, report_rate: Math.round(reportRate * 100), days_scored: daysScored,
+    grade: daysScored ? kpiGrade(kpi) : "-",
+    components: {
+      report: avgOf((r) => r.report_score), sales: avgOf((r) => r.sales_score), task: avgOf((r) => r.task_score),
+      followup: avgOf((r) => r.followup_score), lead: avgOf((r) => r.lead_score), checklist: avgOf((r) => r.checklist_score),
+      refund: avgOf((r) => r.refund_score), facility: avgOf((r) => r.facility_score),
+    },
+  };
+}
+dailyReportsRoutes.get("/kpi", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const month = c.req.query("month") ?? kstDateStr().slice(0, 7);
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const me = await computeBranchKpi(db, branchId, month);
+  const prev = await computeBranchKpi(db, branchId, prevMonthStr(month));
+  const brow = await db.from("branches").select("name").eq("id", branchId).maybeSingle();
+  const branchName = (brow.data as { name: string } | null)?.name ?? "지점";
+
+  // 익명 순위 — 전 지점 KPI 계산 후 순위만 산출(타 지점 점수/이름 미반환)
+  const { data: braw } = await db.from("branches").select("id");
+  const allBranches = (braw as { id: string }[] | null) ?? [];
+  const allKpis = await Promise.all(allBranches.map(async (b) => ({ id: b.id, kpi: (await computeBranchKpi(db, b.id, month)).kpi })));
+  const ranked = allKpis.filter((x) => x.kpi > 0).sort((a, b) => b.kpi - a.kpi);
+  const rankIdx = ranked.findIndex((x) => x.id === branchId);
+
+  return ok(c, {
+    month, branch_name: branchName, ...me,
+    prev_kpi: prev.days_scored ? prev.kpi : null,
+    delta: prev.days_scored && me.days_scored ? me.kpi - prev.kpi : null,
+    rank: rankIdx >= 0 ? rankIdx + 1 : null,
+    total_branches: ranked.length,
+  });
+});
+dailyReportsRoutes.get("/kpi/ranking", requireJwt, async (c) => {
+  const month = c.req.query("month") ?? kstDateStr().slice(0, 7);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !HQ_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "본사 전용입니다", 403);
+  const { data: braw } = await db.from("branches").select("id,name").order("name");
+  const branches = (braw as BranchRow[] | null) ?? [];
+  const rows = await Promise.all(branches.map(async (b) => {
+    const k = await computeBranchKpi(db, b.id, month);
+    return { branch_id: b.id, branch_name: b.name, kpi: k.kpi, grade: k.grade, avg_score: k.avg_score, report_rate: k.report_rate, days_scored: k.days_scored };
+  }));
+  rows.sort((a, b) => b.kpi - a.kpi);
+  return ok(c, { month, ranking: rows });
+});
+
 // ── 오토운영 엔진: 태스크/알림/점수 생성·조회 ────────────────
 interface MonthRevRow { revenue_pt: number; revenue_membership: number; revenue_goods: number; revenue_dan: number; refund_amount: number }
 
@@ -1147,6 +1230,16 @@ async function runGenerate(db: SupabaseClient, branchId: string, date: string, p
         member_phone: d.member_phone ?? null, due_at: d.due_at ?? null, metadata: d.metadata ?? {}, created_by: profileId,
       })),
       { onConflict: "branch_id,task_date,generated_key", ignoreDuplicates: true });
+
+  // 점검/리포트 대표 태스크 자동완료: 드래프트에 없으면(=실제 작업 완료) 남아있던 태스크를 done 처리
+  const reconcileKeys = ["report_missing", "open_check", "close_check"];
+  const presentKeys = new Set(taskDrafts.map((d) => d.generated_key));
+  const resolvedKeys = reconcileKeys.filter((k) => !presentKeys.has(k));
+  if (resolvedKeys.length)
+    await db.from("operation_tasks")
+      .update({ status: "done", completed_at: new Date().toISOString(), completed_by: profileId, updated_at: new Date().toISOString() })
+      .eq("branch_id", branchId).eq("task_date", date).in("generated_key", resolvedKeys).in("status", ["pending", "in_progress", "postponed"]);
+
   if (alertDrafts.length)
     await db.from("operation_alerts").upsert(
       alertDrafts.map((d) => ({
@@ -1214,6 +1307,7 @@ const taskUpdateSchema = z.object({
   status: z.enum(["pending", "in_progress", "done", "skipped", "postponed", "canceled"]).optional(),
   skipped_reason: z.string().nullish(),
   memo: z.string().nullish(),
+  actual: z.number().int().min(0).optional(),
 });
 dailyReportsRoutes.put("/tasks/:id", requireJwt, async (c) => {
   const id = c.req.param("id");
@@ -1222,17 +1316,44 @@ dailyReportsRoutes.put("/tasks/:id", requireJwt, async (c) => {
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
-  const { data: row } = await db.from("operation_tasks").select("branch_id, metadata").eq("id", id).maybeSingle();
+  const { data: row } = await db.from("operation_tasks").select("branch_id, metadata, task_date").eq("id", id).maybeSingle();
   if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
-  const r = row as { branch_id: string; metadata: Record<string, unknown> | null };
+  const r = row as { branch_id: string; metadata: Record<string, unknown> | null; task_date: string };
   if (!canAccessBranch(profile, r.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const meta: Record<string, unknown> = { ...(r.metadata ?? {}) };
+  let metaChanged = false;
+
+  if (parsed.data.memo != null) { meta.memo = parsed.data.memo; metaChanged = true; }
+
+  // 진척(actual) — 목표형 회원관리 액션 태스크: 체크리스트 actual 동기화(점수 연동) + 목표 달성 자동완료
+  if (parsed.data.actual !== undefined) {
+    if (!isWithinEditWindow(r.task_date)) return fail(c, "EDIT_WINDOW", "수정 가능 기간(작성일 당일·익일)이 지났습니다", 400);
+    const actionNo = typeof meta.action_no === "number" ? (meta.action_no as number) : null;
+    const target = typeof meta.target === "number" ? (meta.target as number) : null;
+    const newActual = Math.max(0, parsed.data.actual);
+    meta.actual = newActual; metaChanged = true;
+    if (actionNo != null) {
+      const { data: clRow } = await db.from("daily_checklists").select("items").eq("branch_id", r.branch_id).eq("report_date", r.task_date).maybeSingle();
+      const raw = (clRow as { items?: unknown } | null)?.items;
+      const items: Record<string, unknown>[] = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+      let found = false;
+      const merged = items.map((it) => { if (Number(it.no) === actionNo) { found = true; return { ...it, actual: newActual }; } return it; });
+      if (!found) merged.push({ no: actionNo, done: false, actual: newActual, memo: "" });
+      await db.from("daily_checklists").upsert(
+        { branch_id: r.branch_id, report_date: r.task_date, items: merged, updated_at: new Date().toISOString() },
+        { onConflict: "branch_id,report_date" });
+    }
+    if (target != null && newActual >= target) { patch.status = "done"; patch.completed_at = new Date().toISOString(); patch.completed_by = profile.id; }
+  }
+
   if (parsed.data.status) {
     patch.status = parsed.data.status;
     if (parsed.data.status === "done") { patch.completed_at = new Date().toISOString(); patch.completed_by = profile.id; }
   }
   if (parsed.data.skipped_reason !== undefined) patch.skipped_reason = parsed.data.skipped_reason;
-  if (parsed.data.memo != null) patch.metadata = { ...(r.metadata ?? {}), memo: parsed.data.memo };
+  if (metaChanged) patch.metadata = meta;
   const { error } = await db.from("operation_tasks").update(patch).eq("id", id);
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   return ok(c, { id }, "저장되었습니다");
