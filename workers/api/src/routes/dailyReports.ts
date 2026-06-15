@@ -1492,13 +1492,15 @@ dailyReportsRoutes.get("/hq-control", requireJwt, async (c) => {
       try { await runGenerate(db, b.id, date, profile.id); } catch { /* 무시: 한 지점 실패가 전체를 막지 않게 */ }
       score = (await db.from("branch_daily_scores").select("total_score,grade,summary").eq("branch_id", b.id).eq("score_date", date).maybeSingle()).data as { total_score: number; grade: string | null; summary: string | null } | null;
     }
-    const [rep, tasksR, alertsR, refundR, issueR, summary] = await Promise.all([
+    const [rep, tasksR, alertsR, refundR, issueR, summary, leadsR, membersR] = await Promise.all([
       db.from("daily_reports").select("updated_at").eq("branch_id", b.id).eq("report_date", date).maybeSingle(),
       db.from("operation_tasks").select("priority,status").eq("branch_id", b.id).eq("task_date", date),
       db.from("operation_alerts").select("severity,status").eq("branch_id", b.id).eq("alert_date", date),
       db.from("refund_requests").select("id").eq("branch_id", b.id).not("refund_status", "in", "(completed,canceled,rejected)"),
       db.from("issue_tickets").select("id").eq("branch_id", b.id).in("status", ["open", "in_progress", "waiting_vendor"]),
       computeSummary(db, b.id, date),
+      db.from("lead_inquiries").select("id").eq("branch_id", b.id).eq("status", "inquiry").is("first_contact_at", null),
+      db.from("member_snapshots").select("id").eq("branch_id", b.id).gte("end_date", date).lte("end_date", addDays(date, 7)),
     ]);
     const tasks = (tasksR.data as { priority: string; status: string }[] | null) ?? [];
     const alerts = (alertsR.data as { severity: string; status: string }[] | null) ?? [];
@@ -1512,6 +1514,8 @@ dailyReportsRoutes.get("/hq-control", requireJwt, async (c) => {
       danger_alerts: alerts.filter((a) => (a.severity === "danger" || a.severity === "critical") && a.status !== "resolved" && a.status !== "dismissed").length,
       refund_pending: ((refundR.data as unknown[] | null) ?? []).length,
       facility_open: ((issueR.data as unknown[] | null) ?? []).length,
+      unanswered_leads: ((leadsR.data as unknown[] | null) ?? []).length,
+      expiring_members: ((membersR.data as unknown[] | null) ?? []).length,
       day_net: summary.day_net, month_achievement: summary.achievement == null ? null : Math.round(summary.achievement * 100), target_amount: summary.target_amount, gap: summary.gap, d_day: summary.d_day,
     };
   }));
@@ -1524,6 +1528,8 @@ dailyReportsRoutes.get("/hq-control", requireJwt, async (c) => {
     no_report: rows.filter((r) => !r.report_submitted).length,
     refund_pending: rows.filter((r) => r.refund_pending > 0).length,
     facility: rows.filter((r) => r.facility_open > 0).length,
+    fc_unanswered: rows.filter((r) => r.unanswered_leads > 0).length,
+    fc_expiring: rows.filter((r) => r.expiring_members > 0).length,
   };
   return ok(c, { date, summary, branches: rows });
 });
