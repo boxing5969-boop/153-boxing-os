@@ -20,6 +20,10 @@ import {
   generateTasks, generateAlerts, computeScore,
   type OpsInput, type ReportIn, type FollowupIn, type PtIn, type RefundIn, type LeadIn, type SnapshotIn, type IssueIn,
 } from "../lib/autoOps";
+import {
+  normalizeMemberForCare, buildMemberCareProfile,
+  type RawSnapshot, type CareContext, type CareProfileDraft, type MemberCareBucket,
+} from "../lib/memberRevenueEngine";
 
 export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -1255,6 +1259,9 @@ async function runGenerate(db: SupabaseClient, branchId: string, date: string, p
       grade: score.grade, summary: score.summary, details: score.details, updated_at: new Date().toISOString() },
     { onConflict: "branch_id,score_date" });
 
+  // 회원 매출 엔진 연동: 중요한 회원매출 액션을 operation_tasks 에 함께 생성(오늘 3대 미션 반영). 실패는 비차단.
+  try { await runMemberCareGenerate(db, branchId, date, profileId); } catch { /* 회원 엔진 실패가 오늘 생성을 막지 않음 */ }
+
   return { tasks: taskDrafts.length, alerts: alertDrafts.length, score };
 }
 
@@ -1533,3 +1540,434 @@ dailyReportsRoutes.get("/hq-control", requireJwt, async (c) => {
   };
   return ok(c, { date, summary, branches: rows });
 });
+
+// ============================================================
+// Member Revenue Engine v1 — 회원 매출 엔진
+// member_care_profiles / member_care_events / member_revenue_opportunities
+// ============================================================
+const CARE_SUCCESS_OUTCOMES = new Set(["reached", "renewed", "pt_sold", "winback_success", "trial_booked", "visit_booked", "pt_consult_booked"]);
+const CARE_PURCHASE_OUTCOMES = new Set(["renewed", "pt_sold", "winback_success"]);
+const CARE_ACTIONABLE_BUCKETS: MemberCareBucket[] = ["renewal_today", "checkin_today", "pt_upsell", "onboarding_care", "winback", "vip_referral"];
+const REVENUE_BUCKETS = new Set<MemberCareBucket>(["renewal_today", "pt_upsell", "winback", "vip_referral"]);
+
+interface CareSummaryOut {
+  total_members: number; action_needed_count: number; urgent_count: number; renewal_due_count: number;
+  no_visit_count: number; dormant_count: number; pt_upsell_count: number; expected_revenue_total: number;
+  won_revenue_today: number; contact_done_today: number; contact_target_today: number;
+}
+function buildCareSummary(builtList: { profile: CareProfileDraft }[], events: { outcome: string; amount: number; event_date: string }[], date: string): CareSummaryOut {
+  let action = 0, urgent = 0, renewal = 0, noVisit = 0, dormant = 0, pt = 0, expected = 0, target = 0;
+  for (const b of builtList) {
+    const p = b.profile;
+    if (CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket)) { action++; expected += p.expected_revenue_amount; }
+    if (p.contact_priority === "urgent") urgent++;
+    if (p.care_bucket === "renewal_today") renewal++;
+    if (p.care_bucket === "checkin_today") noVisit++;
+    if (p.care_bucket === "winback") dormant++;
+    if (p.care_bucket === "pt_upsell") pt++;
+    if (p.next_contact_due_date && p.next_contact_due_date <= date) target++;
+  }
+  let won = 0, done = 0;
+  for (const e of events) if (e.event_date === date) { done++; if (CARE_PURCHASE_OUTCOMES.has(e.outcome)) won += e.amount ?? 0; }
+  return { total_members: builtList.length, action_needed_count: action, urgent_count: urgent, renewal_due_count: renewal,
+    no_visit_count: noVisit, dormant_count: dormant, pt_upsell_count: pt, expected_revenue_total: expected,
+    won_revenue_today: won, contact_done_today: done, contact_target_today: target };
+}
+
+interface CareEventRow { member_care_profile_id: string; outcome: string; amount: number; event_date: string; next_action_date: string | null }
+interface AfterProfRow { id: string; normalized_phone: string; contact_priority: string; care_bucket: string; member_name: string; phone: string | null; next_best_action: string | null; reasons: unknown }
+
+/** 회원 매출 엔진 실행: 스냅샷 → 프로필/기회 upsert + 중요 액션 태스크 생성 */
+async function runMemberCareGenerate(db: SupabaseClient, branchId: string, date: string, profileId: string) {
+  // 1) 회원 스냅샷
+  const { data: snapRaw } = await db.from("member_snapshots")
+    .select("id,member_name,phone,normalized_phone,product_name,membership_type,start_date,end_date,total_sessions,used_sessions,remaining_sessions,latest_visit_date,payment_amount,status")
+    .eq("branch_id", branchId).limit(5000);
+  const snaps = (snapRaw as RawSnapshot[] | null) ?? [];
+
+  // 2) 기존 프로필(id↔phone) + 최근 이벤트 신호
+  const { data: existProfRaw } = await db.from("member_care_profiles").select("id,normalized_phone").eq("branch_id", branchId);
+  const phoneByProfId = new Map<string, string>();
+  for (const p of (existProfRaw as { id: string; normalized_phone: string }[] | null) ?? []) phoneByProfId.set(p.id, p.normalized_phone);
+
+  const since14 = addDays(date, -14); const since7 = addDays(date, -7);
+  const { data: evRaw } = await db.from("member_care_events")
+    .select("member_care_profile_id,outcome,amount,event_date,next_action_date").eq("branch_id", branchId).gte("event_date", since14);
+  const events = (evRaw as CareEventRow[] | null) ?? [];
+  const recentSuccessPhones = new Set<string>(); const recentPurchasePhones = new Set<string>(); const dueFollowupPhones = new Set<string>();
+  for (const e of events) {
+    const ph = phoneByProfId.get(e.member_care_profile_id); if (!ph) continue;
+    if (CARE_SUCCESS_OUTCOMES.has(e.outcome)) recentSuccessPhones.add(ph);
+    if (CARE_PURCHASE_OUTCOMES.has(e.outcome) && e.event_date >= since7) recentPurchasePhones.add(ph);
+    if (e.next_action_date && e.next_action_date <= date && CARE_SUCCESS_OUTCOMES.has(e.outcome)) dueFollowupPhones.add(ph);
+  }
+
+  // 3) 지점 평균 결제금액
+  const pays = snaps.map((s) => s.payment_amount ?? 0).filter((n) => n > 0);
+  const branchAvgPayment = pays.length ? Math.round(pays.reduce((a, b) => a + b, 0) / pays.length) : 0;
+  const ctx: CareContext = { today: date, branchAvgPayment, recentSuccessPhones, recentPurchasePhones, dueFollowupPhones };
+
+  // 4) 빌드 (순수 엔진)
+  const built = snaps.map((s) => buildMemberCareProfile(normalizeMemberForCare(s), ctx));
+
+  // 5) 프로필 upsert (branch_id, normalized_phone) — 청크 500
+  const nowIso = new Date().toISOString();
+  const profileRows = built.map((b) => ({
+    branch_id: branchId, member_snapshot_id: b.profile.member_snapshot_id, normalized_phone: b.profile.normalized_phone, phone: b.profile.phone,
+    member_name: b.profile.member_name, product_name: b.profile.product_name, membership_type: b.profile.membership_type,
+    lifecycle_stage: b.profile.lifecycle_stage, care_bucket: b.profile.care_bucket,
+    health_score: b.profile.health_score, churn_risk_score: b.profile.churn_risk_score, revenue_opportunity_score: b.profile.revenue_opportunity_score,
+    ltv_amount: b.profile.ltv_amount, expected_revenue_amount: b.profile.expected_revenue_amount,
+    days_until_expiry: b.profile.days_until_expiry, days_since_last_visit: b.profile.days_since_last_visit, remaining_sessions: b.profile.remaining_sessions,
+    next_best_action: b.profile.next_best_action, next_best_offer: b.profile.next_best_offer,
+    contact_priority: b.profile.contact_priority, next_contact_due_date: b.profile.next_contact_due_date,
+    reasons: b.profile.reasons, metadata: b.profile.metadata, last_scored_at: nowIso, updated_at: nowIso,
+  }));
+  let profiles_upserted = 0;
+  for (let i = 0; i < profileRows.length; i += 500) {
+    const chunk = profileRows.slice(i, i + 500);
+    const { error } = await db.from("member_care_profiles").upsert(chunk, { onConflict: "branch_id,normalized_phone" });
+    if (!error) profiles_upserted += chunk.length;
+  }
+
+  // 6) 프로필 id 재조회(phone→id) + 태스크용 필드
+  const { data: afterProfRaw } = await db.from("member_care_profiles")
+    .select("id,normalized_phone,contact_priority,care_bucket,member_name,phone,next_best_action,reasons").eq("branch_id", branchId);
+  const afterProf = (afterProfRaw as AfterProfRow[] | null) ?? [];
+  const idByPhone = new Map<string, string>();
+  for (const p of afterProf) idByPhone.set(p.normalized_phone, p.id);
+
+  // 7) 기회 upsert — 기존 stage/converted_sale_id 보존(payload에서 제외), 점수 필드만 갱신
+  const { data: existOppRaw } = await db.from("member_revenue_opportunities").select("generated_key,stage").eq("branch_id", branchId);
+  const stageByKey = new Map<string, string>();
+  for (const o of (existOppRaw as { generated_key: string; stage: string }[] | null) ?? []) stageByKey.set(o.generated_key, o.stage);
+  const oppRows: Record<string, unknown>[] = [];
+  for (const b of built) {
+    const pid = idByPhone.get(b.profile.normalized_phone); if (!pid) continue;
+    for (const o of b.opportunities) {
+      oppRows.push({
+        branch_id: branchId, member_care_profile_id: pid, opportunity_type: o.opportunity_type, title: o.title,
+        expected_amount: o.expected_amount, probability: o.probability, priority: o.priority, due_date: o.due_date,
+        reason: o.reason, recommended_script_key: o.recommended_script_key, generated_key: o.generated_key,
+        stage: stageByKey.get(o.generated_key) ?? "open", updated_at: nowIso,
+      });
+    }
+  }
+  let opportunities_upserted = 0;
+  for (let i = 0; i < oppRows.length; i += 500) {
+    const chunk = oppRows.slice(i, i + 500);
+    const { error } = await db.from("member_revenue_opportunities").upsert(chunk, { onConflict: "branch_id,generated_key" });
+    if (!error) opportunities_upserted += chunk.length;
+  }
+
+  // 8) operation_tasks — urgent/high 회원매출 액션만(Top3 호환), 일자별 멱등
+  const ymd = date.replace(/-/g, "");
+  const taskRows = afterProf
+    .filter((p) => (p.contact_priority === "urgent" || p.contact_priority === "high") && CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket as MemberCareBucket))
+    .slice(0, 30)
+    .map((p) => {
+      const cat = REVENUE_BUCKETS.has(p.care_bucket as MemberCareBucket) ? "sales" : "member_care";
+      const reasons = Array.isArray(p.reasons) ? (p.reasons as string[]) : [];
+      return {
+        branch_id: branchId, task_date: date, category: cat, priority: p.contact_priority,
+        title: `${p.next_best_action ?? "회원 연락"}: ${p.member_name}`,
+        description: reasons.slice(0, 3).join(" · ") || "회원 매출 관리 액션", action_label: "연락하기",
+        source_type: "member_care_profile", source_id: p.id, generated_key: `member_rev_${p.id}_${p.care_bucket}_${ymd}`,
+        member_name: p.member_name, member_phone: p.phone ?? null, metadata: { care: true, bucket: p.care_bucket }, created_by: profileId,
+      };
+    });
+  let tasks_upserted = 0;
+  if (taskRows.length) {
+    const { error } = await db.from("operation_tasks").upsert(taskRows, { onConflict: "branch_id,task_date,generated_key", ignoreDuplicates: true });
+    if (!error) tasks_upserted = taskRows.length;
+  }
+
+  return { scored: snaps.length, profiles_upserted, opportunities_upserted, tasks_upserted, summary: buildCareSummary(built, events, date) };
+}
+
+interface CareKpiOut {
+  month: string; contact_rate: number; renewal_conversion: number; winback_rate: number; pt_upsell_rate: number;
+  no_visit_recovery: number; expected_vs_won: number; care_revenue_month: number; avg_ticket: number; d14_renewal_managed: number;
+}
+async function computeMemberCareKpi(db: SupabaseClient, branchId: string, ym: string): Promise<CareKpiOut> {
+  const monthStart = `${ym}-01`;
+  const lastDay = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate();
+  const monthEnd = `${ym}-${String(lastDay).padStart(2, "0")}`;
+  const [evR, profR] = await Promise.all([
+    db.from("member_care_events").select("member_care_profile_id,outcome,amount").eq("branch_id", branchId).gte("event_date", monthStart).lte("event_date", monthEnd),
+    db.from("member_care_profiles").select("care_bucket,expected_revenue_amount").eq("branch_id", branchId),
+  ]);
+  const evs = (evR.data as { member_care_profile_id: string; outcome: string; amount: number }[] | null) ?? [];
+  const profs = (profR.data as { care_bucket: MemberCareBucket; expected_revenue_amount: number }[] | null) ?? [];
+  const contacted = new Set(evs.map((e) => e.member_care_profile_id)).size;
+  const cnt = (o: string) => evs.filter((e) => e.outcome === o).length;
+  const renewed = cnt("renewed"), ptSold = cnt("pt_sold"), winback = cnt("winback_success"), visitBooked = cnt("visit_booked");
+  const purchases = renewed + ptSold + winback;
+  const careRevenue = evs.filter((e) => CARE_PURCHASE_OUTCOMES.has(e.outcome)).reduce((s, e) => s + (e.amount ?? 0), 0);
+  const bc = (b: MemberCareBucket) => profs.filter((p) => p.care_bucket === b).length;
+  const actionNeeded = profs.filter((p) => CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket)).length;
+  const renewalDue = bc("renewal_today"), dormant = bc("winback"), ptUp = bc("pt_upsell"), noVisit = bc("checkin_today");
+  const expectedOpen = profs.filter((p) => CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket)).reduce((s, p) => s + (p.expected_revenue_amount ?? 0), 0);
+  const pct = (a: number, b: number) => (b <= 0 ? 0 : Math.max(0, Math.min(100, Math.round((100 * a) / b))));
+  return {
+    month: ym,
+    contact_rate: pct(contacted, Math.max(1, actionNeeded)),
+    renewal_conversion: pct(renewed, Math.max(1, renewed + renewalDue)),
+    winback_rate: pct(winback, Math.max(1, winback + dormant)),
+    pt_upsell_rate: pct(ptSold, Math.max(1, ptSold + ptUp)),
+    no_visit_recovery: pct(visitBooked, Math.max(1, visitBooked + noVisit)),
+    expected_vs_won: pct(careRevenue, Math.max(1, expectedOpen)),
+    care_revenue_month: careRevenue,
+    avg_ticket: purchases ? Math.round(careRevenue / purchases) : 0,
+    d14_renewal_managed: pct(renewed, Math.max(1, renewed + renewalDue)),
+  };
+}
+
+// 1) 생성 (W)
+const careGenSchema = z.object({ branch_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish() });
+dailyReportsRoutes.post("/member-care/generate", requireJwt, async (c) => {
+  const parsed = careGenSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const date = parsed.data.date ?? kstDateStr();
+  const r = await runMemberCareGenerate(db, parsed.data.branch_id, date, profile.id);
+  return ok(c, r, "회원 매출 엔진을 실행했습니다");
+});
+
+const PRIORITY_SORT: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+// 2) 대시보드 (J, lazy generate)
+dailyReportsRoutes.get("/member-care/dashboard", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const date = c.req.query("date") ?? kstDateStr();
+
+  const { count } = await db.from("member_care_profiles").select("id", { count: "exact", head: true }).eq("branch_id", branchId);
+  if ((count ?? 0) === 0 && WRITE_ROLES.has(profile.role)) {
+    try { await runMemberCareGenerate(db, branchId, date, profile.id); } catch { /* 무시: 생성 실패가 조회를 막지 않음 */ }
+  }
+
+  const [profsR, oppsR, evtsR] = await Promise.all([
+    db.from("member_care_profiles").select("*").eq("branch_id", branchId),
+    db.from("member_revenue_opportunities").select("*").eq("branch_id", branchId).eq("stage", "open").order("due_date", { ascending: true, nullsFirst: false }).limit(100),
+    db.from("member_care_events").select("outcome,amount,event_date").eq("branch_id", branchId).gte("event_date", date),
+  ]);
+  const profs = (profsR.data as Record<string, unknown>[] | null) ?? [];
+  const evts = (evtsR.data as { outcome: string; amount: number; event_date: string }[] | null) ?? [];
+
+  const summary = buildCareSummary(profs.map((p) => ({ profile: p as unknown as CareProfileDraft })), evts, date);
+  const buckets: Record<string, number> = {};
+  for (const p of profs) { const b = String(p.care_bucket); buckets[b] = (buckets[b] ?? 0) + 1; }
+  const top = profs
+    .filter((p) => CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket as MemberCareBucket))
+    .sort((a, b) => (PRIORITY_SORT[String(a.contact_priority)] ?? 9) - (PRIORITY_SORT[String(b.contact_priority)] ?? 9)
+      || Number(b.revenue_opportunity_score ?? 0) - Number(a.revenue_opportunity_score ?? 0))
+    .slice(0, 50);
+  const kpis = await computeMemberCareKpi(db, branchId, date.slice(0, 7));
+  return ok(c, { date, summary, top_actions: top, opportunities: oppsR.data ?? [], buckets, kpis });
+});
+
+// 3) 회원 리스트 (J, 페이지네이션·필터)
+dailyReportsRoutes.get("/member-care/members", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  let q = db.from("member_care_profiles").select("*", { count: "exact" }).eq("branch_id", branchId);
+  const bucket = c.req.query("bucket"); if (bucket) q = q.eq("care_bucket", bucket);
+  const stage = c.req.query("lifecycle_stage"); if (stage) q = q.eq("lifecycle_stage", stage);
+  const pr = c.req.query("priority"); if (pr) q = q.eq("contact_priority", pr);
+  const search = c.req.query("q"); if (search) q = q.ilike("member_name", `%${search}%`);
+  const sort = c.req.query("sort") ?? "revenue";
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 30)));
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const from = (page - 1) * limit;
+  const ordered = sort === "expiry" ? q.order("days_until_expiry", { ascending: true, nullsFirst: false })
+    : sort === "churn" ? q.order("churn_risk_score", { ascending: false })
+    : q.order("revenue_opportunity_score", { ascending: false });
+  const { data, count } = await ordered.range(from, from + limit - 1);
+  const total = count ?? 0;
+  return ok(c, { members: data ?? [], total, page, limit, next_cursor: total > from + limit ? String(page + 1) : null });
+});
+
+// 4) 회원 360 (J)
+dailyReportsRoutes.get("/member-care/members/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const { data: prof } = await db.from("member_care_profiles").select("*").eq("id", id).maybeSingle();
+  if (!prof) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  const p = prof as { branch_id: string; member_snapshot_id: string | null; member_name: string };
+  if (!canAccessBranch(profile, p.branch_id)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const [snap, evts, opps, sales, pts, msgs] = await Promise.all([
+    p.member_snapshot_id ? db.from("member_snapshots").select("*").eq("id", p.member_snapshot_id).maybeSingle() : Promise.resolve({ data: null }),
+    db.from("member_care_events").select("*").eq("member_care_profile_id", id).order("event_date", { ascending: false }).limit(50),
+    db.from("member_revenue_opportunities").select("*").eq("member_care_profile_id", id).order("updated_at", { ascending: false }),
+    db.from("sales_entries").select("*").eq("branch_id", p.branch_id).eq("member_name", p.member_name).order("sale_date", { ascending: false }).limit(50),
+    db.from("pt_passes").select("*").eq("branch_id", p.branch_id).eq("member_name", p.member_name).limit(20),
+    db.from("ops_message_logs").select("*").eq("branch_id", p.branch_id).eq("recipient_name", p.member_name).order("created_at", { ascending: false }).limit(50),
+  ]);
+  return ok(c, {
+    profile: prof, snapshot: snap.data ?? null, events: evts.data ?? [], opportunities: opps.data ?? [],
+    sales: sales.data ?? [], pt_passes: pts.data ?? [], messages: msgs.data ?? [],
+  });
+});
+
+// 5) 연락/상담 결과 기록 (W) — 구조화 이벤트 + (선택) 기회 won + (선택) 매출 등록
+const careEventSchema = z.object({
+  branch_id: z.string().uuid(),
+  member_care_profile_id: z.string().uuid(),
+  member_snapshot_id: z.string().uuid().nullish(),
+  channel: z.string().min(1),
+  event_type: z.string().min(1),
+  outcome: z.string().min(1),
+  amount: z.number().int().min(0).default(0),
+  memo: z.string().nullish(),
+  next_action_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  opportunity_id: z.string().uuid().nullish(),
+  register_sale: z.boolean().default(false),
+  sale_category: z.enum(["수강권", "물품", "단증"]).nullish(),
+  sale_product: z.string().nullish(),
+  sale_payment_method: z.enum(["현금", "카드", "계좌이체"]).default("카드"),
+});
+dailyReportsRoutes.post("/member-care/events", requireJwt, async (c) => {
+  const parsed = careEventSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const b = parsed.data;
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, b.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 기록할 수 없습니다", 403);
+
+  // 프로필 확인(지점 일치)
+  const { data: prof } = await db.from("member_care_profiles").select("branch_id,member_name,member_snapshot_id").eq("id", b.member_care_profile_id).maybeSingle();
+  if (!prof) return fail(c, "NOT_FOUND", "회원 프로필을 찾을 수 없습니다", 404);
+  const pr = prof as { branch_id: string; member_name: string; member_snapshot_id: string | null };
+  if (pr.branch_id !== b.branch_id) return fail(c, "FORBIDDEN", "지점이 일치하지 않습니다", 403);
+
+  const today = kstDateStr();
+  const { data: ev, error: evErr } = await db.from("member_care_events").insert({
+    branch_id: b.branch_id, member_care_profile_id: b.member_care_profile_id,
+    member_snapshot_id: b.member_snapshot_id ?? pr.member_snapshot_id ?? null,
+    event_date: today, channel: b.channel, event_type: b.event_type, outcome: b.outcome,
+    amount: b.amount, memo: b.memo ?? null, next_action_date: b.next_action_date ?? null, created_by: profile.id,
+  }).select("id").maybeSingle();
+  if (evErr) return fail(c, "DB_ERROR", evErr.message, 500);
+  const eventId = (ev as { id: string } | null)?.id ?? null;
+
+  // (선택) 매출 등록 — 명시적 선택 시에만
+  let saleId: string | null = null;
+  if (b.register_sale && b.amount > 0 && b.sale_category) {
+    const { data: sale } = await db.from("sales_entries").insert({
+      branch_id: b.branch_id, sale_date: today, member_name: pr.member_name, category: b.sale_category,
+      product: b.sale_product ?? b.sale_category, is_new: false, payment_method: b.sale_payment_method, amount: b.amount, created_by: profile.id,
+    }).select("id").maybeSingle();
+    saleId = (sale as { id: string } | null)?.id ?? null;
+  }
+
+  // (선택) 기회 단계 갱신
+  let opportunityUpdated = false;
+  if (b.opportunity_id) {
+    const stage = CARE_PURCHASE_OUTCOMES.has(b.outcome) ? "won"
+      : b.outcome === "refused" ? "lost" : b.outcome === "later" ? "snoozed" : "contacted";
+    const patch: Record<string, unknown> = { stage, updated_at: new Date().toISOString() };
+    if (stage === "won" && saleId) patch.converted_sale_id = saleId;
+    const { error: oErr } = await db.from("member_revenue_opportunities").update(patch).eq("id", b.opportunity_id).eq("branch_id", b.branch_id);
+    opportunityUpdated = !oErr;
+  }
+  return ok(c, { id: eventId, sale_id: saleId, opportunity_updated: opportunityUpdated }, "결과를 기록했습니다");
+});
+
+// 6) 기회 단계/금액 수정 (W)
+const oppUpdateSchema = z.object({
+  stage: z.enum(["open", "contacted", "proposed", "won", "lost", "snoozed"]).optional(),
+  probability: z.number().int().min(0).max(100).optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  expected_amount: z.number().int().min(0).optional(),
+  reason: z.string().nullish(),
+  loss_reason: z.string().nullish(),
+  converted_sale_id: z.string().uuid().nullish(),
+});
+dailyReportsRoutes.put("/member-care/opportunities/:id", requireJwt, async (c) => {
+  const id = c.req.param("id");
+  const parsed = oppUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data: row } = await db.from("member_revenue_opportunities").select("branch_id").eq("id", id).maybeSingle();
+  if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
+  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (parsed.data.stage) patch.stage = parsed.data.stage;
+  if (parsed.data.probability !== undefined) patch.probability = parsed.data.probability;
+  if (parsed.data.due_date !== undefined) patch.due_date = parsed.data.due_date;
+  if (parsed.data.expected_amount !== undefined) patch.expected_amount = parsed.data.expected_amount;
+  if (parsed.data.converted_sale_id !== undefined) patch.converted_sale_id = parsed.data.converted_sale_id;
+  if (parsed.data.loss_reason != null) patch.reason = parsed.data.loss_reason;
+  else if (parsed.data.reason != null) patch.reason = parsed.data.reason;
+  const { error } = await db.from("member_revenue_opportunities").update(patch).eq("id", id);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { id }, "저장되었습니다");
+});
+
+// 7) 회원관리 KPI (J)
+dailyReportsRoutes.get("/member-care/kpi", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const month = c.req.query("month") ?? kstDateStr().slice(0, 7);
+  const kpi = await computeMemberCareKpi(db, branchId, month);
+  return ok(c, kpi);
+});
+
+// 8) 본사 회원관리 예외 관제 (H)
+dailyReportsRoutes.get("/hq-member-care", requireJwt, async (c) => {
+  const date = c.req.query("date") ?? kstDateStr();
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !HQ_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "본사 전용입니다", 403);
+  const { data: braw } = await db.from("branches").select("id,name").order("name");
+  const branches = (braw as { id: string; name: string }[] | null) ?? [];
+
+  const rows = await Promise.all(branches.map(async (b) => {
+    const [{ count: total }, profsR] = await Promise.all([
+      db.from("member_care_profiles").select("id", { count: "exact", head: true }).eq("branch_id", b.id),
+      db.from("member_care_profiles")
+        .select("care_bucket,contact_priority,churn_risk_score,expected_revenue_amount,days_until_expiry,next_contact_due_date,last_scored_at")
+        .eq("branch_id", b.id).in("care_bucket", CARE_ACTIONABLE_BUCKETS),
+    ]);
+    const ps = (profsR.data as { care_bucket: string; contact_priority: string; churn_risk_score: number; expected_revenue_amount: number; days_until_expiry: number | null; next_contact_due_date: string | null; last_scored_at: string }[] | null) ?? [];
+    let risk = 0, expected = 0, renewalD7 = 0, dormant = 0, pending = 0; let lastGen: string | null = null;
+    for (const p of ps) {
+      if (p.churn_risk_score >= 60) risk++;
+      expected += p.expected_revenue_amount ?? 0;
+      if (p.days_until_expiry != null && p.days_until_expiry >= 0 && p.days_until_expiry <= 7) renewalD7++;
+      if (p.care_bucket === "winback") dormant++;
+      if (p.next_contact_due_date && p.next_contact_due_date <= date) pending++;
+      if (!lastGen || p.last_scored_at > lastGen) lastGen = p.last_scored_at;
+    }
+    return {
+      branch_id: b.id, branch_name: b.name, total_members: total ?? 0,
+      risk_members: risk, expected_revenue_total: expected, contact_pending_today: pending,
+      renewal_d7: renewalD7, dormant_count: dormant, no_care_flag: (total ?? 0) === 0, last_generated_at: lastGen,
+    };
+  }));
+  return ok(c, { date, branches: rows });
+});
+
+
