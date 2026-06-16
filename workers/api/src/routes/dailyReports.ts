@@ -912,7 +912,7 @@ dailyReportsRoutes.get("/members", requireJwt, async (c) => {
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   const { data } = await db
     .from("member_snapshots")
-    .select("id,member_name,phone,product_name,end_date,latest_visit_date,remaining_sessions,status,assigned_coach,updated_at")
+    .select("id,member_name,phone,product_name,membership_type,end_date,latest_visit_date,remaining_sessions,status,assigned_coach,updated_at")
     .eq("branch_id", branchId)
     .order("end_date", { ascending: true, nullsFirst: false })
     .limit(1000);
