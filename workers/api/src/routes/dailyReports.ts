@@ -1970,4 +1970,66 @@ dailyReportsRoutes.get("/hq-member-care", requireJwt, async (c) => {
   return ok(c, { date, branches: rows });
 });
 
+// ============================================================
+// 60-Minute Branch Quest v1 — 오늘 1시간 지점관리
+// 기본 루틴 퀘스트를 실제 operation_tasks 로 생성(멱등) + 콤보 보너스(reward_events 멱등).
+// 완료/XP는 기존 PUT /tasks/:id + awardGameXp 그대로 사용(가짜 XP 없음).
+// ============================================================
+const QUEST_DEFAULTS: { key: string; category: string; title: string; description: string; action_label: string; minutes: number; xp: number }[] = [
+  { key: "warmup", category: "warmup", title: "오늘 지점 상태 확인", description: "운영 HP·긴급 알림·오늘 핵심 미션을 한 번 훑어요. 오늘 흐름을 잡는 워밍업입니다.", action_label: "확인 완료", minutes: 3, xp: 5 },
+  { key: "clean_open", category: "clean_open", title: "오픈·기본 청결 점검", description: "입구·데스크·바닥·샌드백 주변·보호구·화장실을 빠르게 점검해요. 깨끗한 첫인상이 회원 만족을 만듭니다.", action_label: "점검", minutes: 7, xp: 8 },
+  { key: "satisfaction", category: "satisfaction", title: "회원 만족 1분 체크", description: "현장 회원 1~2명 컨디션·불편사항을 가볍게 확인해요. 작은 관심이 이탈을 막습니다.", action_label: "확인 완료", minutes: 5, xp: 8 },
+  { key: "sales_review", category: "sales_report", title: "오늘 매출·상담 기록 정리", description: "오늘 결제 건을 확인하고 누락 매출을 등록해요.", action_label: "정리", minutes: 5, xp: 8 },
+  { key: "finish_digest", category: "finish", title: "마무리 요약 정리", description: "오늘 처리 요약을 확인하고 단톡 보고문을 복사해요.", action_label: "요약 복사", minutes: 3, xp: 10 },
+];
+
+const questGenSchema = z.object({ branch_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish() });
+dailyReportsRoutes.post("/quest/generate", requireJwt, async (c) => {
+  const parsed = questGenSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const date = parsed.data.date ?? kstDateStr();
+  const ymd = date.replace(/-/g, "");
+  const rows = QUEST_DEFAULTS.map((q) => ({
+    branch_id: parsed.data.branch_id, task_date: date, category: q.category, priority: "normal", title: q.title,
+    description: q.description, action_label: q.action_label, source_type: "quest", generated_key: `quest_${q.key}_${ymd}`,
+    metadata: { quest: true, quest_category: q.key, est_minutes: q.minutes, xp: q.xp }, created_by: profile.id,
+  }));
+  const { data: existRows } = await db.from("operation_tasks").select("generated_key").eq("branch_id", parsed.data.branch_id).eq("task_date", date).like("generated_key", "quest\\_%");
+  const existKeys = new Set(((existRows as { generated_key: string }[] | null) ?? []).map((r) => r.generated_key));
+  await db.from("operation_tasks").upsert(rows, { onConflict: "branch_id,task_date,generated_key", ignoreDuplicates: true });
+  const generated = rows.filter((r) => !existKeys.has(r.generated_key)).length;
+  return ok(c, { generated, existing: rows.length - generated, total: rows.length }, "오늘 1시간 퀘스트를 준비했습니다");
+});
+
+type BonusKey = "combo3" | "flow5" | "today_clear";
+const QUEST_BONUS_XP: Record<BonusKey, number> = { combo3: 5, flow5: 10, today_clear: 20 };
+const QUEST_BONUS_TITLE: Record<BonusKey, string> = { combo3: "3 콤보 보너스", flow5: "플로우 보너스", today_clear: "오늘 클리어 보너스" };
+const questBonusSchema = z.object({ branch_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), bonus_key: z.enum(["combo3", "flow5", "today_clear"]) });
+dailyReportsRoutes.post("/quest/bonus", requireJwt, async (c) => {
+  const parsed = questBonusSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "Invalid body", 400);
+  const { branch_id, bonus_key } = parsed.data;
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const today = parsed.data.date ?? kstDateStr();
+  // 멱등: 같은 날 같은 보너스 키가 이미 있으면 재적립 안 함
+  const { data: ex } = await db.from("reward_events").select("id").eq("branch_id", branch_id).eq("event_date", today)
+    .eq("reward_type", "quest_bonus").eq("metadata->>bonus_key", bonus_key).maybeSingle();
+  if (ex) return ok(c, { awarded: false, xp: 0 });
+  const xp = QUEST_BONUS_XP[bonus_key];
+  const { data: gp } = await db.from("game_profiles").select("id,total_xp").eq("branch_id", branch_id).eq("domain", "branch_ops").eq("owner_type", "branch").is("owner_id", null).maybeSingle();
+  const cur = gp as { id: string; total_xp: number } | null;
+  const newXp = (cur?.total_xp ?? 0) + xp;
+  if (cur) await db.from("game_profiles").update({ total_xp: newXp, level: gpLevel(newXp), updated_at: new Date().toISOString() }).eq("id", cur.id);
+  else await db.from("game_profiles").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, total_xp: newXp, level: gpLevel(newXp) });
+  await db.from("reward_events").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, user_id: profile.id, event_date: today, reward_type: "quest_bonus", title: QUEST_BONUS_TITLE[bonus_key], message: `${bonus_key} +${xp}XP`, xp_bonus: xp, metadata: { bonus_key } });
+  return ok(c, { awarded: true, xp });
+});
+
 
