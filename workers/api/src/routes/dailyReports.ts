@@ -24,6 +24,7 @@ import {
   normalizeMemberForCare, buildMemberCareProfile,
   type RawSnapshot, type CareContext, type CareProfileDraft, type MemberCareBucket,
 } from "../lib/memberRevenueEngine";
+import { sendSms } from "../services/smsNotifier";
 
 export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -2030,6 +2031,37 @@ dailyReportsRoutes.post("/quest/bonus", requireJwt, async (c) => {
   else await db.from("game_profiles").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, total_xp: newXp, level: gpLevel(newXp) });
   await db.from("reward_events").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, user_id: profile.id, event_date: today, reward_type: "quest_bonus", title: QUEST_BONUS_TITLE[bonus_key], message: `${bonus_key} +${xp}XP`, xp_bonus: xp, metadata: { bonus_key } });
   return ok(c, { awarded: true, xp });
+});
+
+// ── 회원 문자 발송 (NCP SENS) — 단건·수동. 광고성은 KST 08~21시. 발송 이력 ops_message_logs. ──
+const smsSendSchema = z.object({
+  branch_id: z.string().uuid(),
+  phone: z.string().min(8),
+  content: z.string().min(1).max(2000),
+  member_name: z.string().nullish(),
+  category: z.enum(["info", "ad"]).default("info"),
+  trigger_type: z.string().nullish(),
+});
+dailyReportsRoutes.post("/sms/send", requireJwt, async (c) => {
+  const parsed = smsSendSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const { branch_id, phone, content, member_name, category, trigger_type } = parsed.data;
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 발송할 수 없습니다", 403);
+  if (category === "ad") {
+    const kstHour = new Date(Date.now() + 9 * 3600 * 1000).getUTCHours();
+    if (kstHour < 8 || kstHour >= 21) return ok(c, { success: false, error: "광고성 문자는 오전 8시~오후 9시에만 발송할 수 있습니다." });
+  }
+  const r = await sendSms(db, c.env, branch_id, phone, content);
+  try {
+    await db.from("ops_message_logs").insert({
+      branch_id, recipient_name: member_name ?? null, phone, template_type: trigger_type ?? "sms_send",
+      content, status: r.success ? "sent" : "failed", created_by: profile.id,
+    });
+  } catch { /* 로그 실패는 발송 결과를 막지 않음 */ }
+  return ok(c, { success: r.success, error: r.error });
 });
 
 
