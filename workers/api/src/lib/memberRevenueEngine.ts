@@ -220,6 +220,7 @@ function scoreInternal(m: CareMemberInput, ctx: CareContext, mt: Metrics): Score
   if (mt.dToEnd != null) {
     if (mt.dToEnd >= 0 && mt.dToEnd <= 7) rev += 50;
     else if (mt.dToEnd >= 0 && mt.dToEnd <= 14) rev += 35;
+    else if (mt.pastExpiry != null && mt.pastExpiry <= 14) rev += 55; // 막 만료(14일 이내) = 최적 재등록 창 → 우선 연락
     else if (mt.pastExpiry != null && mt.pastExpiry <= 30) rev += 40;
   }
   if (mt.daysSinceVisit != null && mt.daysSinceVisit >= 14 && mt.dToEnd != null && mt.dToEnd >= 0) rev += 25;
@@ -329,7 +330,7 @@ export function estimateRevenueOpportunity(m: CareMemberInput, ctx: CareContext)
 const PRIORITY_ORDER: Record<ContactPriority, number> = { low: 0, normal: 1, high: 2, urgent: 3 };
 // 생애단계 우선순위 하한: 재등록 임박·회차 임박은 점수와 무관하게 최소 high.
 const STAGE_PRIORITY_FLOOR: Partial<Record<MemberLifecycleStage, ContactPriority>> = {
-  urgent_renewal: "high", pt_low: "high",
+  urgent_renewal: "high", pt_low: "high", expired_recent: "high", // 만료 직후 회원도 우선 연락
 };
 function contactPriorityOf(scores: CareScores, stage: MemberLifecycleStage): ContactPriority {
   let p: ContactPriority;
@@ -350,7 +351,7 @@ function dueDateOf(priority: ContactPriority, today: string): string {
 
 // ── 7. 매출 기회 생성 ──
 const OPP_PROB: Record<string, number> = {
-  "renewal:urgent_renewal": 65, "renewal:expiring_soon": 55, "renewal:expired_recent": 35,
+  "renewal:urgent_renewal": 65, "renewal:expiring_soon": 55, "renewal:expired_recent": 45,
   "pt_upsell": 50, "winback": 25, "referral": 40,
 };
 export function generateMemberOpportunities(m: CareMemberInput, ctx: CareContext): OpportunityDraft[] {
