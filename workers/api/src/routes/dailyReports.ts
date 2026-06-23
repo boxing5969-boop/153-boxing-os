@@ -24,7 +24,7 @@ import {
   normalizeMemberForCare, buildMemberCareProfile,
   type RawSnapshot, type CareContext, type CareProfileDraft, type MemberCareBucket,
 } from "../lib/memberRevenueEngine";
-import { sendSms } from "../services/smsNotifier";
+import { sendSms, sendFriendTalk } from "../services/smsNotifier";
 
 export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -2040,24 +2040,30 @@ const smsSendSchema = z.object({
   content: z.string().min(1).max(2000),
   member_name: z.string().nullish(),
   category: z.enum(["info", "ad"]).default("info"),
+  channel: z.enum(["sms", "kakao"]).default("sms"),
   trigger_type: z.string().nullish(),
 });
 dailyReportsRoutes.post("/sms/send", requireJwt, async (c) => {
   const parsed = smsSendSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
-  const { branch_id, phone, content, member_name, category, trigger_type } = parsed.data;
+  const { branch_id, phone, content, member_name, category, channel, trigger_type } = parsed.data;
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 발송할 수 없습니다", 403);
-  if (category === "ad") {
+  // 광고성 또는 카카오(브랜드메시지=광고)는 발송 가능시간(한국 08~20시)에만 허용
+  if (category === "ad" || channel === "kakao") {
     const kstHour = new Date(Date.now() + 9 * 3600 * 1000).getUTCHours();
-    if (kstHour < 8 || kstHour >= 21) return ok(c, { success: false, error: "광고성 문자는 오전 8시~오후 9시에만 발송할 수 있습니다." });
+    if (kstHour < 8 || kstHour >= 21) return ok(c, { success: false, error: "광고성·카카오 메시지는 오전 8시~오후 9시에만 발송할 수 있습니다." });
   }
-  const r = await sendSms(db, c.env, branch_id, phone, content);
+  // 카카오 = 브랜드메시지(광고 수신동의 채널친구 대상, 080 불필요), 그 외 = SMS
+  const r = channel === "kakao"
+    ? await sendFriendTalk(db, c.env, branch_id, phone, content, { isAd: true })
+    : await sendSms(db, c.env, branch_id, phone, content);
   try {
     await db.from("ops_message_logs").insert({
-      branch_id, recipient_name: member_name ?? null, phone, template_type: trigger_type ?? "sms_send",
+      branch_id, recipient_name: member_name ?? null, phone,
+      template_type: trigger_type ?? (channel === "kakao" ? "kakao_send" : "sms_send"),
       content, status: r.success ? "sent" : "failed", created_by: profile.id,
     });
   } catch { /* 로그 실패는 발송 결과를 막지 않음 */ }
