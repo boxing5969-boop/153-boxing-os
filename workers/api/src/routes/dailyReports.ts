@@ -1794,9 +1794,17 @@ dailyReportsRoutes.get("/member-care/v5", requireJwt, async (c) => {
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
 
-  const { data } = await db.from("member_care_profiles")
-    .select("id,member_name,phone,vip_tier,winback_cohort,send_gate,v5").eq("branch_id", branchId);
-  const rows = ((data as V5QueueRow[] | null) ?? []).filter((r) => r.v5);
+  const sel = "id,member_name,phone,vip_tier,winback_cohort,send_gate,v5";
+  const fetchV5Rows = async (): Promise<V5QueueRow[]> => {
+    const { data } = await db.from("member_care_profiles").select(sel).eq("branch_id", branchId);
+    return ((data as V5QueueRow[] | null) ?? []).filter((r) => r.v5);
+  };
+  let rows = await fetchV5Rows();
+  // v5 미계산(배포 직후 등)이면 1회 자동 생성 후 재조회 — 새로고침 버튼에 의존하지 않음
+  if (rows.length === 0 && WRITE_ROLES.has(profile.role)) {
+    try { await runMemberCareGenerate(db, branchId, kstDateStr(), profile.id); } catch { /* 생성 실패가 조회를 막지 않음 */ }
+    rows = await fetchV5Rows();
+  }
   const VIP = new Set(["SILVER", "GOLD", "BLACK", "AMBASSADOR"]);
   const COH = new Set(["30일", "60일", "90일"]);
   const prio = (r: V5QueueRow) => r.v5?.priority ?? 0;
