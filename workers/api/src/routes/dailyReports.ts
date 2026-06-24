@@ -25,6 +25,7 @@ import {
   type RawSnapshot, type CareContext, type CareProfileDraft, type MemberCareBucket,
 } from "../lib/memberRevenueEngine";
 import { sendSms, sendFriendTalk } from "../services/smsNotifier";
+import { analyzeMemberV5, type V5MemberInput } from "../lib/fcV5Engine";
 
 export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -1578,6 +1579,39 @@ function buildCareSummary(builtList: { profile: CareProfileDraft }[], events: { 
 interface CareEventRow { member_care_profile_id: string; outcome: string; amount: number; event_date: string; next_action_date: string | null }
 interface AfterProfRow { id: string; normalized_phone: string; contact_priority: string; care_bucket: string; member_name: string; phone: string | null; next_best_action: string | null; reasons: unknown }
 
+/** member_snapshots(브로제이) + fc_member_inputs(FC 수기) → V5 엔진 입력. 입력행이 있으면 해당 값으로 보강. */
+function snapshotToV5Input(s: RawSnapshot, inp?: Record<string, unknown>): V5MemberInput {
+  const g = (k: string): unknown => (inp ? inp[k] : undefined);
+  const has = (v: unknown): boolean => v !== null && v !== undefined && v !== "";
+  const or = <T,>(v: unknown, fb: T): T => (has(v) ? (v as T) : fb);
+  return {
+    member_id: s.id,
+    member_name: s.member_name,
+    phone: s.phone,
+    first_join_date: has(g("first_join_date")) ? (g("first_join_date") as string) : s.start_date,
+    join_date: s.start_date,
+    end_date: s.end_date,
+    last_visit_date: s.latest_visit_date,
+    target_visits_per_week: or(g("target_visits_per_week"), 2),
+    visits_7d: g("visits_7d") as number | null, visits_14d: g("visits_14d") as number | null,
+    visits_30d: g("visits_30d") as number | null, visits_90d: g("visits_90d") as number | null,
+    previous_30d_visits: g("previous_30d_visits") as number | null,
+    satisfaction: g("satisfaction") as number | null,
+    complaint: g("complaint") as boolean | null, payment_issue: g("payment_issue") as boolean | null,
+    ad_consent: g("ad_consent") as boolean | null, opt_out: g("opt_out") as boolean | null, do_not_contact: g("do_not_contact") as boolean | null,
+    goal: g("goal") as string | null, barrier: g("barrier") as string | null,
+    membership_revenue: or(g("membership_revenue"), s.payment_amount ?? 0),
+    pt_revenue: or(g("pt_revenue"), 0), other_revenue: or(g("other_revenue"), 0), refund: or(g("refund"), 0),
+    referral_inquiries: g("referral_inquiries") as number | null, referral_registrations: g("referral_registrations") as number | null,
+    referral_revenue: g("referral_revenue") as number | null, reviews: g("reviews") as number | null, community_contribution: g("community_contribution") as number | null,
+    gift_cost_365d: g("gift_cost_365d") as number | null, last_vip_care_date: g("last_vip_care_date") as string | null,
+    manual_vip_tier: g("manual_vip_tier") as string | null, preferred_gift_key: g("preferred_gift_key") as string | null,
+    end_reason: g("end_reason") as string | null, return_interest: g("return_interest") as string | null, return_declined: g("return_declined") as boolean | null,
+    recontact_date: g("recontact_date") as string | null, last_post_end_contact_date: g("last_post_end_contact_date") as string | null,
+    post_end_sales_contacts_90d: g("post_end_sales_contacts_90d") as number | null,
+  };
+}
+
 /** 회원 매출 엔진 실행: 스냅샷 → 프로필/기회 upsert + 중요 액션 태스크 생성 */
 async function runMemberCareGenerate(db: SupabaseClient, branchId: string, date: string, profileId: string) {
   // 1) 회원 스냅샷
@@ -1611,9 +1645,19 @@ async function runMemberCareGenerate(db: SupabaseClient, branchId: string, date:
   // 4) 빌드 (순수 엔진)
   const built = snaps.map((s) => buildMemberCareProfile(normalizeMemberForCare(s), ctx));
 
+  // 4b) V5 엔진 — 스냅샷 + fc_member_inputs(FC 수기) 병합해 회원별 V5(등급·복귀·기프트·게이트) 계산
+  const { data: inputRaw } = await db.from("fc_member_inputs").select("*").eq("branch_id", branchId);
+  const inputsByPhone = new Map<string, Record<string, unknown>>();
+  for (const r of (inputRaw as Record<string, unknown>[] | null) ?? []) {
+    const ph = String(r.normalized_phone ?? "");
+    if (ph) inputsByPhone.set(ph, r);
+  }
+  const v5List = built.map((b, i) =>
+    analyzeMemberV5(snapshotToV5Input(snaps[i]!, inputsByPhone.get(b.profile.normalized_phone)), { settings: { today: date } }));
+
   // 5) 프로필 upsert (branch_id, normalized_phone) — 청크 500
   const nowIso = new Date().toISOString();
-  const profileRows = built.map((b) => ({
+  const profileRows = built.map((b, i) => ({
     branch_id: branchId, member_snapshot_id: b.profile.member_snapshot_id, normalized_phone: b.profile.normalized_phone, phone: b.profile.phone,
     member_name: b.profile.member_name, product_name: b.profile.product_name, membership_type: b.profile.membership_type,
     lifecycle_stage: b.profile.lifecycle_stage, care_bucket: b.profile.care_bucket,
@@ -1622,7 +1666,9 @@ async function runMemberCareGenerate(db: SupabaseClient, branchId: string, date:
     days_until_expiry: b.profile.days_until_expiry, days_since_last_visit: b.profile.days_since_last_visit, remaining_sessions: b.profile.remaining_sessions,
     next_best_action: b.profile.next_best_action, next_best_offer: b.profile.next_best_offer,
     contact_priority: b.profile.contact_priority, next_contact_due_date: b.profile.next_contact_due_date,
-    reasons: b.profile.reasons, metadata: b.profile.metadata, last_scored_at: nowIso, updated_at: nowIso,
+    reasons: b.profile.reasons, metadata: b.profile.metadata,
+    v5: v5List[i]!, vip_tier: v5List[i]!.vip_tier, winback_cohort: v5List[i]!.winback_cohort, send_gate: v5List[i]!.send_gate,
+    last_scored_at: nowIso, updated_at: nowIso,
   }));
   let profiles_upserted = 0;
   for (let i = 0; i < profileRows.length; i += 500) {
@@ -1736,6 +1782,40 @@ dailyReportsRoutes.post("/member-care/generate", requireJwt, async (c) => {
   const date = parsed.data.date ?? kstDateStr();
   const r = await runMemberCareGenerate(db, parsed.data.branch_id, date, profile.id);
   return ok(c, r, "회원 매출 엔진을 실행했습니다");
+});
+
+// 1b) V5 큐 (VIP · 복귀 D30/60/90 · 온보딩 + 요약) — member_care_profiles.v5 기반
+interface V5QueueRow { id: string; member_name: string; phone: string | null; vip_tier: string | null; winback_cohort: string | null; send_gate: string | null; v5: { priority?: number; lifecycle_stage?: string } | null }
+dailyReportsRoutes.get("/member-care/v5", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data } = await db.from("member_care_profiles")
+    .select("id,member_name,phone,vip_tier,winback_cohort,send_gate,v5").eq("branch_id", branchId);
+  const rows = ((data as V5QueueRow[] | null) ?? []).filter((r) => r.v5);
+  const VIP = new Set(["SILVER", "GOLD", "BLACK", "AMBASSADOR"]);
+  const COH = new Set(["30일", "60일", "90일"]);
+  const prio = (r: V5QueueRow) => r.v5?.priority ?? 0;
+  const byPrio = (a: V5QueueRow, b: V5QueueRow) => prio(b) - prio(a);
+  const vip = rows.filter((r) => VIP.has(r.vip_tier ?? "")).sort(byPrio).slice(0, 40);
+  const winback = rows.filter((r) => COH.has(r.winback_cohort ?? "")).sort(byPrio).slice(0, 40);
+  const onboarding = rows.filter((r) => r.v5?.lifecycle_stage === "30일 온보딩").sort(byPrio).slice(0, 40);
+  const tier = (t: string) => rows.filter((r) => r.vip_tier === t).length;
+  const coh = (ch: string) => rows.filter((r) => r.winback_cohort === ch).length;
+  const summary = {
+    total: rows.length,
+    vip_total: rows.filter((r) => VIP.has(r.vip_tier ?? "")).length,
+    by_tier: { SILVER: tier("SILVER"), GOLD: tier("GOLD"), BLACK: tier("BLACK"), AMBASSADOR: tier("AMBASSADOR") },
+    service_recovery: rows.filter((r) => r.send_gate === "서비스회복만").length,
+    winback_30: coh("30일"), winback_60: coh("60일"), winback_90: coh("90일"),
+    onboarding: onboarding.length,
+    send_blocked: rows.filter((r) => r.send_gate && !["발송가능", "서비스회복만"].includes(r.send_gate)).length,
+  };
+  return ok(c, { summary, vip, winback, onboarding });
 });
 
 const PRIORITY_SORT: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
