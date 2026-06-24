@@ -1826,6 +1826,86 @@ dailyReportsRoutes.get("/member-care/v5", requireJwt, async (c) => {
   return ok(c, { summary, vip, winback, onboarding });
 });
 
+// 1c) FC 수기 입력 — 조회/저장(fc_member_inputs). 저장 시 해당 회원 V5 즉시 재계산.
+const memberInputSchema = z.object({
+  branch_id: z.string().uuid(),
+  normalized_phone: z.string().min(3),
+  member_name: z.string().nullish(),
+  satisfaction: z.number().min(0).max(5).nullish(),
+  complaint: z.boolean().nullish(),
+  payment_issue: z.boolean().nullish(),
+  ad_consent: z.boolean().nullish(),
+  opt_out: z.boolean().nullish(),
+  do_not_contact: z.boolean().nullish(),
+  goal: z.string().nullish(),
+  barrier: z.string().nullish(),
+  target_visits_per_week: z.number().nullish(),
+  visits_7d: z.number().nullish(),
+  visits_14d: z.number().nullish(),
+  visits_30d: z.number().nullish(),
+  visits_90d: z.number().nullish(),
+  previous_30d_visits: z.number().nullish(),
+  first_join_date: z.string().nullish(),
+  membership_revenue: z.number().nullish(),
+  pt_revenue: z.number().nullish(),
+  other_revenue: z.number().nullish(),
+  refund: z.number().nullish(),
+  referral_inquiries: z.number().nullish(),
+  referral_registrations: z.number().nullish(),
+  referral_revenue: z.number().nullish(),
+  reviews: z.number().nullish(),
+  community_contribution: z.number().nullish(),
+  gift_cost_365d: z.number().nullish(),
+  last_vip_care_date: z.string().nullish(),
+  manual_vip_tier: z.string().nullish(),
+  preferred_gift_key: z.string().nullish(),
+  end_reason: z.string().nullish(),
+  return_interest: z.string().nullish(),
+  return_declined: z.boolean().nullish(),
+  recontact_date: z.string().nullish(),
+  last_post_end_contact_date: z.string().nullish(),
+  post_end_sales_contacts_90d: z.number().nullish(),
+});
+
+dailyReportsRoutes.get("/member-care/inputs", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  const phone = c.req.query("phone") ?? "";
+  if (!branchId || !phone) return fail(c, "INVALID_REQUEST", "branch_id·phone 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("fc_member_inputs").select("*").eq("branch_id", branchId).eq("normalized_phone", phone).maybeSingle();
+  return ok(c, { input: data ?? null });
+});
+
+dailyReportsRoutes.put("/member-care/inputs", requireJwt, async (c) => {
+  const parsed = memberInputSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "입력 형식 오류", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { branch_id, normalized_phone } = parsed.data;
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+
+  const nowIso = new Date().toISOString();
+  const { error } = await db.from("fc_member_inputs").upsert({ ...parsed.data, updated_by: profile.id, updated_at: nowIso }, { onConflict: "branch_id,normalized_phone" });
+  if (error) return fail(c, "DB_ERROR", `저장 실패: ${error.message}`, 500);
+
+  // 저장 즉시 해당 회원 V5 재계산 → 카드 즉시 갱신
+  let v5: ReturnType<typeof analyzeMemberV5> | null = null;
+  const { data: snap } = await db.from("member_snapshots")
+    .select("id,member_name,phone,normalized_phone,product_name,membership_type,start_date,end_date,total_sessions,used_sessions,remaining_sessions,latest_visit_date,payment_amount,status")
+    .eq("branch_id", branch_id).eq("normalized_phone", normalized_phone).maybeSingle();
+  if (snap) {
+    v5 = analyzeMemberV5(snapshotToV5Input(snap as RawSnapshot, parsed.data as Record<string, unknown>), { settings: { today: kstDateStr() } });
+    await db.from("member_care_profiles")
+      .update({ v5, vip_tier: v5.vip_tier, winback_cohort: v5.winback_cohort, send_gate: v5.send_gate, updated_at: nowIso })
+      .eq("branch_id", branch_id).eq("normalized_phone", normalized_phone);
+  }
+  return ok(c, { saved: true, v5 }, "회원 정보를 저장했습니다");
+});
+
 const PRIORITY_SORT: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 // 2) 대시보드 (J, lazy generate)
 dailyReportsRoutes.get("/member-care/dashboard", requireJwt, async (c) => {
