@@ -1668,6 +1668,7 @@ async function runMemberCareGenerate(db: SupabaseClient, branchId: string, date:
     contact_priority: b.profile.contact_priority, next_contact_due_date: b.profile.next_contact_due_date,
     reasons: b.profile.reasons, metadata: b.profile.metadata,
     v5: v5List[i]!, vip_tier: v5List[i]!.vip_tier, winback_cohort: v5List[i]!.winback_cohort, send_gate: v5List[i]!.send_gate,
+    renewal_probability: v5List[i]!.renewal_probability, renewal_band: v5List[i]!.renewal_band, renewal_rule_id: v5List[i]!.renewal_rule_id, days_to_expiry: v5List[i]!.days_to_expiry,
     last_scored_at: nowIso, updated_at: nowIso,
   }));
   let profiles_upserted = 0;
@@ -1826,6 +1827,241 @@ dailyReportsRoutes.get("/member-care/v5", requireJwt, async (c) => {
   return ok(c, { summary, vip, winback, onboarding });
 });
 
+// ── V6 재등록 AutoCRM (재등록 확률 큐 · 상품 · 자동화설정 · 이벤트) ──
+const STOP_EVENTS_V6 = new Set(["payment_success", "consult_requested", "pause_requested", "optout", "service_issue"]);
+
+interface V6Blob {
+  renewal_route?: string; renewal_rule_id?: string; renewal_template_key?: string;
+  renewal_product_key?: string; renewal_coupon_key?: string; renewal_gate?: string;
+  renewal_probability?: number; renewal_band?: string; expected_revenue?: number; expected_ticket?: number;
+  days_to_expiry?: number | null; days_expired?: number;
+}
+interface V6ProfileRow { id: string; member_name: string; phone: string | null; normalized_phone: string; vip_tier: string | null; send_gate: string | null; v5: V6Blob | null }
+interface V6ProductRow { product_key: string; name: string; months: number | null; price: number | null; payment_url: string | null; active: boolean; gift_key: string | null; target: string | null; sort: number | null }
+interface V6ConfigRow {
+  branch_phone: string; free_optout: string; consult_url: string; coupon_asset_url: string; payment_base_url: string;
+  webhook_url: string; kakao_channel_id: string; dry_run: boolean; auto_send_enabled: boolean;
+  high_threshold: number; medium_threshold: number; max_ad_contacts_30d: number; min_contact_gap_days: number; send_hour: number; send_minute: number;
+}
+
+// 원본 is_data_ready(02_AUTOMATION) — 가격·URL·쿠폰 설정 없으면 발송보류
+function renewalDataReady(route: string, gate: string, product: V6ProductRow | null, couponKey: string, cfg: { consult_url?: string; coupon_asset_url?: string } | null): { ready: boolean; warnings: string[] } {
+  const w: string[] = [];
+  if (!route) return { ready: false, warnings: ["대상 아님"] };
+  if (route === "서비스회복") return { ready: false, warnings: ["관리자 확인"] };
+  const adOk = gate === "광고발송가능" || gate === "발송가능";
+  if (route === "저확률 정보안내") return { ready: adOk || gate === "정보성만", warnings: w };
+  if (!adOk) w.push("카카오 광고동의 또는 게이트 확인");
+  if (!product || !product.active) w.push("상품 비활성");
+  if (!product || Number(product.price ?? 0) <= 0) w.push("상품가격 필요");
+  if (!product || !String(product.payment_url ?? "").trim()) w.push("결제URL 필요");
+  if (!String(cfg?.consult_url ?? "").trim()) w.push("상담URL 필요");
+  if (couponKey !== "NONE" && !String(cfg?.coupon_asset_url ?? "").trim()) w.push("쿠폰 이미지 URL 필요");
+  return { ready: w.length === 0, warnings: w };
+}
+
+// V6-a) 재등록 확률 큐 (만료예정 D-14~0 · 종료 D1/30/60/90 · 확률순) — member_care_profiles.v5 기반
+dailyReportsRoutes.get("/member-care/v6", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const sel = "id,member_name,phone,normalized_phone,vip_tier,send_gate,v5";
+  const fetchRows = async (): Promise<V6ProfileRow[]> => {
+    const { data } = await db.from("member_care_profiles").select(sel).eq("branch_id", branchId);
+    return ((data as V6ProfileRow[] | null) ?? []).filter((r) => r.v5 && String(r.v5.renewal_route ?? "") !== "");
+  };
+  let rows = await fetchRows();
+  if (rows.length === 0 && WRITE_ROLES.has(profile.role)) {
+    try { await runMemberCareGenerate(db, branchId, kstDateStr(), profile.id); } catch { /* 생성 실패가 조회를 막지 않음 */ }
+    rows = await fetchRows();
+  }
+
+  const [prodR, cfgR, stateR, snapR] = await Promise.all([
+    db.from("fc_products").select("*").eq("branch_id", branchId),
+    db.from("fc_automation_config").select("*").eq("branch_id", branchId).maybeSingle(),
+    db.from("fc_send_state").select("dedup_key,status").eq("branch_id", branchId),
+    db.from("member_snapshots").select("normalized_phone,end_date").eq("branch_id", branchId).limit(5000),
+  ]);
+  const productByKey = new Map<string, V6ProductRow>();
+  for (const p of (prodR.data as V6ProductRow[] | null) ?? []) productByKey.set(p.product_key, p);
+  const cfg = (cfgR.data as V6ConfigRow | null) ?? null;
+  const dryRun = cfg ? cfg.dry_run !== false : true;
+  const stoppedDedup = new Set<string>();
+  for (const s of (stateR.data as { dedup_key: string; status: string }[] | null) ?? []) {
+    if (s.status === "stopped" || s.status === "sent") stoppedDedup.add(s.dedup_key);
+  }
+  const endByPhone = new Map<string, string>();
+  for (const s of (snapR.data as { normalized_phone: string; end_date: string | null }[] | null) ?? []) {
+    if (s.normalized_phone && s.end_date) endByPhone.set(s.normalized_phone, s.end_date);
+  }
+
+  const items = rows.map((r) => {
+    const v = r.v5 as V6Blob;
+    const route = String(v.renewal_route ?? "");
+    const ruleId = String(v.renewal_rule_id ?? "");
+    const productKey = String(v.renewal_product_key ?? "NONE");
+    const couponKey = String(v.renewal_coupon_key ?? "NONE");
+    const gate = String(v.renewal_gate ?? r.send_gate ?? "");
+    const product = productByKey.get(productKey) ?? null;
+    const { ready, warnings } = renewalDataReady(route, gate, product, couponKey, cfg);
+    const endRaw = endByPhone.get(r.normalized_phone) ?? "";
+    const endCompact = endRaw ? endRaw.slice(0, 10).replace(/-/g, "") : "NO_END";
+    const dedupKey = `${r.normalized_phone}|${ruleId}|${endCompact}`;
+    const stopped = stoppedDedup.has(dedupKey) || stoppedDedup.has(`MEMBER:${r.normalized_phone}`);
+    const status = stopped ? "STOPPED" : ready && dryRun ? "DRY_RUN_READY" : ready ? "AUTO_SEND_READY" : "SETUP_REQUIRED";
+    return {
+      id: r.id, member_name: r.member_name, phone: r.phone, normalized_phone: r.normalized_phone,
+      renewal_probability: Number(v.renewal_probability ?? 0), renewal_band: String(v.renewal_band ?? ""),
+      expected_revenue: Number(v.expected_revenue ?? 0), expected_ticket: Number(v.expected_ticket ?? 0),
+      days_to_expiry: v.days_to_expiry ?? null, days_expired: Number(v.days_expired ?? 0),
+      vip_tier: r.vip_tier, route, rule_id: ruleId, template_key: String(v.renewal_template_key ?? ""),
+      product_key: productKey, product_name: product?.name ?? "", product_months: product?.months ?? null,
+      product_price: product?.price ?? null, payment_url: product?.payment_url ?? "",
+      coupon_key: couponKey, gate, status, warnings, dedup_key: dedupKey, stopped,
+    };
+  });
+  const sorted = items.sort((a, b) => (b.renewal_probability - a.renewal_probability) || (b.expected_revenue - a.expected_revenue));
+  const renewal_queue = sorted.slice(0, 80);
+  const autosend_queue = sorted.filter((i) => i.status === "AUTO_SEND_READY").slice(0, 80);
+  const cnt = (st: string) => items.filter((i) => i.status === st).length;
+  const summary = {
+    total: items.length,
+    high: items.filter((i) => i.renewal_band === "높음").length,
+    medium: items.filter((i) => i.renewal_band === "중간").length,
+    low: items.filter((i) => i.renewal_band === "낮음").length,
+    dry_run_ready: cnt("DRY_RUN_READY"), auto_send_ready: cnt("AUTO_SEND_READY"),
+    setup_required: cnt("SETUP_REQUIRED"), stopped: cnt("STOPPED"), dry_run: dryRun,
+  };
+  const config_public = cfg ? {
+    branch_phone: cfg.branch_phone, free_optout: cfg.free_optout, consult_url: cfg.consult_url,
+    coupon_asset_url: cfg.coupon_asset_url, payment_base_url: cfg.payment_base_url,
+    dry_run: cfg.dry_run, auto_send_enabled: cfg.auto_send_enabled, webhook_configured: !!String(cfg.webhook_url ?? "").trim(),
+  } : null;
+  return ok(c, { summary, renewal_queue, autosend_queue, config: config_public, products: prodR.data ?? [] });
+});
+
+// V6-b) 상품 카탈로그 — 조회/저장(fc_products)
+dailyReportsRoutes.get("/member-care/products", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data } = await db.from("fc_products").select("*").eq("branch_id", branchId).order("sort", { ascending: true });
+  return ok(c, { products: data ?? [] });
+});
+
+const productSchema = z.object({
+  branch_id: z.string().uuid(),
+  product_key: z.string().min(1).max(20),
+  name: z.string().min(1),
+  months: z.number().int().nullish(),
+  price: z.number().int().nullish(),
+  payment_url: z.string().nullish(),
+  active: z.boolean().nullish(),
+  gift_key: z.string().nullish(),
+  target: z.string().nullish(),
+  sort: z.number().int().nullish(),
+});
+dailyReportsRoutes.put("/member-care/products", requireJwt, async (c) => {
+  const parsed = productSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "상품 형식 오류", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const nowIso = new Date().toISOString();
+  const row = { ...parsed.data, payment_url: parsed.data.payment_url ?? "", active: parsed.data.active ?? false, updated_at: nowIso };
+  const { error } = await db.from("fc_products").upsert(row, { onConflict: "branch_id,product_key" });
+  if (error) return fail(c, "DB_ERROR", `저장 실패: ${error.message}`, 500);
+  return ok(c, { saved: true }, "상품을 저장했습니다");
+});
+
+// V6-c) 자동화 설정 — 조회/저장(fc_automation_config)
+dailyReportsRoutes.get("/member-care/automation-config", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  let { data } = await db.from("fc_automation_config").select("*").eq("branch_id", branchId).maybeSingle();
+  if (!data && WRITE_ROLES.has(profile.role)) {
+    await db.from("fc_automation_config").upsert({ branch_id: branchId }, { onConflict: "branch_id" });
+    const r = await db.from("fc_automation_config").select("*").eq("branch_id", branchId).maybeSingle();
+    data = r.data;
+  }
+  return ok(c, { config: data ?? null });
+});
+
+const configSchema = z.object({
+  branch_id: z.string().uuid(),
+  branch_phone: z.string().nullish(),
+  free_optout: z.string().nullish(),
+  consult_url: z.string().nullish(),
+  coupon_asset_url: z.string().nullish(),
+  payment_base_url: z.string().nullish(),
+  webhook_url: z.string().nullish(),
+  kakao_channel_id: z.string().nullish(),
+  dry_run: z.boolean().nullish(),
+  auto_send_enabled: z.boolean().nullish(),
+  high_threshold: z.number().nullish(),
+  medium_threshold: z.number().nullish(),
+  max_ad_contacts_30d: z.number().int().nullish(),
+  min_contact_gap_days: z.number().int().nullish(),
+  send_hour: z.number().int().nullish(),
+  send_minute: z.number().int().nullish(),
+});
+dailyReportsRoutes.put("/member-care/automation-config", requireJwt, async (c) => {
+  const parsed = configSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "설정 형식 오류", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const nowIso = new Date().toISOString();
+  const clean: Record<string, unknown> = { branch_id: parsed.data.branch_id, updated_by: profile.id, updated_at: nowIso };
+  for (const [k, v] of Object.entries(parsed.data)) { if (k !== "branch_id" && v !== null && v !== undefined) clean[k] = v; }
+  const { error } = await db.from("fc_automation_config").upsert(clean, { onConflict: "branch_id" });
+  if (error) return fail(c, "DB_ERROR", `저장 실패: ${error.message}`, 500);
+  return ok(c, { saved: true }, "자동화 설정을 저장했습니다");
+});
+
+// V6-d) 이벤트 수신 — 결제/상담/보류/수신거부/서비스이슈 → 후속 자동발송 중단(dedup/회원)
+const eventSchema = z.object({
+  branch_id: z.string().uuid(),
+  member_id: z.string().nullish(),
+  normalized_phone: z.string().nullish(),
+  dedup_key: z.string().nullish(),
+  event_type: z.string().min(1),
+  detail: z.record(z.unknown()).nullish(),
+});
+dailyReportsRoutes.post("/member-care/renewal-events", requireJwt, async (c) => {
+  const parsed = eventSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "이벤트 형식 오류", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { branch_id, member_id, normalized_phone, dedup_key, event_type, detail } = parsed.data;
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+  const nowIso = new Date().toISOString();
+  await db.from("fc_events").insert({ branch_id, member_id: member_id ?? null, normalized_phone: normalized_phone ?? null, dedup_key: dedup_key ?? null, event_type, detail: detail ?? {}, occurred_at: nowIso });
+  if (STOP_EVENTS_V6.has(event_type)) {
+    const stateRows: Record<string, unknown>[] = [];
+    if (dedup_key) stateRows.push({ branch_id, dedup_key, member_id: member_id ?? null, normalized_phone: normalized_phone ?? null, status: "stopped", stop_reason: event_type, updated_at: nowIso });
+    if ((event_type === "optout" || event_type === "service_issue") && normalized_phone) {
+      stateRows.push({ branch_id, dedup_key: `MEMBER:${normalized_phone}`, member_id: member_id ?? null, normalized_phone, status: "stopped", stop_reason: event_type, updated_at: nowIso });
+    }
+    if (stateRows.length) await db.from("fc_send_state").upsert(stateRows, { onConflict: "branch_id,dedup_key" });
+  }
+  return ok(c, { recorded: true }, "이벤트를 기록했습니다");
+});
+
 // 1c) FC 수기 입력 — 조회/저장(fc_member_inputs). 저장 시 해당 회원 V5 즉시 재계산.
 const memberInputSchema = z.object({
   branch_id: z.string().uuid(),
@@ -1900,7 +2136,8 @@ dailyReportsRoutes.put("/member-care/inputs", requireJwt, async (c) => {
   if (snap) {
     v5 = analyzeMemberV5(snapshotToV5Input(snap as RawSnapshot, parsed.data as Record<string, unknown>), { settings: { today: kstDateStr() } });
     await db.from("member_care_profiles")
-      .update({ v5, vip_tier: v5.vip_tier, winback_cohort: v5.winback_cohort, send_gate: v5.send_gate, updated_at: nowIso })
+      .update({ v5, vip_tier: v5.vip_tier, winback_cohort: v5.winback_cohort, send_gate: v5.send_gate,
+        renewal_probability: v5.renewal_probability, renewal_band: v5.renewal_band, renewal_rule_id: v5.renewal_rule_id, days_to_expiry: v5.days_to_expiry, updated_at: nowIso })
       .eq("branch_id", branch_id).eq("normalized_phone", normalized_phone);
   }
   return ok(c, { saved: true, v5 }, "회원 정보를 저장했습니다");
