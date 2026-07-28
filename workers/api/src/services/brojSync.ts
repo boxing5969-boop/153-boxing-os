@@ -96,41 +96,45 @@ export async function syncAttendance(
   const seen = new Set<string>(); // 같은 배치 안 중복 id 방어(upsert 는 배치 내 중복을 못 거른다)
   let pages = 0, fetched = 0;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await brojAttendance(env, {
-      group_id: groupId, start_date: from, end_date: to, size: SIZE, page_index: page,
-      // 실제로 문을 통과한 기록만. 미지정 시 조회량이 커지면 BROJ 가 400 을 반환한다.
-      attendance_status: "SUCCESS",
-    });
-    const list = res.data ?? [];
-    pages += 1;
-    fetched += list.length;
-
-    for (const a of list) {
-      const id = a.attendance_id;
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      const at = toKst(a.attendance_date);
-      if (!at.date) continue;    // 날짜 없는 기록은 집계 불가 — 저장하지 않는다
-      const exp = toKst(a.ticket_info?.expire_date);
-      rows.push({
-        branch_id: branchId,
-        broj_attendance_id: id,
-        broj_member_id: a.member_id ?? null,
-        member_name: a.name ?? null,
-        phone: a.phone ?? null,
-        attended_at: at.iso,
-        attend_date: at.date,
-        attendance_type: a.attendance_type ?? null,
-        attendance_status: a.attendance_status ?? null,
-        ticket_name: a.ticket_info?.name ?? null,
-        ticket_type: a.ticket_info?.type ?? null,
-        remain_count: a.ticket_info?.remain_count ?? null,
-        ticket_expire_date: exp.date,
-        device_name: a.device_name ?? null,
+  // ⚠️ attendance_status 는 필수이고 한 번에 한 값만 받는다(미지정 시 400).
+  //    SUCCESS = 출입문 통과, SHOW = 수업 출석. 둘 다 '왔다'이므로 각각 조회해 합쳐야 누락이 없다.
+  //    (공개 문서에는 ALL/SUCCESS/FAILURE 로 적혀 있으나 실제 서버는 SUCCESS/SHOW/FAILURE/NO_SHOW 만 받는다)
+  for (const status of ["SUCCESS", "SHOW"] as const) {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await brojAttendance(env, {
+        group_id: groupId, start_date: from, end_date: to, size: SIZE, page_index: page,
+        attendance_status: status,
       });
+      const list = res.data ?? [];
+      pages += 1;
+      fetched += list.length;
+
+      for (const a of list) {
+        const id = a.attendance_id;
+        if (!id || seen.has(id)) continue;   // 상태별 조회 간 중복도 여기서 걸러진다
+        seen.add(id);
+        const at = toKst(a.attendance_date);
+        if (!at.date) continue;    // 날짜 없는 기록은 집계 불가 — 저장하지 않는다
+        const exp = toKst(a.ticket_info?.expire_date);
+        rows.push({
+          branch_id: branchId,
+          broj_attendance_id: id,
+          broj_member_id: a.member_id ?? null,
+          member_name: a.name ?? null,
+          phone: a.phone ?? null,
+          attended_at: at.iso,
+          attend_date: at.date,
+          attendance_type: a.attendance_type ?? null,
+          attendance_status: a.attendance_status ?? status,
+          ticket_name: a.ticket_info?.name ?? null,
+          ticket_type: a.ticket_info?.type ?? null,
+          remain_count: a.ticket_info?.remain_count ?? null,
+          ticket_expire_date: exp.date,
+          device_name: a.device_name ?? null,
+        });
+      }
+      if (list.length < SIZE) break;   // 마지막 페이지
     }
-    if (list.length < SIZE) break;   // 마지막 페이지
   }
 
   // 500행씩 upsert (Workers 서브리퀘스트 한도)

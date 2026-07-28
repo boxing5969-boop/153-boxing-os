@@ -200,7 +200,8 @@ export function brojAttendance(
     start_date: string; end_date: string;
     size?: number; page_index?: number;
     member_type?: "ALL" | "CUSTOMER" | "ADMIN";
-    attendance_status?: "SUCCESS" | "FAILURE" | "SHOW" | "NO_SHOW";
+    /** ⚠️ 필수. 빼면 400. 한 번에 한 값만 받는다(ALL 없음) — 여러 상태가 필요하면 호출을 나눈다. */
+    attendance_status: "SUCCESS" | "FAILURE" | "SHOW" | "NO_SHOW";
   }
 ): Promise<BrojAttendancePage> {
   return brojGet<BrojAttendancePage>(env, "/v1/attendance/histories", {
