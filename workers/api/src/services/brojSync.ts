@@ -96,13 +96,29 @@ export async function syncAttendance(
   const seen = new Set<string>(); // 같은 배치 안 중복 id 방어(upsert 는 배치 내 중복을 못 거른다)
   let pages = 0, fetched = 0;
 
-  // ⚠️ attendance_status 는 필수이고 한 번에 한 값만 받는다(미지정 시 400).
-  //    SUCCESS = 출입문 통과, SHOW = 수업 출석. 둘 다 '왔다'이므로 각각 조회해 합쳐야 누락이 없다.
-  //    (공개 문서에는 ALL/SUCCESS/FAILURE 로 적혀 있으나 실제 서버는 SUCCESS/SHOW/FAILURE/NO_SHOW 만 받는다)
+  // ⚠️ 브로제이 출석 조회 제약 2가지 (문서에 없음 — 실측으로 확인)
+  //    ① 조회 기간은 한 번에 **90일 이내**여야 한다 ("search range cannot exceed 90 days")
+  //    ② attendance_status 는 **필수**이고 한 번에 한 값만 받는다(ALL 없음).
+  //       SUCCESS = 출입문 통과, SHOW = 수업 출석. 둘 다 '왔다'이므로 각각 조회해 합쳐야 누락이 없다.
+  const windows: { from: string; to: string }[] = [];
+  {
+    const WINDOW = 80;   // 90일 한도에 여유를 둔다
+    const start = Date.parse(`${from}T00:00:00Z`);
+    const end = Date.parse(`${to}T00:00:00Z`);
+    for (let s = start; s <= end; s += (WINDOW + 1) * 86400000) {
+      const e = Math.min(s + WINDOW * 86400000, end);
+      windows.push({
+        from: new Date(s).toISOString().slice(0, 10),
+        to: new Date(e).toISOString().slice(0, 10),
+      });
+    }
+  }
+
+  for (const w of windows) {
   for (const status of ["SUCCESS", "SHOW"] as const) {
     for (let page = 0; page < MAX_PAGES; page++) {
       const res = await brojAttendance(env, {
-        group_id: groupId, start_date: from, end_date: to, size: SIZE, page_index: page,
+        group_id: groupId, start_date: w.from, end_date: w.to, size: SIZE, page_index: page,
         attendance_status: status,
       });
       const list = res.data ?? [];
@@ -135,6 +151,7 @@ export async function syncAttendance(
       }
       if (list.length < SIZE) break;   // 마지막 페이지
     }
+  }
   }
 
   // 500행씩 upsert (Workers 서브리퀘스트 한도)
