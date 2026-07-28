@@ -200,6 +200,7 @@ export function brojAttendance(
     start_date: string; end_date: string;
     size?: number; page_index?: number;
     member_type?: "ALL" | "CUSTOMER" | "ADMIN";
+    attendance_status?: "SUCCESS" | "FAILURE" | "SHOW" | "NO_SHOW";
   }
 ): Promise<BrojAttendancePage> {
   return brojGet<BrojAttendancePage>(env, "/v1/attendance/histories", {
@@ -209,6 +210,10 @@ export function brojAttendance(
     page_index: opts.page_index ?? 0,
     // 직원 출근(GO_TO_WORK)·관리자 기록은 회원 방문 통계에서 제외
     member_type: opts.member_type ?? "CUSTOMER",
+    // ⚠️ 조회량이 일정 규모를 넘으면 BROJ 가 이 필터를 필수로 요구한다
+    //    (미지정 시 400 "attendance_status must be one of [...]").
+    //    한 번에 한 값만 받으므로 여러 상태가 필요하면 호출을 나눠야 한다.
+    attendance_status: opts.attendance_status,
   });
 }
 

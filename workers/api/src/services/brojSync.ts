@@ -99,6 +99,8 @@ export async function syncAttendance(
   for (let page = 0; page < MAX_PAGES; page++) {
     const res = await brojAttendance(env, {
       group_id: groupId, start_date: from, end_date: to, size: SIZE, page_index: page,
+      // 실제로 문을 통과한 기록만. 미지정 시 조회량이 커지면 BROJ 가 400 을 반환한다.
+      attendance_status: "SUCCESS",
     });
     const list = res.data ?? [];
     pages += 1;
