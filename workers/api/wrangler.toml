@@ -7,6 +7,8 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ENVIRONMENT = "development"
 PAGES_URL = "https://153-boxing-os.pages.dev"
+# 브로제이 오픈 API 베이스(공개 URL — 비밀 아님). 키는 시크릿 BROJ_API_KEY.
+BROJ_API_URL = "https://api.broj.co.kr"
 
 # 시크릿은 wrangler secret put 으로 등록 (평문 저장 금지)
 # 또는 로컬 개발 시 workers/api/.dev.vars 파일에 KEY=VALUE 형식으로 저장 (gitignored)

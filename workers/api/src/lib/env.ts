@@ -20,4 +20,13 @@ export interface Env {
   PAGES_URL?: string;  // CRM 프론트엔드 URL (계약서 링크 생성용)
   // FC AI 메시지 생성용 LLM 키 (미설정 시 규칙 기반으로 자동 폴백)
   ANTHROPIC_API_KEY?: string;
+  // 결제 어댑터 (결제선생 — 파트너 계약 후 채움). 미설정 시 mock.
+  PAYMENT_PROVIDER?: string; // 'mock' | 'payssam'
+  PAYMENT_DRY_RUN?: string; // 'false' 가 아니면 dry-run(기본 true)
+  PAYSSAM_API_URL?: string;
+  PAYSSAM_API_KEY?: string;
+  PAYSSAM_MERCHANT_ID?: string;
+  // 브로제이 출입·안면인식 어댑터 (오픈 API 명세 수령 후 채움)
+  BROJ_API_URL?: string;
+  BROJ_API_KEY?: string;
 }
