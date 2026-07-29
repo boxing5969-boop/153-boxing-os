@@ -1079,7 +1079,9 @@ dailyReportsRoutes.get("/members", requireJwt, async (c) => {
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   const { data } = await db
     .from("member_snapshots")
-    .select("id,member_name,phone,product_name,membership_type,end_date,latest_visit_date,start_date,remaining_sessions,status,assigned_coach,updated_at")
+    // ⚠️ 출석 빈도(visits_*)·홀딩(hold_*)을 빠뜨리면 화면에서 '출석 미동기화'로 보인다.
+    //    DB엔 값이 있는데 API가 안 보내는 상황 — 새 컬럼을 추가하면 여기도 같이 늘려야 한다.
+    .select("id,member_name,phone,product_name,membership_type,end_date,latest_visit_date,start_date,remaining_sessions,status,assigned_coach,updated_at,visits_7d,visits_30d,visits_90d,hold_status,hold_start,hold_end")
     .eq("branch_id", branchId)
     .order("end_date", { ascending: true, nullsFirst: false })
     .limit(1000);
