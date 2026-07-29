@@ -2668,6 +2668,24 @@ dailyReportsRoutes.get("/member-care/first4w", requireJwt, async (c) => {
   return ok(c, { rows: data ?? [], attendance_count: count ?? 0 });
 });
 
+/**
+ * 회원별 누적 결제금액 — VIP 점수의 '금액' 축.
+ * GET /member-care/paid-totals
+ * 브로제이 매출을 회원명으로 합산한 값. 매출 동기화 전이면 빈 배열이 온다(화면에서 안내).
+ */
+dailyReportsRoutes.get("/member-care/paid-totals", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data, error } = await db.rpc("ops_member_paid_totals", { _branch_id: branchId });
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { rows: data ?? [] });
+});
+
 // 8) 본사 회원관리 예외 관제 (H)
 dailyReportsRoutes.get("/hq-member-care", requireJwt, async (c) => {
   const date = c.req.query("date") ?? kstDateStr();
