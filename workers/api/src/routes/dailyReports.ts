@@ -2669,6 +2669,25 @@ dailyReportsRoutes.get("/member-care/first4w", requireJwt, async (c) => {
 });
 
 /**
+ * 출석 현황 한눈에 — 주차별 추이 + 등급 분포 + 데이터 신뢰도.
+ * GET /member-care/attendance-overview?weeks=8
+ * 키오스크 설치 직후에는 기간이 짧다. first_date·day_span 을 화면에서 밝혀 오독을 막는다.
+ */
+dailyReportsRoutes.get("/member-care/attendance-overview", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 8) || 8, 2), 26);
+
+  const { data, error } = await db.rpc("ops_attendance_overview", { _branch_id: branchId, _weeks: weeks });
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { overview: data ?? null });
+});
+
+/**
  * 회원별 누적 결제금액 — VIP 점수의 '금액' 축.
  * GET /member-care/paid-totals
  * 브로제이 매출을 회원명으로 합산한 값. 매출 동기화 전이면 빈 배열이 온다(화면에서 안내).
