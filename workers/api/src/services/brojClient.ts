@@ -60,14 +60,29 @@ async function brojGet<T>(
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }
   }
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
+  // ⚠️ 타임아웃 없이는 브로제이가 응답을 안 줄 때 요청이 그대로 매달린다.
+  //    자동 동기화(크론)에서 이게 걸리면 워커 실행 시간을 다 먹고 "Network connection lost." 로 죽는다.
+  //    한 번 끊고 한 번만 재시도한다.
+  const TIMEOUT_MS = 15_000;
+  const once = async (): Promise<Response> =>
+    fetch(url.toString(), {
       method: "GET",
       headers: { "API-KEY": env.BROJ_API_KEY as string, Accept: "application/json" },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-  } catch (e) {
-    throw new BrojError(0, `BROJ 연결 실패: ${e instanceof Error ? e.message : "network"}`);
+
+  let res: Response;
+  try {
+    res = await once();
+  } catch (e1) {
+    try {
+      res = await once();   // 일시적 지연·끊김 1회 재시도
+    } catch (e2) {
+      const msg = e2 instanceof Error ? e2.message : "network";
+      throw new BrojError(0, /abort|timeout/i.test(msg)
+        ? `BROJ 응답 지연(${TIMEOUT_MS / 1000}초 초과). 잠시 후 다시 시도해 주세요.`
+        : `BROJ 연결 실패: ${msg}`);
+    }
   }
   const text = await res.text();
   if (res.status === 429) throw new BrojError(429, "BROJ 호출 한도 초과(분당 제한). 잠시 후 재시도.");
