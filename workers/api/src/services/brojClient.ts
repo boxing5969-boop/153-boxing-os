@@ -206,8 +206,12 @@ export function brojAttendance(
     start_date: string; end_date: string;
     size?: number; page_index?: number;
     member_type?: "ALL" | "CUSTOMER" | "ADMIN";
-    /** ⚠️ 필수. 빼면 400. 한 번에 한 값만 받는다(ALL 없음) — 여러 상태가 필요하면 호출을 나눈다. */
-    attendance_status: "SUCCESS" | "FAILURE" | "SHOW" | "NO_SHOW";
+    /**
+     * ⚠️ 필수. 빼면 400. 한 번에 한 값만 받는다 — 여러 상태가 필요하면 호출을 나눈다.
+     * 허용 값이 브로제이 쪽에서 바뀐다(2026-07 기준 ALL/SUCCESS/FAILURE, 예전 SHOW 는 이제 400).
+     * 호출부(brojSync)에서 거부된 값을 건너뛰도록 처리하므로 여기서는 넓게 받는다.
+     */
+    attendance_status: "ALL" | "SUCCESS" | "FAILURE" | "SHOW" | "NO_SHOW";
   }
 ): Promise<BrojAttendancePage> {
   return brojGet<BrojAttendancePage>(env, "/v1/attendance/histories", {

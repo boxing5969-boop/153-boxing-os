@@ -96,10 +96,13 @@ export async function syncAttendance(
   const seen = new Set<string>(); // 같은 배치 안 중복 id 방어(upsert 는 배치 내 중복을 못 거른다)
   let pages = 0, fetched = 0;
 
-  // ⚠️ 브로제이 출석 조회 제약 2가지 (문서에 없음 — 실측으로 확인)
+  // ⚠️ 브로제이 출석 조회 제약 (문서에 없음 — 실측으로 확인)
   //    ① 조회 기간은 한 번에 **90일 이내**여야 한다 ("search range cannot exceed 90 days")
-  //    ② attendance_status 는 **필수**이고 한 번에 한 값만 받는다(ALL 없음).
-  //       SUCCESS = 출입문 통과, SHOW = 수업 출석. 둘 다 '왔다'이므로 각각 조회해 합쳐야 누락이 없다.
+  //    ② attendance_status 는 **필수**이고 한 번에 한 값만 받는다.
+  //    ③ 허용 값이 브로제이 쪽에서 바뀐다. 2026-07 기준 [ALL, SUCCESS, FAILURE] 이고,
+  //       그 전에 쓰던 SHOW 는 이제 400 을 낸다. 그래서 후보를 순서대로 시도하고,
+  //       '지원하지 않는 값'이면 그 값만 건너뛴다. 값 하나 때문에 동기화 전체가 실패하면 안 된다.
+  //       ※ ALL 은 쓰지 않는다 — 거절된 출입(FAILURE)까지 섞여 출석 수가 부풀려진다.
   const windows: { from: string; to: string }[] = [];
   {
     const WINDOW = 80;   // 90일 한도에 여유를 둔다
@@ -114,13 +117,25 @@ export async function syncAttendance(
     }
   }
 
+  // 지원하지 않는다고 판명된 상태값 — 한 번 걸리면 이후 창(window)에서 다시 시도하지 않는다.
+  const unsupported = new Set<string>();
+  const isUnsupportedStatus = (e: unknown): boolean =>
+    e instanceof Error && /attendance_status must be one of/i.test(e.message);
+
   for (const w of windows) {
   for (const status of ["SUCCESS", "SHOW"] as const) {
+    if (unsupported.has(status)) continue;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const res = await brojAttendance(env, {
-        group_id: groupId, start_date: w.from, end_date: w.to, size: SIZE, page_index: page,
-        attendance_status: status,
-      });
+      let res: Awaited<ReturnType<typeof brojAttendance>>;
+      try {
+        res = await brojAttendance(env, {
+          group_id: groupId, start_date: w.from, end_date: w.to, size: SIZE, page_index: page,
+          attendance_status: status,
+        });
+      } catch (e) {
+        if (isUnsupportedStatus(e)) { unsupported.add(status); break; }  // 이 값은 포기, 나머지는 계속
+        throw e;
+      }
       const list = res.data ?? [];
       pages += 1;
       fetched += list.length;
