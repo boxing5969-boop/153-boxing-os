@@ -12,7 +12,7 @@ import { fail, ok } from "../lib/responses";
 import { requireJwt } from "../middleware/jwt";
 import { getServiceClient } from "../lib/supabase";
 import { brojStatus, brojGroups, brojMembers, hasBrojKey, BrojError } from "../services/brojClient";
-import { syncSales, syncMembers, fillPaymentAmounts, syncAttendance, refreshAttendanceStats, refreshTicketStats } from "../services/brojSync";
+import { syncSales, syncMembers, fillPaymentAmounts, syncAttendance, refreshAttendanceStats, refreshTicketStats, syncMemberHolds } from "../services/brojSync";
 // 날짜/결산월 계산과 이력 기록은 자동 동기화(크론)와 같은 구현을 공유한다 — 수동·자동 결과가 어긋나면 안 된다.
 import { kstToday, kstMonthStart, fiscalRange, logSyncRun } from "../services/brojAutoSync";
 
@@ -310,6 +310,42 @@ brojRoutes.post("/sync/attendance", requireJwt, async (c) => {
   }
 
   return ok(c, { from, to, branches, members_updated: updated, sessions_filled: tickets.sessions, expiry_filled: tickets.expiry });
+});
+
+/**
+ * POST /api/broj/sync/holds — 본사 전용. 홀딩(일시정지) 원본 값 동기화.
+ * body: { batch?(기본 50) }. 회원당 1콜이라 조금씩 나눠 돈다(오래된 조회부터).
+ * 응답의 remaining 이 0이 될 때까지 반복 호출하면 전원 갱신된다.
+ */
+brojRoutes.post("/sync/holds", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!HQ_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "본사 관리자만 실행할 수 있습니다", 403);
+  if (!hasBrojKey(c.env)) return fail(c, "NO_KEY", "브로제이 API 키가 등록되지 않았습니다", 400);
+
+  const body = await c.req.json<{ batch?: number; branch_id?: string }>()
+    .catch(() => ({} as { batch?: number; branch_id?: string }));
+
+  let q = db.from("branches").select("id, name, broj_group_id").not("broj_group_id", "is", null);
+  if (body.branch_id) q = q.eq("id", body.branch_id);
+  const { data } = await q;
+  const mapped = (data as { id: string; name: string; broj_group_id: string }[] | null) ?? [];
+  if (mapped.length === 0) return fail(c, "NO_MAPPING", "브로제이 센터가 연결된 지점이 없습니다", 400);
+
+  const branches: { branch_id: string; name: string; ok: boolean; checked: number; holding: number; remaining: number; error?: string }[] = [];
+  for (const b of mapped) {
+    try {
+      const r = await syncMemberHolds(db, c.env, { branchId: b.id, groupId: b.broj_group_id, batch: body.batch });
+      branches.push({ branch_id: b.id, name: b.name, ok: true, checked: r.checked, holding: r.holding, remaining: r.remaining });
+    } catch (e) {
+      branches.push({
+        branch_id: b.id, name: b.name, ok: false, checked: 0, holding: 0, remaining: 0,
+        error: e instanceof Error ? e.message : "실패",
+      });
+    }
+  }
+  return ok(c, { branches });
 });
 
 /**

@@ -11,7 +11,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Env } from "../lib/env";
-import { brojSalesHistory, brojMembers, brojAttendance, type BrojProductHistory, type BrojMember } from "./brojClient";
+import { brojSalesHistory, brojMembers, brojAttendance, brojMemberTickets, type BrojProductHistory, type BrojMember } from "./brojClient";
 
 const MEMBERSHIP_TYPES = new Set(["MEMBERSHIP", "RESERVATION_TICKET", "ENTRY_TICKET", "FACILITY_TICKET"]);
 const GOODS_TYPES = new Set(["LOCKER_TICKET", "RENTAL_TICKET", "NORMAL_PRODUCT"]);
@@ -166,6 +166,84 @@ export async function syncAttendance(
   }
 
   return { ok: true, branch_id: branchId, from, to, pages, fetched, written };
+}
+
+export interface SyncHoldResult {
+  ok: true;
+  checked: number;
+  holding: number;
+  failed: number;
+  /** 아직 조회하지 않은 회원 수 — 0이 되면 한 바퀴 완료 */
+  remaining: number;
+}
+
+/**
+ * 홀딩(일시정지) 동기화 — 회원별 이용권 API 의 **원본 값**을 가져온다.
+ *
+ * ⚠️ 회원 한 명당 1회 호출이라 비싸다. 그래서:
+ *   · 한 번에 batch 명만 처리하고, '마지막 조회가 가장 오래된 회원'부터 돈다.
+ *   · 분당 60회 제한이 있어 batch 기본값을 50 으로 둔다.
+ *   · 자동 동기화가 매일 조금씩 돌면 며칠 안에 전원이 한 바퀴 갱신된다.
+ *
+ * 역산 추정(상품기간 vs 종료일)은 폐기했다 — 락커·부가상품 종료일이 섞여 신뢰할 수 없었다.
+ */
+export async function syncMemberHolds(
+  db: SupabaseClient,
+  env: Env,
+  opts: { branchId: string; groupId: string; batch?: number },
+): Promise<SyncHoldResult> {
+  const { branchId, groupId } = opts;
+  const batch = Math.min(Math.max(opts.batch ?? 50, 1), 120);
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+
+  // 유효회원 우선 + 조회가 오래된 순 (nulls first)
+  const { data, error } = await db
+    .from("member_snapshots")
+    .select("id, member_name, raw_payload, ticket_checked_at")
+    .eq("branch_id", branchId)
+    .gte("end_date", today)
+    .order("ticket_checked_at", { ascending: true, nullsFirst: true })
+    .limit(batch);
+  if (error) throw new Error(`대상 조회 실패: ${error.message}`);
+
+  const rows = (data as { id: string; member_name: string; raw_payload: Record<string, unknown> | null }[] | null) ?? [];
+  let checked = 0, holding = 0, failed = 0;
+
+  for (const r of rows) {
+    const mid = String(r.raw_payload?.member_id ?? "");
+    if (!mid) { failed += 1; continue; }
+    try {
+      const t = await brojMemberTickets(env, { group_id: groupId, member_id: mid });
+      const tickets = t.membership_summary?.tickets ?? [];
+      // 홀딩이 걸린 이용권 중 가장 늦게 끝나는 것을 대표로 본다
+      const held = tickets
+        .filter((x) => x.has_holding_period && x.holding_end_at)
+        .sort((a, b) => String(b.holding_end_at).localeCompare(String(a.holding_end_at)))[0];
+      const status = held ? "HOLDING" : (t.membership_summary?.status ?? null);
+      if (held) holding += 1;
+      await db.from("member_snapshots").update({
+        hold_status: status,
+        hold_start: held?.holding_start_at ?? null,
+        hold_end: held?.holding_end_at ?? null,
+        ticket_checked_at: new Date().toISOString(),
+      }).eq("id", r.id);
+      checked += 1;
+    } catch (e) {
+      failed += 1;
+      // 실패해도 조회 시각은 남겨 같은 회원에서 막히지 않게 한다
+      await db.from("member_snapshots").update({ ticket_checked_at: new Date().toISOString() }).eq("id", r.id);
+      console.error("[broj] tickets", r.member_name, e instanceof Error ? e.message : e);
+    }
+  }
+
+  // 아직 안 본 회원 수 (오늘 갱신되지 않은 유효회원)
+  const since = new Date(Date.now() - 6 * 86400000).toISOString();
+  const { count } = await db.from("member_snapshots")
+    .select("id", { count: "exact", head: true })
+    .eq("branch_id", branchId).gte("end_date", today)
+    .or(`ticket_checked_at.is.null,ticket_checked_at.lt.${since}`);
+
+  return { ok: true, checked, holding, failed, remaining: count ?? 0 };
 }
 
 /**

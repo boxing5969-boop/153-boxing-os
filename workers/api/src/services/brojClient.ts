@@ -143,7 +143,13 @@ export interface BrojMemberTickets {
     left_days?: number;
     total_days?: number;
     status?: "ACTIVE" | "INACTIVE" | "SOON_ACTIVE" | "SOON_INACTIVE" | "HOLDING" | "UNKNOWN" | string;
-    tickets?: { name?: string; start_at?: string; end_at?: string; ticket_status?: string }[];
+    tickets?: {
+      name?: string; start_at?: string; end_at?: string; ticket_status?: string;
+      /** 홀딩(일시정지) — 추정이 아니라 브로제이 원본 값 */
+      has_holding_period?: boolean;
+      holding_start_at?: string;   // YYYY-MM-DD
+      holding_end_at?: string;     // YYYY-MM-DD
+    }[];
   };
   lesson_ticket_groups?: unknown[];
   rental_ticket_groups?: unknown[];
