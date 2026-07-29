@@ -2675,6 +2675,51 @@ dailyReportsRoutes.get("/member-care/first4w", requireJwt, async (c) => {
 });
 
 /**
+ * 지점 와이파이 안내 — 회원용 QR/포스터에 인쇄되는 값.
+ * ⚠️ 시스템 자격증명이 아니라 벽에 붙는 안내문이다. 화면에서 게스트망 사용을 권고한다.
+ */
+dailyReportsRoutes.get("/branch-wifi", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data, error } = await db.from("branches")
+    .select("wifi_ssid, wifi_password, wifi_security, wifi_hidden")
+    .eq("id", branchId).maybeSingle();
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { wifi: data ?? null });
+});
+
+const wifiSchema = z.object({
+  branch_id: z.string().uuid(),
+  wifi_ssid: z.string().trim().max(64).nullish(),
+  wifi_password: z.string().max(128).nullish(),
+  wifi_security: z.enum(["WPA", "WEP", "nopass"]).nullish(),
+  wifi_hidden: z.boolean().nullish(),
+});
+dailyReportsRoutes.put("/branch-wifi", requireJwt, async (c) => {
+  const parsed = wifiSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "입력을 확인해주세요", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
+
+  const { branch_id, ...rest } = parsed.data;
+  const { error } = await db.from("branches").update({
+    wifi_ssid: rest.wifi_ssid ?? null,
+    wifi_password: rest.wifi_password ?? null,
+    wifi_security: rest.wifi_security ?? "WPA",
+    wifi_hidden: !!rest.wifi_hidden,
+  }).eq("id", branch_id);
+  if (error) return fail(c, "DB_ERROR", `저장 실패: ${error.message}`, 500);
+  return ok(c, { saved: true }, "와이파이 정보를 저장했습니다");
+});
+
+/**
  * 출석 현황 한눈에 — 주차별 추이 + 등급 분포 + 데이터 신뢰도.
  * GET /member-care/attendance-overview?weeks=8
  * 키오스크 설치 직후에는 기간이 짧다. first_date·day_span 을 화면에서 밝혀 오독을 막는다.
