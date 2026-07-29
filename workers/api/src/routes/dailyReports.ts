@@ -2294,6 +2294,12 @@ const configSchema = z.object({
   channel_kakao: z.boolean().nullish(),
   onboarding_steps: z.array(z.number().int().min(0).max(365)).max(12).nullish(),
   message_tone: z.enum(["normal", "heart"]).nullish(),
+  // 주간 안부 — 한 주 미방문 회원에게 응원 문자 1통(4개 문구 중 무작위)
+  weekly_care_enabled: z.boolean().nullish(),
+  weekly_care_dow: z.number().int().min(0).max(6).nullish(),
+  weekly_care_gap_days: z.number().int().min(7).max(90).nullish(),
+  weekly_care_max_sends: z.number().int().min(1).max(10).nullish(),
+  weekly_care_coach: z.string().trim().max(20).nullish(),
 });
 dailyReportsRoutes.put("/member-care/automation-config", requireJwt, async (c) => {
   const parsed = configSchema.safeParse(await c.req.json().catch(() => null));
