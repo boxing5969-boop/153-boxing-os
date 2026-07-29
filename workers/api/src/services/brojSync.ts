@@ -168,6 +168,23 @@ export async function syncAttendance(
   return { ok: true, branch_id: branchId, from, to, pages, fetched, written };
 }
 
+/**
+ * 출석 기록의 이용권 정보로 회원 명부 보강
+ *  ① 잔여 횟수(횟수제) ② 비어 있던 만료일 채우기
+ */
+export async function refreshTicketStats(
+  db: SupabaseClient,
+  branchId?: string | null,
+): Promise<{ sessions: number; expiry: number }> {
+  const { data, error } = await db.rpc("broj_refresh_ticket_stats", { _branch_id: branchId ?? null });
+  if (error) throw new Error(error.message);
+  const rows = (data as { branch_id: string; sessions_filled: number; expiry_filled: number }[] | null) ?? [];
+  return {
+    sessions: rows.reduce((a, r) => a + (r.sessions_filled ?? 0), 0),
+    expiry: rows.reduce((a, r) => a + (r.expiry_filled ?? 0), 0),
+  };
+}
+
 /** 출석 이력 → 회원별 방문 빈도(7/30/90일) + 마지막 방문일 갱신 */
 export async function refreshAttendanceStats(
   db: SupabaseClient,

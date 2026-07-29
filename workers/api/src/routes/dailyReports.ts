@@ -2645,6 +2645,27 @@ dailyReportsRoutes.get("/member-care/message-effect", requireJwt, async (c) => {
   return ok(c, { days, rows: data ?? [], attendance_count: count ?? 0 });
 });
 
+/**
+ * 첫 4주 출석 → 지금까지 유지되고 있는가 (온보딩 효과의 실측 근거).
+ * GET /member-care/first4w
+ * 출석 기록이 없으면 판정 불가 → attendance_count 를 함께 돌려준다.
+ */
+dailyReportsRoutes.get("/member-care/first4w", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data, error } = await db.rpc("first4w_retention", { _branch_id: branchId });
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  const { count } = await db.from("attendance_logs")
+    .select("id", { count: "exact", head: true }).eq("branch_id", branchId);
+
+  return ok(c, { rows: data ?? [], attendance_count: count ?? 0 });
+});
+
 // 8) 본사 회원관리 예외 관제 (H)
 dailyReportsRoutes.get("/hq-member-care", requireJwt, async (c) => {
   const date = c.req.query("date") ?? kstDateStr();

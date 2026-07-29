@@ -12,7 +12,7 @@ import { fail, ok } from "../lib/responses";
 import { requireJwt } from "../middleware/jwt";
 import { getServiceClient } from "../lib/supabase";
 import { brojStatus, brojGroups, brojMembers, hasBrojKey, BrojError } from "../services/brojClient";
-import { syncSales, syncMembers, fillPaymentAmounts, syncAttendance, refreshAttendanceStats } from "../services/brojSync";
+import { syncSales, syncMembers, fillPaymentAmounts, syncAttendance, refreshAttendanceStats, refreshTicketStats } from "../services/brojSync";
 // 날짜/결산월 계산과 이력 기록은 자동 동기화(크론)와 같은 구현을 공유한다 — 수동·자동 결과가 어긋나면 안 된다.
 import { kstToday, kstMonthStart, fiscalRange, logSyncRun } from "../services/brojAutoSync";
 
@@ -301,8 +301,15 @@ brojRoutes.post("/sync/attendance", requireJwt, async (c) => {
   } catch (e) {
     console.error("[broj] refreshAttendanceStats", e);
   }
+  // 출석 기록에 딸려온 이용권 정보로 잔여 횟수·비어 있던 만료일도 함께 보완
+  let tickets = { sessions: 0, expiry: 0 };
+  try {
+    tickets = await refreshTicketStats(db, body.branch_id ?? null);
+  } catch (e) {
+    console.error("[broj] refreshTicketStats", e);
+  }
 
-  return ok(c, { from, to, branches, members_updated: updated });
+  return ok(c, { from, to, branches, members_updated: updated, sessions_filled: tickets.sessions, expiry_filled: tickets.expiry });
 });
 
 /**
