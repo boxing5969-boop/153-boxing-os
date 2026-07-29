@@ -2675,6 +2675,82 @@ dailyReportsRoutes.get("/member-care/first4w", requireJwt, async (c) => {
 });
 
 /**
+ * 자동화 종류별 상세 — 무엇이 몇 건 나갔고, 실패는 무엇이며, 최근에 누구에게 갔는지.
+ * GET /member-care/automation-detail?branch_id=&kind=onboarding|renewal|pace_drop|weekly_care&days=30
+ */
+dailyReportsRoutes.get("/member-care/automation-detail", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const kind = c.req.query("kind") ?? "";
+  if (!kind) return fail(c, "INVALID_REQUEST", "kind 필수", 400);
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 30) || 30, 7), 180);
+  const since = new Date(Date.now() + 9 * 3600 * 1000 - days * 86400000).toISOString().slice(0, 10);
+
+  const { data, error } = await db
+    .from("automation_dispatch_log")
+    .select("member_name, phone, step, channel, status, error, dispatched_on, created_at")
+    .eq("branch_id", branchId).eq("kind", kind)
+    .gte("dispatched_on", since)
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+
+  type Row = {
+    member_name: string | null; phone: string | null; step: number | null;
+    channel: string | null; status: string | null; error: string | null;
+    dispatched_on: string | null; created_at: string;
+  };
+  const rows = (data as Row[] | null) ?? [];
+
+  const mask = (p: string | null): string => {
+    const d = (p ?? "").replace(/\D/g, "");
+    return d.length < 7 ? "" : `${d.slice(0, 3)}-****-${d.slice(-4)}`;
+  };
+
+  // 요약 · 단계별 · 일자별 · 실패 사유별
+  const summary = { sent: 0, failed: 0, pending: 0 };
+  const byStep = new Map<number, { sent: number; failed: number }>();
+  const byDay = new Map<string, { sent: number; failed: number }>();
+  const errors = new Map<string, number>();
+  for (const r of rows) {
+    const st = r.status ?? "pending";
+    if (st === "sent") summary.sent++;
+    else if (st === "failed") summary.failed++;
+    else summary.pending++;
+
+    const k = r.step ?? -1;
+    const s = byStep.get(k) ?? { sent: 0, failed: 0 };
+    if (st === "sent") s.sent++; else if (st === "failed") s.failed++;
+    byStep.set(k, s);
+
+    const d = r.dispatched_on ?? r.created_at.slice(0, 10);
+    const dd = byDay.get(d) ?? { sent: 0, failed: 0 };
+    if (st === "sent") dd.sent++; else if (st === "failed") dd.failed++;
+    byDay.set(d, dd);
+
+    if (st === "failed" && r.error) {
+      const key = r.error.slice(0, 80);
+      errors.set(key, (errors.get(key) ?? 0) + 1);
+    }
+  }
+
+  return ok(c, {
+    kind, days, total: rows.length, summary,
+    by_step: [...byStep.entries()].map(([step, v]) => ({ step, ...v })).sort((a, b) => a.step - b.step),
+    by_day: [...byDay.entries()].map(([day, v]) => ({ day, ...v })).sort((a, b) => a.day.localeCompare(b.day)),
+    errors: [...errors.entries()].map(([message, count]) => ({ message, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+    recent: rows.slice(0, 40).map((r) => ({
+      member_name: r.member_name, phone: mask(r.phone), step: r.step,
+      channel: r.channel, status: r.status, error: r.error, dispatched_on: r.dispatched_on,
+    })),
+  });
+});
+
+/**
  * 지점 와이파이 안내 — 회원용 QR/포스터에 인쇄되는 값.
  * ⚠️ 시스템 자격증명이 아니라 벽에 붙는 안내문이다. 화면에서 게스트망 사용을 권고한다.
  */
