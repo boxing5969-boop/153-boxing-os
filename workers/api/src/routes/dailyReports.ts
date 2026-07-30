@@ -2303,7 +2303,11 @@ const configSchema = z.object({
 });
 dailyReportsRoutes.put("/member-care/automation-config", requireJwt, async (c) => {
   const parsed = configSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return fail(c, "INVALID_REQUEST", "설정 형식 오류", 400);
+  // 어떤 필드가 왜 거부됐는지 화면에 보여준다 — '설정 형식 오류' 한 줄로는 원인 추적이 불가능했다
+  if (!parsed.success) {
+    const i = parsed.error.issues[0];
+    return fail(c, "INVALID_REQUEST", `설정 형식 오류: ${i ? `${i.path.join(".")} — ${i.message}` : "알 수 없는 필드"}`, 400);
+  }
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
