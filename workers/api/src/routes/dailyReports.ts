@@ -2953,6 +2953,12 @@ dailyReportsRoutes.post("/quest/care-complete", requireJwt, async (c) => {
   if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 처리할 수 없습니다", 403);
   const today = parsed.data.date ?? kstDateStr();
 
+  // 하루 적립 상한 — quest_id를 임의 생성해 점수판을 부풀리는 것 방지(정상 사용은 하루 15~40건 수준)
+  const { count: doneToday } = await db.from("reward_events").select("id", { count: "exact", head: true })
+    .eq("branch_id", branch_id).eq("event_date", today).eq("user_id", profile.id)
+    .not("metadata->>care_quest_id", "is", null);
+  if ((doneToday ?? 0) >= 60) return ok(c, { awarded: false, xp: 0 });
+
   // 멱등: 같은 지점·같은 날·같은 케어 퀘스트는 1회만
   const { data: ex } = await db.from("reward_events").select("id")
     .eq("branch_id", branch_id).eq("event_date", today)
@@ -2999,10 +3005,36 @@ dailyReportsRoutes.post("/sms/send", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 발송할 수 없습니다", 403);
-  // 광고성 또는 카카오(브랜드메시지=광고)는 발송 가능시간(한국 08~20시)에만 허용
-  if (category === "ad" || channel === "kakao") {
+  // ── 수신거부·연락금지 차단 — 자동발송(automationRunner)과 동일 기준. 사람이 누르는 발송도 예외가 아니다.
+  //    category는 클라이언트 선언값이라 본문의 '(광고)'로 서버가 재분류한다.
+  const nphone = phone.replace(/\D/g, "");
+  const isAd = category === "ad" || content.includes("(광고)");
+  const dig = (v: string | null | undefined) => (v ?? "").replace(/\D/g, "");
+  try {
+    const [stop, inputs] = await Promise.all([
+      db.from("fc_send_state").select("normalized_phone").eq("branch_id", branch_id).eq("status", "stopped").limit(5000),
+      db.from("fc_member_inputs").select("normalized_phone, opt_out, do_not_contact")
+        .eq("branch_id", branch_id).or("opt_out.eq.true,do_not_contact.eq.true").limit(5000),
+    ]);
+    const stopped = new Set(((stop.data ?? []) as { normalized_phone: string | null }[]).map((r) => dig(r.normalized_phone)).filter(Boolean));
+    let optOut = false, dnc = false;
+    for (const r of (inputs.data ?? []) as { normalized_phone: string | null; opt_out: boolean | null; do_not_contact: boolean | null }[]) {
+      if (dig(r.normalized_phone) !== nphone) continue;
+      if (r.opt_out) optOut = true;
+      if (r.do_not_contact) dnc = true;
+    }
+    if (stopped.has(nphone) || dnc) return ok(c, { success: false, error: "연락 금지(수신거부) 회원입니다. 발송이 차단되었습니다." });
+    if (isAd && optOut) return ok(c, { success: false, error: "광고 수신을 거부한 회원입니다. 광고성 문자는 발송할 수 없습니다." });
+  } catch { /* 차단셋 조회 실패 시 정보성 발송은 막지 않는다 */ }
+  // 광고 SMS는 무료수신거부 080 번호 필수(정보통신망법). 카카오 브랜드메시지는 채널 차원 수신동의라 080 불필요.
+  if (isAd && channel !== "kakao" && !/080[-\s)]?\d{3,4}[-\s]?\d{4}/.test(content)) {
+    return ok(c, { success: false, error: "광고성 문자에는 무료수신거부 080 번호가 필요합니다. 문구 끝에 '무료수신거부 080-xxx-xxxx'를 넣어주세요." });
+  }
+  // 발송 가능시간 — 광고 SMS 08~21시 · 카카오 08~20시(채널 규정)
+  if (isAd || channel === "kakao") {
     const kstHour = new Date(Date.now() + 9 * 3600 * 1000).getUTCHours();
-    if (kstHour < 8 || kstHour >= 21) return ok(c, { success: false, error: "광고성·카카오 메시지는 오전 8시~오후 9시에만 발송할 수 있습니다." });
+    const until = channel === "kakao" ? 20 : 21;
+    if (kstHour < 8 || kstHour >= until) return ok(c, { success: false, error: `광고성 메시지는 오전 8시~오후 ${until - 12}시에만 발송할 수 있습니다.` });
   }
   // 카카오 = 브랜드메시지(광고 수신동의 채널친구 대상, 080 불필요), 그 외 = SMS
   const r = channel === "kakao"
