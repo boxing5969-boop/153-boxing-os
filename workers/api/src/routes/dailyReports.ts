@@ -1386,6 +1386,92 @@ const WEEKLY_GOAL: Record<string, number> = {
   super_admin: 150,
 };
 
+// ── 직원 점수판 상세(상황판) — 일별 추이·카테고리 분해·전기간 대비·목표 달성률을 한 번에 ──
+//    reward_events 원본을 현재+직전 동일기간으로 읽어 워커에서 집계한다(직원 수십 명 규모라 가볍다).
+dailyReportsRoutes.get("/staff-scores/detail", requireJwt, async (c) => {
+  const period = c.req.query("period") === "week" ? "week" : "month";
+  const qBranch = c.req.query("branch_id") || null;
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const isHq = HQ_ROLES.has(profile.role);
+  if (!isHq && !["branch_owner", "branch_manager"].includes(profile.role)) return fail(c, "FORBIDDEN", "점수판은 본사·관장만 볼 수 있습니다", 403);
+  const scopeBranch = isHq ? qBranch : profile.branch_id;
+  if (!isHq && qBranch && qBranch !== profile.branch_id) return fail(c, "FORBIDDEN", "다른 지점은 볼 수 없습니다", 403);
+
+  const to = kstDateStr();
+  const from = period === "week" ? addDays(to, -6) : `${to.slice(0, 7)}-01`;
+  const spanDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+  const prevTo = addDays(from, -1);
+  const prevFrom = addDays(prevTo, -(spanDays - 1));
+
+  let q = db.from("reward_events")
+    .select("user_id, branch_id, event_date, xp_bonus, title, metadata")
+    .not("user_id", "is", null)
+    .gte("event_date", prevFrom).lte("event_date", to)
+    .limit(20000);
+  if (scopeBranch) q = q.eq("branch_id", scopeBranch);
+  const { data, error } = await q;
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  type Ev = { user_id: string; branch_id: string; event_date: string; xp_bonus: number | null; title: string | null; metadata: Record<string, unknown> | null };
+  const evs = (data as Ev[] | null) ?? [];
+
+  // 카테고리: 케어 완료는 metadata.category(member_care/renewal/...) — 없으면 제목으로(보너스/운영미션)
+  const catOf = (e: Ev): string => {
+    const m = (e.metadata?.["category"] as string | undefined) ?? "";
+    if (m) return m;
+    if ((e.title ?? "").includes("보너스")) return "bonus";
+    return "mission";
+  };
+
+  const days: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
+  const dayIdx = new Map(days.map((d, i) => [d, i] as const));
+
+  type Agg = { xp: number; prev_xp: number; activities: number; dset: Set<string>; last: string | null; byDay: number[]; byCat: Record<string, number>; branch_id: string };
+  const byUser = new Map<string, Agg>();
+  for (const e of evs) {
+    let a = byUser.get(e.user_id);
+    if (!a) { a = { xp: 0, prev_xp: 0, activities: 0, dset: new Set(), last: null, byDay: days.map(() => 0), byCat: {}, branch_id: e.branch_id }; byUser.set(e.user_id, a); }
+    const xp = Number(e.xp_bonus ?? 0);
+    if (e.event_date >= from) {
+      a.xp += xp; a.activities += 1; a.dset.add(e.event_date);
+      if (!a.last || e.event_date > a.last) a.last = e.event_date;
+      const i = dayIdx.get(e.event_date); if (i != null) a.byDay[i] = (a.byDay[i] ?? 0) + xp;
+      const cat = catOf(e); a.byCat[cat] = (a.byCat[cat] ?? 0) + xp;
+      a.branch_id = e.branch_id;
+    } else {
+      a.prev_xp += xp;
+    }
+  }
+
+  const ids = Array.from(byUser.keys());
+  const profMap = new Map<string, { name: string | null; role: string }>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data: ps } = await db.from("profiles").select("id, name, role").in("id", ids.slice(i, i + 100));
+    for (const pr of (ps as { id: string; name: string | null; role: string }[] | null) ?? []) profMap.set(pr.id, { name: pr.name, role: pr.role });
+  }
+  const { data: brs } = await db.from("branches").select("id, name");
+  const brName = new Map(((brs as { id: string; name: string | null }[] | null) ?? []).map((b) => [b.id, b.name] as const));
+
+  const staff = ids.map((uid) => {
+    const a = byUser.get(uid)!;
+    const pr = profMap.get(uid);
+    const role = pr?.role ?? "coach";
+    // 목표 = 역할별 주간 목표(실측 평균 기반)를 기간 길이에 비례 환산
+    const goal = Math.max(1, Math.round((WEEKLY_GOAL[role] ?? 150) * (spanDays / 7)));
+    return {
+      user_id: uid, name: pr?.name ?? null, role,
+      branch_id: a.branch_id, branch_name: brName.get(a.branch_id) ?? null,
+      xp: a.xp, prev_xp: a.prev_xp, activities: a.activities, active_days: a.dset.size,
+      last_active: a.last, goal, by_day: a.byDay, by_cat: a.byCat,
+    };
+  }).filter((r) => r.xp > 0 || r.prev_xp > 0);
+  staff.sort((x, y) => y.xp - x.xp || y.activities - x.activities);
+
+  return ok(c, { period, from, to, days, staff });
+});
+
 // ── 내 점수 (코치·지점장 본인용) ──
 // 점수판(/staff-scores)은 본사·관장 전용이라 코치가 자기 점수를 볼 수 없었다.
 // 여기서는 **본인 수치만** 돌려준다(타인 이름·점수 미노출). 순위는 같은 지점 내 익명 등수만.
