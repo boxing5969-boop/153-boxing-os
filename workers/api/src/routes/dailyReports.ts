@@ -2284,8 +2284,8 @@ const configSchema = z.object({
   medium_threshold: z.number().nullish(),
   max_ad_contacts_30d: z.number().int().nullish(),
   min_contact_gap_days: z.number().int().nullish(),
-  send_hour: z.number().int().nullish(),
-  send_minute: z.number().int().nullish(),
+  send_hour: z.number().int().min(0).max(23).nullish(),
+  send_minute: z.number().int().min(0).max(59).nullish(),
   // 완전 자동화 그룹·채널 설정
   renewal_enabled: z.boolean().nullish(),
   onboarding_enabled: z.boolean().nullish(),
@@ -2686,7 +2686,9 @@ dailyReportsRoutes.get("/member-care/automation-detail", requireJwt, async (c) =
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   const kind = c.req.query("kind") ?? "";
-  if (!kind) return fail(c, "INVALID_REQUEST", "kind 필수", 400);
+  if (!["onboarding", "renewal", "pace_drop", "weekly_care"].includes(kind)) {
+    return fail(c, "INVALID_REQUEST", "kind는 onboarding/renewal/pace_drop/weekly_care 중 하나", 400);
+  }
   const days = Math.min(Math.max(Number(c.req.query("days") ?? 30) || 30, 7), 180);
   const since = new Date(Date.now() + 9 * 3600 * 1000 - days * 86400000).toISOString().slice(0, 10);
 
