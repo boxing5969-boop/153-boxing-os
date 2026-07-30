@@ -33,6 +33,10 @@ const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
 const WRITE_ROLES = new Set(["super_admin", "hq_admin", "branch_owner", "branch_manager"]);
 // 회원관리(퀘스트·문자·태스크완료)는 코치도 자기 지점 한정 허용 — canAccessBranch로 지점 스코프 보장.
 const CARE_ROLES = new Set(["super_admin", "hq_admin", "branch_owner", "branch_manager", "coach"]);
+// 마스터(본사) 계정은 관전자 — 개인 점수를 적립하지 않는다. 지점 XP·활동 감사로그는 그대로 남긴다.
+// reward_events.user_id 를 null 로 넣으면 직원 점수판(개인 집계)에서 자연히 빠진다.
+const scoreUserId = (profile: { id: string; role: string }): string | null =>
+  HQ_ROLES.has(profile.role) ? null : profile.id;
 
 interface ProfileRow {
   id: string;
@@ -1372,7 +1376,9 @@ dailyReportsRoutes.get("/staff-scores", requireJwt, async (c) => {
   const { data, error } = await db.rpc("ops_staff_scores", { _from: from, _to: today, _branch: scopeBranch });
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   type Row = { user_id: string; name: string | null; role: string; branch_id: string; branch_name: string | null; xp: number; activities: number; active_days: number; last_active: string | null };
-  const rows = ((data as Row[] | null) ?? []).map((r) => ({ ...r, xp: Number(r.xp), activities: Number(r.activities), active_days: Number(r.active_days) }));
+  const rows = ((data as Row[] | null) ?? [])
+    .filter((r) => !HQ_ROLES.has(r.role)) // 마스터(본사)는 관전자 — 점수판·순위에서 제외
+    .map((r) => ({ ...r, xp: Number(r.xp), activities: Number(r.activities), active_days: Number(r.active_days) }));
   rows.sort((a, b) => b.xp - a.xp || b.activities - a.activities);
   return ok(c, { period, from, to: today, staff: rows });
 });
@@ -1466,7 +1472,7 @@ dailyReportsRoutes.get("/staff-scores/detail", requireJwt, async (c) => {
       xp: a.xp, prev_xp: a.prev_xp, activities: a.activities, active_days: a.dset.size,
       last_active: a.last, goal, by_day: a.byDay, by_cat: a.byCat,
     };
-  }).filter((r) => r.xp > 0 || r.prev_xp > 0);
+  }).filter((r) => (r.xp > 0 || r.prev_xp > 0) && !HQ_ROLES.has(r.role)); // 마스터(본사)는 관전자 — 과거 누적분 포함 집계·순위 제외
   staff.sort((x, y) => y.xp - x.xp || y.activities - x.activities);
 
   return ok(c, { period, from, to, days, staff });
@@ -1480,6 +1486,7 @@ dailyReportsRoutes.get("/my-score", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (HQ_ROLES.has(profile.role)) return ok(c, { week: null, month: null }); // 마스터는 관전자 — 개인 점수 없음
   if (!profile.branch_id) return ok(c, { week: null, month: null });
 
   const today = kstDateStr();
@@ -1687,7 +1694,7 @@ function taskXp(genKey: string | null, category: string): number {
   }
 }
 interface GameProfileRow { id: string; total_xp: number; current_streak: number; best_streak: number; last_success_date: string | null; hp: number }
-async function awardGameXp(db: SupabaseClient, branchId: string, profileId: string, domain: string, opts: { taskId?: string; title: string; xp: number }) {
+async function awardGameXp(db: SupabaseClient, branchId: string, profileId: string, domain: string, opts: { taskId?: string; title: string; xp: number; exempt?: boolean }) {
   const today = kstDateStr();
   const { data } = await db.from("game_profiles").select("id,total_xp,current_streak,best_streak,last_success_date,hp")
     .eq("branch_id", branchId).eq("domain", domain).eq("owner_type", "branch").is("owner_id", null).maybeSingle();
@@ -1705,7 +1712,7 @@ async function awardGameXp(db: SupabaseClient, branchId: string, profileId: stri
   };
   if (prev) await db.from("game_profiles").update(payload).eq("id", prev.id);
   else await db.from("game_profiles").insert(payload);
-  await db.from("reward_events").insert({ branch_id: branchId, domain, owner_type: "branch", owner_id: null, user_id: profileId, event_date: today, reward_type: "xp", title: "미션 완료", message: opts.title, xp_bonus: opts.xp, related_task_id: opts.taskId ?? null });
+  await db.from("reward_events").insert({ branch_id: branchId, domain, owner_type: "branch", owner_id: null, user_id: opts.exempt ? null : profileId, event_date: today, reward_type: "xp", title: "미션 완료", message: opts.title, xp_bonus: opts.xp, related_task_id: opts.taskId ?? null });
   await db.from("activity_logs").insert({ branch_id: branchId, domain, user_id: profileId, activity_date: today, activity_type: "mission_done", related_type: "operation_task", related_id: opts.taskId ?? null, memo: opts.title });
 }
 dailyReportsRoutes.get("/game-profile", requireJwt, async (c) => {
@@ -1741,7 +1748,7 @@ dailyReportsRoutes.put("/game-profile", requireJwt, async (c) => {
     if (prev.last_success_date == null || prev.last_success_date >= yest) return fail(c, "NO_GAP", "복구할 끊긴 연속 기록이 없습니다", 400);
     if (prev.streak_freezes <= 0) return fail(c, "NO_FREEZE", "남은 복구권이 없습니다", 400);
     await db.from("game_profiles").update({ last_success_date: yest, streak_freezes: prev.streak_freezes - 1, updated_at: new Date().toISOString() }).eq("id", prev.id);
-    await db.from("reward_events").insert({ branch_id, domain, owner_type: "branch", owner_id: null, user_id: profile.id, event_date: today, reward_type: "recovery", title: "스트릭 복구", message: "복구권을 사용해 연속 기록을 지켰습니다.", xp_bonus: 0 });
+    await db.from("reward_events").insert({ branch_id, domain, owner_type: "branch", owner_id: null, user_id: scoreUserId(profile), event_date: today, reward_type: "recovery", title: "스트릭 복구", message: "복구권을 사용해 연속 기록을 지켰습니다.", xp_bonus: 0 });
   }
   const { data: updated } = await db.from("game_profiles").select(sel).eq("branch_id", branch_id).eq("domain", domain).eq("owner_type", "branch").is("owner_id", null).maybeSingle();
   return ok(c, updated ?? {}, "저장되었습니다");
@@ -1804,7 +1811,7 @@ dailyReportsRoutes.put("/tasks/:id", requireJwt, async (c) => {
 
   // 미션 완료 전이 시 XP/스트릭 적립 (중복 방지: 이전 done 아님 + 이번에 done)
   if (patch.status === "done" && !wasDone) {
-    try { await awardGameXp(db, r.branch_id, profile.id, "branch_ops", { taskId: id, title: r.title, xp: taskXp(r.generated_key, r.category) }); }
+    try { await awardGameXp(db, r.branch_id, profile.id, "branch_ops", { taskId: id, title: r.title, xp: taskXp(r.generated_key, r.category), exempt: HQ_ROLES.has(profile.role) }); }
     catch { /* 보상 적립 실패는 완료 처리를 막지 않음 */ }
   }
   return ok(c, { id }, "저장되었습니다");
@@ -3017,7 +3024,7 @@ dailyReportsRoutes.post("/quest/bonus", requireJwt, async (c) => {
   const newXp = (cur?.total_xp ?? 0) + xp;
   if (cur) await db.from("game_profiles").update({ total_xp: newXp, level: gpLevel(newXp), updated_at: new Date().toISOString() }).eq("id", cur.id);
   else await db.from("game_profiles").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, total_xp: newXp, level: gpLevel(newXp) });
-  await db.from("reward_events").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, user_id: profile.id, event_date: today, reward_type: "quest_bonus", title: QUEST_BONUS_TITLE[bonus_key], message: `${bonus_key} +${xp}XP`, xp_bonus: xp, metadata: { bonus_key } });
+  await db.from("reward_events").insert({ branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null, user_id: scoreUserId(profile), event_date: today, reward_type: "quest_bonus", title: QUEST_BONUS_TITLE[bonus_key], message: `${bonus_key} +${xp}XP`, xp_bonus: xp, metadata: { bonus_key } });
   return ok(c, { awarded: true, xp });
 });
 
@@ -3066,7 +3073,7 @@ dailyReportsRoutes.post("/quest/care-complete", requireJwt, async (c) => {
 
   await db.from("reward_events").insert({
     branch_id, domain: "branch_ops", owner_type: "branch", owner_id: null,
-    user_id: profile.id, event_date: today, reward_type: "xp",
+    user_id: scoreUserId(profile), event_date: today, reward_type: "xp",
     title: "회원 케어", message: title, xp_bonus: xp,
     metadata: { care_quest_id: quest_id, category },
   });
