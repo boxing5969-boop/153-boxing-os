@@ -375,6 +375,7 @@ brojRoutes.get("/sync-runs", requireJwt, async (c) => {
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (profile.role === "coach") return fail(c, "FORBIDDEN", "매출 정보는 지점장·본사만 볼 수 있습니다", 403);   // runs에 sales_total 포함
 
   const limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 100);
   let q = db

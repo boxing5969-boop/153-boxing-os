@@ -44,6 +44,23 @@ interface ProfileRow {
   branch_id: string | null;
 }
 
+// 매출 열람 게이트 — 프론트 lib/roles.ts canSeeRevenue와 동일 정책(본사·관장·지점장 = WRITE_ROLES).
+// 코치는 화면에서 숨기는 게 아니라 서버가 매출 데이터를 아예 주지 않는다:
+// 순수 매출 API는 403, 코치 업무에 걸린 혼용 API(/daily·/digest)는 금액 필드만 비워서 준다.
+const REVENUE_MSG = "매출 정보는 지점장·본사만 볼 수 있습니다";
+const canSeeMoney = (p: ProfileRow): boolean => WRITE_ROLES.has(p.role);
+// 잠복 방어: 과거(MRE v1) 태스크 metadata에 남아있을 수 있는 예상 매출액을 코치 응답에서 걷어낸다.
+const stripTaskMoney = (rows: unknown[] | null | undefined): unknown[] =>
+  (rows ?? []).map((t) => {
+    const r = t as { metadata?: Record<string, unknown> | null };
+    if (r?.metadata && "expected_revenue_amount" in r.metadata) {
+      const md = { ...r.metadata };
+      delete md.expected_revenue_amount;
+      return { ...r, metadata: md };
+    }
+    return t;
+  });
+
 async function getProfile(db: SupabaseClient, authUserId: string): Promise<ProfileRow | null> {
   const { data } = await db
     .from("profiles")
@@ -151,8 +168,19 @@ dailyReportsRoutes.get("/daily", requireJwt, async (c) => {
     computeSummary(db, branchId, date),
   ]);
 
+  // 코치는 매출 필드를 아예 받지 않는다 — 리포트 탭의 체크리스트·회원 지표만 남긴다.
+  const rep = (report ?? null) as Record<string, unknown> | null;
+  if (rep && !canSeeMoney(profile)) {
+    for (const k of ["revenue_pt", "revenue_membership", "revenue_goods", "revenue_dan", "refund_amount"]) rep[k] = 0;
+  }
+  if (!canSeeMoney(profile)) {
+    summary.day_total = 0; summary.day_refund = 0; summary.day_net = 0;
+    summary.month_cumulative = 0; summary.refund_total = 0; summary.net_cumulative = 0;
+    summary.target_amount = 0; summary.achievement = null; summary.gap = 0;
+  }
+
   return ok(c, {
-    report: report ?? null,
+    report: rep,
     checklist: checklist ?? null,
     summary,
     editable: isWithinEditWindow(date) && WRITE_ROLES.has(profile.role) && canAccessBranch(profile, branchId),
@@ -297,6 +325,7 @@ dailyReportsRoutes.get("/trend", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
 
   const mm = String(month).padStart(2, "0");
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -327,6 +356,7 @@ dailyReportsRoutes.get("/month-summary", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
 
   const mm = String(month).padStart(2, "0");
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -425,6 +455,7 @@ dailyReportsRoutes.get("/period-stats", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
 
   // 지점 결산 시작일(기본 1일 = 달력월, 역삼 등은 13일)
   const { data: brRow } = await db.from("branches").select("fiscal_start_day").eq("id", branchId).maybeSingle();
@@ -622,6 +653,7 @@ dailyReportsRoutes.get("/sales", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
   const { data } = await db.from("sales_entries").select("*").eq("branch_id", branchId).eq("sale_date", date).order("created_at", { ascending: false });
   return ok(c, { sales: (data as SalesRow[] | null) ?? [] });
 });
@@ -670,6 +702,7 @@ dailyReportsRoutes.get("/sales-summary", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
   const [{ data: sRaw }, { data: pRaw }] = await Promise.all([
     db.from("sales_entries").select("category,payment_method,amount").eq("branch_id", branchId).eq("sale_date", date),
     db.from("pt_passes").select("payment_method,amount").eq("branch_id", branchId).eq("reg_date", date),
@@ -697,6 +730,7 @@ dailyReportsRoutes.get("/member-lookup", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 결제금액 포함 — 코치 차단
 
   // PostgREST or() 필터 안전: 구분자·와일드카드 제거
   const q = qRaw.replace(/[,()*%"\\]/g, "").trim();
@@ -732,6 +766,7 @@ dailyReportsRoutes.get("/pt", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
   const { data } = await db.from("pt_passes").select("*").eq("branch_id", branchId).order("created_at", { ascending: false });
   return ok(c, { passes: (data as PtRow[] | null) ?? [] });
 });
@@ -861,6 +896,7 @@ dailyReportsRoutes.get("/refunds", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 환불 금액·카드정보 포함
   const { data } = await db
     .from("refund_requests")
     .select("*")
@@ -1251,10 +1287,12 @@ dailyReportsRoutes.get("/digest", requireJwt, async (c) => {
   const gradeKo = score?.grade === "danger" ? "위험" : score?.grade === "watch" ? "주의" : score?.grade === "safe" ? "안전" : "-";
   const wonFmt = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
+  // 코치에게는 순매출 줄과 금액 필드를 아예 주지 않는다 (요약 텍스트가 곧 발송문이 되기도 한다)
+  const showMoney = canSeeMoney(profile);
   const lines = [
     `[${branchName}] ${date} 일일 요약`,
     `운영점수 ${score?.total_score ?? "-"}점 (${gradeKo})`,
-    `순매출 ${wonFmt(summary.day_net)}${ach != null ? ` · 월목표 ${ach}%` : ""}`,
+    ...(showMoney ? [`순매출 ${wonFmt(summary.day_net)}${ach != null ? ` · 월목표 ${ach}%` : ""}`] : []),
     `신규 ${report?.new_signups ?? 0} · 재등록 ${report?.re_signups ?? 0} · 문의 ${report?.inquiry_count ?? 0}`,
     `업무완료 ${done}/${tasks.length}${mustDo > 0 ? ` · 필수 미완 ${mustDo}` : ""}`,
   ];
@@ -1267,7 +1305,7 @@ dailyReportsRoutes.get("/digest", requireJwt, async (c) => {
   return ok(c, {
     date, branch_name: branchName,
     total_score: score?.total_score ?? null, grade: score?.grade ?? null,
-    day_net: summary.day_net, month_achievement: ach,
+    day_net: showMoney ? summary.day_net : 0, month_achievement: showMoney ? ach : null,
     new_signups: report?.new_signups ?? 0, re_signups: report?.re_signups ?? 0, inquiry_count: report?.inquiry_count ?? 0,
     tasks_done: done, tasks_total: tasks.length, must_do_open: mustDo,
     danger_alerts: danger, refund_pending: refundPending, issue_open: issueOpen,
@@ -1660,7 +1698,7 @@ dailyReportsRoutes.get("/ops/today", requireJwt, async (c) => {
     db.from("operation_alerts").select("*").eq("branch_id", branchId).eq("alert_date", date).neq("status", "dismissed").order("severity"),
     db.from("branch_daily_scores").select("*").eq("branch_id", branchId).eq("score_date", date).maybeSingle(),
   ]);
-  return ok(c, { date, tasks: tasks.data ?? [], alerts: alerts.data ?? [], score: score.data ?? null });
+  return ok(c, { date, tasks: canSeeMoney(profile) ? (tasks.data ?? []) : stripTaskMoney(tasks.data as unknown[] | null), alerts: alerts.data ?? [], score: score.data ?? null });
 });
 
 dailyReportsRoutes.get("/tasks", requireJwt, async (c) => {
@@ -1672,7 +1710,7 @@ dailyReportsRoutes.get("/tasks", requireJwt, async (c) => {
   if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   const { data } = await db.from("operation_tasks").select("*").eq("branch_id", branchId).eq("task_date", date).order("created_at");
-  return ok(c, { tasks: data ?? [] });
+  return ok(c, { tasks: canSeeMoney(profile) ? (data ?? []) : stripTaskMoney(data as unknown[] | null) });
 });
 
 // ── 게임 프로필(미션 영속): XP/레벨/스트릭 ───────────────────
@@ -2157,6 +2195,7 @@ dailyReportsRoutes.get("/member-care/v5", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
 
   const sel = "id,member_name,phone,vip_tier,winback_cohort,send_gate,v5";
   const fetchV5Rows = async (): Promise<V5QueueRow[]> => {
@@ -2231,6 +2270,7 @@ dailyReportsRoutes.get("/member-care/v6", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
 
   const sel = "id,member_name,phone,normalized_phone,vip_tier,send_gate,v5";
   const fetchRows = async (): Promise<V6ProfileRow[]> => {
@@ -2315,6 +2355,7 @@ dailyReportsRoutes.get("/member-care/products", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 상품 정가 포함
   const { data } = await db.from("fc_products").select("*").eq("branch_id", branchId).order("sort", { ascending: true });
   return ok(c, { products: data ?? [] });
 });
@@ -2492,6 +2533,7 @@ dailyReportsRoutes.get("/member-care/inputs", requireJwt, async (c) => {
   const phone = c.req.query("phone") ?? "";
   if (!branchId || !phone) return fail(c, "INVALID_REQUEST", "branch_id·phone 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 회원별 매출 입력 원장
   const { data } = await db.from("fc_member_inputs").select("*").eq("branch_id", branchId).eq("normalized_phone", phone).maybeSingle();
   return ok(c, { input: data ?? null });
 });
@@ -2533,6 +2575,7 @@ dailyReportsRoutes.get("/member-care/dashboard", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 기대매출·LTV 포함
   const date = c.req.query("date") ?? kstDateStr();
 
   const { count } = await db.from("member_care_profiles").select("id", { count: "exact", head: true }).eq("branch_id", branchId);
@@ -2568,6 +2611,7 @@ dailyReportsRoutes.get("/member-care/members", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 프로필에 LTV·기대매출 포함
 
   let q = db.from("member_care_profiles").select("*", { count: "exact" }).eq("branch_id", branchId);
   const bucket = c.req.query("bucket"); if (bucket) q = q.eq("care_bucket", bucket);
@@ -2596,6 +2640,7 @@ dailyReportsRoutes.get("/member-care/members/:id", requireJwt, async (c) => {
   if (!prof) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
   const p = prof as { branch_id: string; member_snapshot_id: string | null; member_name: string };
   if (!canAccessBranch(profile, p.branch_id)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 회원 360: 결제·매출 이력 포함
 
   const [snap, evts, opps, sales, pts, msgs] = await Promise.all([
     p.member_snapshot_id ? db.from("member_snapshots").select("*").eq("id", p.member_snapshot_id).maybeSingle() : Promise.resolve({ data: null }),
@@ -2717,6 +2762,7 @@ dailyReportsRoutes.get("/member-care/kpi", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
   const month = c.req.query("month") ?? kstDateStr().slice(0, 7);
   const kpi = await computeMemberCareKpi(db, branchId, month);
   return ok(c, kpi);
@@ -2925,6 +2971,7 @@ dailyReportsRoutes.get("/member-care/paid-totals", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 회원별 누적 결제액 — 코치의 VIP 화면은 출석 점수로 폴백
 
   const { data, error } = await db.rpc("ops_member_paid_totals", { _branch_id: branchId });
   if (error) return fail(c, "DB_ERROR", error.message, 500);
