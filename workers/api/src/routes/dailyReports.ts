@@ -750,7 +750,25 @@ dailyReportsRoutes.get("/member-lookup", requireJwt, async (c) => {
     delete (out as { raw_payload?: unknown }).raw_payload;
     return out;
   });
-  return ok(c, { members });
+
+  // 재등록 정확도: 스냅샷의 시작~종료는 재등록으로 '누적'된 전체 기간일 수 있다.
+  // 환불은 마지막 계약이 기준이므로, 매출 원장(sales_entries)의 최근 수강권 결제 이력을 함께 준다.
+  const names = Array.from(new Set(members.map((m) => (m as { member_name?: string }).member_name).filter((n): n is string => !!n)));
+  const payMap = new Map<string, { sale_date: string; product: string; amount: number; is_new: boolean }[]>();
+  if (names.length) {
+    const { data: pays } = await db.from("sales_entries")
+      .select("member_name, sale_date, product, amount, is_new")
+      .eq("branch_id", branchId).eq("category", "수강권")
+      .in("member_name", names)
+      .order("sale_date", { ascending: false })
+      .limit(200);
+    for (const pr of (pays as { member_name: string; sale_date: string; product: string; amount: number; is_new: boolean }[] | null) ?? []) {
+      const arr = payMap.get(pr.member_name) ?? [];
+      if (arr.length < 5) { arr.push({ sale_date: pr.sale_date, product: pr.product, amount: pr.amount, is_new: pr.is_new }); payMap.set(pr.member_name, arr); }
+    }
+  }
+  const withPays = members.map((m) => ({ ...m, payments: payMap.get((m as { member_name?: string }).member_name ?? "") ?? [] }));
+  return ok(c, { members: withPays });
 });
 
 // ── 복싱 PT 회차 관리 ────────────────────────────────────────
