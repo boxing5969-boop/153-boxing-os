@@ -1168,6 +1168,99 @@ dailyReportsRoutes.get("/morning/members", requireJwt, async (c) => {
   return ok(c, { members, today_count: members.filter((m) => m.today).length, window: "오전 6시~9시대" });
 });
 
+// 새벽반 데이터 센터 — 오전 시간대만 떼어낸 통계.
+// 지점 전체 지표(회원수·매출)와 섞으면 새벽반 코치가 자기 반을 판단할 수 없다. 오전 출입만으로 다시 계산한다.
+dailyReportsRoutes.get("/morning/stats", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 56) || 56, 28), 120);
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+  const { data, error } = await db.from("attendance_logs")
+    .select("member_name, phone, attended_at")
+    .eq("branch_id", branchId).gte("attended_at", sinceIso)
+    .order("attended_at", { ascending: false }).limit(8000);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+
+  const today = kstDateStr();
+  const todayNum = dayNumber(today);
+  type Visit = { day: string; n: number };
+  type Agg = { name: string; phone: string | null; days: Set<string>; last: string; first: string };
+  const byKey = new Map<string, Agg>();
+  const dayCount = new Map<string, number>();     // 날짜별 방문 수(오전만)
+  const hourCount = new Map<number, number>();    // 시간대별 분포
+
+  for (const r of (data as { member_name: string | null; phone: string | null; attended_at: string }[] | null) ?? []) {
+    const kst = new Date(new Date(r.attended_at).getTime() + 9 * 3600 * 1000);
+    const h = kst.getUTCHours();
+    if (h < MORNING_HOURS[0] || h > MORNING_HOURS[1]) continue;
+    const day = kst.toISOString().slice(0, 10);
+    hourCount.set(h, (hourCount.get(h) ?? 0) + 1);
+    dayCount.set(day, (dayCount.get(day) ?? 0) + 1);
+    const key = (r.phone ?? "").replace(/[^\d]/g, "") || `n:${r.member_name ?? ""}`;
+    const a = byKey.get(key);
+    if (!a) byKey.set(key, { name: r.member_name ?? "회원", phone: r.phone, days: new Set([day]), last: day, first: day });
+    else { a.days.add(day); if (day > a.last) a.last = day; if (day < a.first) a.first = day; }
+  }
+
+  // 주차별 추이 (최근 8주, 월요일 시작)
+  const weeks: { week: string; visits: number; members: number }[] = [];
+  {
+    const memberWeek = new Map<string, Set<string>>();
+    for (const [key, a] of byKey) for (const d of a.days) {
+      const wk = weekStart(d);
+      const s = memberWeek.get(wk) ?? new Set<string>(); s.add(key); memberWeek.set(wk, s);
+    }
+    const visitWeek = new Map<string, number>();
+    for (const [d, n] of dayCount) visitWeek.set(weekStart(d), (visitWeek.get(weekStart(d)) ?? 0) + n);
+    const keys = [...new Set([...memberWeek.keys(), ...visitWeek.keys()])].sort();
+    for (const wk of keys.slice(-8)) weeks.push({ week: wk, visits: visitWeek.get(wk) ?? 0, members: memberWeek.get(wk)?.size ?? 0 });
+  }
+
+  // 회원별 등급 — 최근 30일 오전 출석 횟수 기준(주 2회 이상=단골)
+  const since30 = addDays(today, -29);
+  const members = [...byKey.values()].map((a) => {
+    const v30 = [...a.days].filter((d) => d >= since30).length;
+    const gap = todayNum - dayNumber(a.last);
+    const tier = v30 >= 8 ? "단골" : v30 >= 4 ? "꾸준" : v30 >= 1 ? "가끔" : "휴면";
+    return { name: a.name, phone: a.phone, visits_30d: v30, total_visits: a.days.size, last_date: a.last, days_since: gap, tier };
+  }).sort((x, y) => y.visits_30d - x.visits_30d || x.days_since - y.days_since);
+
+  // 출석률 = 최근 30일 중 '수업이 있었던 날' 대비 평균 참석 인원 비율
+  const openDays = [...dayCount.keys()].filter((d) => d >= since30).length;
+  const visits30 = [...dayCount.entries()].filter(([d]) => d >= since30).reduce((s, [, n]) => s + n, 0);
+  const active30 = members.filter((m) => m.visits_30d > 0).length;
+  const avgPerDay = openDays > 0 ? Math.round((visits30 / openDays) * 10) / 10 : 0;
+  const attendRate = active30 > 0 && openDays > 0 ? Math.round((visits30 / (active30 * openDays)) * 100) : 0;
+
+  return ok(c, {
+    window: "오전 6시~9시대", days,
+    summary: {
+      active_30d: active30,
+      today: members.filter((m) => m.last_date === today).length,
+      visits_30d: visits30, open_days_30d: openDays, avg_per_day: avgPerDay, attend_rate: attendRate,
+      regulars: members.filter((m) => m.tier === "단골").length,
+      at_risk: members.filter((m) => m.days_since >= 7 && m.days_since <= 30).length,   // 7일 이상 안 옴(관심 대상)
+      dormant: members.filter((m) => m.days_since > 30).length,
+    },
+    weeks,
+    hours: [...hourCount.entries()].map(([hour, n]) => ({ hour, n })).sort((a, b) => a.hour - b.hour),
+    members: members.slice(0, 200),
+  });
+});
+
+function dayNumber(d: string): number { return Math.floor(Date.parse(`${d}T00:00:00Z`) / 86400000); }
+function weekStart(d: string): string {
+  const t = new Date(`${d}T00:00:00Z`);
+  const dow = (t.getUTCDay() + 6) % 7;               // 월=0
+  t.setUTCDate(t.getUTCDate() - dow);
+  return t.toISOString().slice(0, 10);
+}
+
 // 수업 일지 — 반(shift)별 하루 1장 upsert. 분위기·프로그램·참여 인원 기록.
 dailyReportsRoutes.get("/class-logs", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id");
