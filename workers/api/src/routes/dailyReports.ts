@@ -1128,6 +1128,96 @@ dailyReportsRoutes.post("/members/import", requireJwt, async (c) => {
   return ok(c, { job_id: jobId, total: rows.length, deduped: dedup.length, imported, updated, inserted, failed }, `${imported}명 반영 완료`);
 });
 
+// ── 새벽반(오전) 코치 모드 ─────────────────────────────────────
+// 오전반 회원 = 최근 30일, 오전 6~9시대(KST 06:00~09:59) 출입 기록이 있는 회원.
+// 수업은 7~9시지만 일찍 오는 회원을 놓치지 않게 앞뒤로 여유를 둔다. 돈 필드 없음(코치 안전).
+const MORNING_HOURS: [number, number] = [6, 9];
+dailyReportsRoutes.get("/morning/members", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const since = new Date(Date.now() - 30 * 86400000).toISOString();
+  const { data, error } = await db.from("attendance_logs")
+    .select("member_name, phone, attended_at")
+    .eq("branch_id", branchId)
+    .gte("attended_at", since)
+    .order("attended_at", { ascending: false })
+    .limit(5000);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+
+  const todayKst = kstDateStr();
+  type MAgg = { name: string; phone: string | null; days: Set<string>; last: string; today: boolean };
+  const byKey = new Map<string, MAgg>();
+  for (const r of (data as { member_name: string | null; phone: string | null; attended_at: string }[] | null) ?? []) {
+    const kst = new Date(new Date(r.attended_at).getTime() + 9 * 3600 * 1000);
+    const h = kst.getUTCHours();
+    if (h < MORNING_HOURS[0] || h > MORNING_HOURS[1]) continue;
+    const day = kst.toISOString().slice(0, 10);
+    const key = (r.phone ?? "").replace(/[^\d]/g, "") || `n:${r.member_name ?? ""}`;
+    const a = byKey.get(key);
+    if (!a) byKey.set(key, { name: r.member_name ?? "회원", phone: r.phone, days: new Set([day]), last: day, today: day === todayKst });
+    else { a.days.add(day); if (day > a.last) a.last = day; if (day === todayKst) a.today = true; }
+  }
+  const members = Array.from(byKey.values())
+    .map((a) => ({ name: a.name, phone: a.phone, morning_visits_30d: a.days.size, last_morning_date: a.last, today: a.today }))
+    .sort((x, y) => (y.today ? 1 : 0) - (x.today ? 1 : 0) || y.morning_visits_30d - x.morning_visits_30d);
+  return ok(c, { members, today_count: members.filter((m) => m.today).length, window: "오전 6시~9시대" });
+});
+
+// 수업 일지 — 반(shift)별 하루 1장 upsert. 분위기·프로그램·참여 인원 기록.
+dailyReportsRoutes.get("/class-logs", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const shift = c.req.query("shift") ?? "morning";
+  const limit = Math.min(Number(c.req.query("limit") ?? 14) || 14, 31);
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const { data, error } = await db.from("class_logs").select("*")
+    .eq("branch_id", branchId).eq("shift", shift)
+    .order("class_date", { ascending: false }).limit(limit);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { logs: data ?? [] });
+});
+
+const classLogSchema = z.object({
+  branch_id: z.string().uuid(),
+  class_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  shift: z.string().max(20).default("morning"),
+  program: z.string().max(300).nullish(),
+  mood: z.string().max(30).nullish(),
+  attendance_count: z.number().int().min(0).max(500).nullish(),
+  note: z.string().max(1000).nullish(),
+});
+dailyReportsRoutes.post("/class-logs", requireJwt, async (c) => {
+  const parsed = classLogSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid body", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const { data: nm } = await db.from("profiles").select("name").eq("id", profile.id).maybeSingle();
+  const { error } = await db.from("class_logs").upsert({
+    branch_id: parsed.data.branch_id,
+    class_date: parsed.data.class_date,
+    shift: parsed.data.shift,
+    program: parsed.data.program ?? null,
+    mood: parsed.data.mood ?? null,
+    attendance_count: parsed.data.attendance_count ?? null,
+    note: parsed.data.note ?? null,
+    coach_id: profile.id,
+    coach_name: (nm as { name: string | null } | null)?.name ?? null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "branch_id,class_date,shift" });
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+  return ok(c, { saved: true }, "수업 일지를 저장했습니다");
+});
+
 dailyReportsRoutes.get("/members", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id");
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
