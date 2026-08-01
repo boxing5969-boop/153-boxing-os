@@ -574,6 +574,25 @@ export async function syncMembers(
     }
   }
 
+  // 4.5) 광고 동의 자동 반영 — 브로제이 agree_advertisement=true 를 fc_member_inputs.ad_consent 로 전파.
+  //      이걸 안 하면 동의값이 raw_payload에만 갇혀 카카오(광고) 발송 대상이 0명으로 보인다.
+  //      true만 전파한다: 앱에서 수동으로 준 동의를 브로제이 false가 뒤집지 않게(철회는 opt_out·do_not_contact가 담당).
+  //      opt_out·do_not_contact 등 다른 필드는 건드리지 않는다.
+  const consentSeen = new Set<string>();
+  const consentRows: { branch_id: string; normalized_phone: string; member_name: string; ad_consent: boolean }[] = [];
+  for (const r of rows) {
+    const agreed = (r.raw_payload as { agree_advertisement?: boolean } | null)?.agree_advertisement === true;
+    const np = normPhone(r.phone);
+    if (!agreed || !np || consentSeen.has(np)) continue;
+    consentSeen.add(np);
+    consentRows.push({ branch_id: branchId, normalized_phone: np, member_name: r.member_name, ad_consent: true });
+  }
+  for (let i = 0; i < consentRows.length; i += 500) {
+    const { error } = await db.from("fc_member_inputs")
+      .upsert(consentRows.slice(i, i + 500), { onConflict: "branch_id,normalized_phone" });
+    if (error) throw new Error(`광고 동의 반영 실패: ${error.message}`);
+  }
+
   // 5) 실행 기록
   const { data: job } = await db.from("import_jobs").insert({
     branch_id: branchId, import_type: "broj_members", file_name: `BROJ 회원 ${today}`,
