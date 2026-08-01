@@ -439,6 +439,8 @@ function memberStatus(endDate: string | null, today: string): string {
 
 // ⚠️ normalized_phone 은 DB 생성 컬럼(phone 에서 자동 계산) — insert 에 포함하면 안 된다.
 interface SnapshotRow {
+  /** 기존 회원이면 종전 id를 그대로 재사용 — 전체 교체(delete+insert)에도 id가 바뀌지 않게. 신규는 미지정(DB 기본값) */
+  id?: string;
   branch_id: string;
   member_name: string;
   phone: string | null;
@@ -492,13 +494,21 @@ export async function syncMembers(
     pages += 1;
   } while (cursor && pages < MAX_PAGES);
 
-  // 2) 기존 결제금액 보존용 맵 (전화번호 → payment_amount)
+  // 2) 기존 결제금액 + **기존 id** 보존용 맵 (전화번호 → 값)
+  //    ⚠️ id 보존은 필수다. 아래 4)에서 지점 명부를 전체 교체(delete+insert)하는데,
+  //    id를 새로 만들면 매일 밤 회원 id가 바뀌어 automation_dispatch_log 의 중복방지 키
+  //    (branch, member_id, kind, step, channel)가 무력화된다 → 페이스하락 30일 쿨다운·
+  //    주간안부 14일 간격/3회 상한이 전부 풀려 같은 회원에게 매일 문자가 나갈 수 있다.
+  //    같은 사람(=같은 번호)은 같은 id를 유지해 케어 이력·발송 이력 링크를 지킨다.
   const paidByPhone = new Map<string, number>();
+  const idByPhone = new Map<string, string>();
   {
     const { data } = await db.from("member_snapshots")
-      .select("normalized_phone, payment_amount").eq("branch_id", branchId).not("payment_amount", "is", null);
-    for (const r of (data as { normalized_phone: string | null; payment_amount: number | null }[] | null) ?? []) {
-      if (r.normalized_phone && r.payment_amount != null) paidByPhone.set(r.normalized_phone, r.payment_amount);
+      .select("id, normalized_phone, payment_amount").eq("branch_id", branchId);
+    for (const r of (data as { id: string; normalized_phone: string | null; payment_amount: number | null }[] | null) ?? []) {
+      if (!r.normalized_phone) continue;
+      if (r.payment_amount != null) paidByPhone.set(r.normalized_phone, r.payment_amount);
+      idByPhone.set(r.normalized_phone, r.id);
     }
   }
 
@@ -521,7 +531,9 @@ export async function syncMembers(
     const status = memberStatus(endDate, today);
     const paid = np ? paidByPhone.get(np) ?? null : null;
 
+    const keepId = np ? idByPhone.get(np) : undefined;   // 같은 번호가 이미 있으면 그 id를 유지(발송·케어 이력 링크 보존)
     const row: SnapshotRow = {
+      ...(keepId ? { id: keepId } : {}),
       branch_id: branchId,
       member_name: name,
       phone,
