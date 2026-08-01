@@ -2991,8 +2991,33 @@ dailyReportsRoutes.get("/member-care/automation-detail", requireJwt, async (c) =
     }
   }
 
+  // 중복 발송 감시 — 같은 사람(전화번호)에게 같은 종류·같은 단계가 2번 이상 나갔는지.
+  // ⚠️ 회원 id 가 아니라 **전화번호**로 묶는다: 명부 동기화로 id 가 바뀌어도 같은 사람으로 잡아야
+  //    "중복방지가 풀렸는데 화면은 멀쩡" 같은 사고를 놓치지 않는다.
+  const dupMap = new Map<string, { name: string | null; phone: string; step: number | null; dates: string[] }>();
+  for (const r of rows) {
+    if ((r.status ?? "") === "failed") continue;      // 실패 재시도는 중복이 아니다
+    const digits = (r.phone ?? "").replace(/\D/g, "");
+    if (!digits) continue;
+    const key = `${digits}|${r.step ?? -1}`;
+    const e = dupMap.get(key);
+    const day = r.dispatched_on ?? r.created_at.slice(0, 10);
+    if (e) e.dates.push(day);
+    else dupMap.set(key, { name: r.member_name, phone: digits, step: r.step, dates: [day] });
+  }
+  const duplicates = [...dupMap.values()]
+    .filter((v) => v.dates.length > 1)
+    .map((v) => ({
+      member_name: v.name, phone: mask(v.phone), step: v.step,
+      count: v.dates.length, dates: [...new Set(v.dates)].sort(),
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 30);
+
   return ok(c, {
     kind, days, total: rows.length, summary,
+    duplicates, duplicate_people: duplicates.length,
+    duplicate_sends: duplicates.reduce((s, d) => s + (d.count - 1), 0),   // 원래 1번만 나갔어야 하는 초과분
     by_step: [...byStep.entries()].map(([step, v]) => ({ step, ...v })).sort((a, b) => a.step - b.step),
     by_day: [...byDay.entries()].map(([day, v]) => ({ day, ...v })).sort((a, b) => a.day.localeCompare(b.day)),
     errors: [...errors.entries()].map(([message, count]) => ({ message, count })).sort((a, b) => b.count - a.count).slice(0, 5),
