@@ -25,6 +25,8 @@ import {
   type RawSnapshot, type CareContext, type CareProfileDraft, type MemberCareBucket,
 } from "../lib/memberRevenueEngine";
 import { sendSms, sendFriendTalk } from "../services/smsNotifier";
+import { syncAttendance, refreshAttendanceStats } from "../services/brojSync";
+import { logSyncRun } from "../services/brojAutoSync";
 import { analyzeMemberV5, type V5MemberInput } from "../lib/fcV5Engine";
 
 export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
@@ -1260,6 +1262,357 @@ function weekStart(d: string): string {
   t.setUTCDate(t.getUTCDate() - dow);
   return t.toISOString().slice(0, 10);
 }
+
+// ── 출입 기록(날짜별) ─────────────────────────────────────────
+// "지난 토요일에 누가 몇 시에 왔나"를 우리 DB(attendance_logs)에서 바로 답한다.
+// 브로제이를 그때그때 부르지 않는다 — 느리고, 브로제이가 죽으면 화면도 같이 죽는다.
+// 채우는 쪽은 두 갈래: ① 매시간 최근 3일(runBrojAttendanceSync) ② 매일 새벽 60일 백필(runBrojAttendanceBackfill).
+//
+// 반(shift) 경계는 healthReporter 의 SHIFTS 와 같은 값이다 — 리포트와 화면의 '저녁반'이 달라지면 안 된다.
+const ATT_SHIFTS: { key: string; ko: string; from: number; to: number }[] = [
+  { key: "dawn", ko: "오전", from: 6, to: 9 },
+  { key: "lunch", ko: "점심", from: 10, to: 14 },
+  { key: "afternoon", ko: "오후", from: 15, to: 17 },
+  { key: "evening", ko: "저녁", from: 18, to: 23 },
+];
+/** attended_at(UTC timestamptz) → KST 시/분. 여기를 틀리면 새벽 출입이 전날로 밀린다 */
+function kstHm(iso: string): { hour: number; hm: string; date: string } {
+  const k = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
+  const h = k.getUTCHours();
+  return {
+    hour: h,
+    hm: `${String(h).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}`,
+    date: k.toISOString().slice(0, 10),
+  };
+}
+const shiftKoOf = (h: number): string => ATT_SHIFTS.find((s) => h >= s.from && h <= s.to)?.ko ?? "기타";
+
+// 기간 내 날짜별 방문 수 — 달력에 찍을 숫자. 어느 날을 열어볼지 고르는 화면용.
+dailyReportsRoutes.get("/attendance/days", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  // 날짜 형식은 반드시 검증한다 — 이상한 값이 addDays 로 들어가면 RangeError → 500 이 나간다(400이어야 한다)
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const toQ = c.req.query("to");
+  const fromQ = c.req.query("from");
+  if ((toQ && !DATE_RE.test(toQ)) || (fromQ && !DATE_RE.test(fromQ))) {
+    return fail(c, "INVALID_REQUEST", "from·to 는 YYYY-MM-DD 형식이어야 합니다", 400);
+  }
+  const to = toQ ?? kstDateStr();
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 56) || 56, 7), 180);
+  const from = fromQ ?? addDays(to, -(days - 1));
+
+  // ⚠️ PostgREST 기본 1000행 한도 — .limit(20000) 을 걸어도 서버가 1000에서 자른다.
+  //    실측: 최다 지점 56일치가 이미 1,500건이 넘는다. 자르면 달력 숫자가 '조용히' 줄어든다(에러도 안 남).
+  //    그래서 이 파일 다른 곳(회원 스냅샷 전수 조회)과 같은 .range() 페이지네이션으로 전량을 읽는다.
+  type Row = { attend_date: string; attended_at: string | null; phone: string | null; member_name: string | null };
+  const all: Row[] = [];
+  for (let off = 0; off < 40000; off += 1000) {
+    const { data, error } = await db.from("attendance_logs")
+      .select("attend_date, attended_at, phone, member_name")
+      .eq("branch_id", branchId)
+      .gte("attend_date", from).lte("attend_date", to)
+      .order("attended_at", { ascending: true })
+      .range(off, off + 999);
+    if (error) return fail(c, "DB_ERROR", error.message, 500);
+    const arr = (data as Row[] | null) ?? [];
+    all.push(...arr);
+    if (arr.length < 1000) break;
+  }
+
+  const byDay = new Map<string, { n: number; people: Set<string>; shifts: Map<string, number> }>();
+  for (const r of all) {
+    // 집계 기준일은 attended_at(KST) — attend_date 가 브로제이 원본 그대로라 경계가 어긋날 수 있다
+    const day = r.attended_at ? kstHm(r.attended_at).date : r.attend_date;
+    let a = byDay.get(day);
+    if (!a) { a = { n: 0, people: new Set(), shifts: new Map() }; byDay.set(day, a); }
+    a.n += 1;
+    a.people.add((r.phone ?? "").replace(/\D/g, "") || `n:${r.member_name ?? ""}`);
+    if (r.attended_at) {
+      const ko = shiftKoOf(kstHm(r.attended_at).hour);
+      a.shifts.set(ko, (a.shifts.get(ko) ?? 0) + 1);
+    }
+  }
+  const list = Array.from(byDay.entries())
+    .map(([date, a]) => ({
+      date, visits: a.n, members: a.people.size,
+      shifts: Object.fromEntries(a.shifts) as Record<string, number>,
+    }))
+    .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+
+  // 기록의 처음·끝을 함께 준다 — "한산했던 날"과 "아직 동기화 안 된 기간"을 화면이 구분할 수 있게.
+  const first = list[0]?.date ?? null;
+  const last = list.length ? list[list.length - 1]?.date ?? null : null;
+  return ok(c, { from, to, days: list, first_date: first, last_date: last });
+});
+
+// 하루치 명단 — 누가 몇 시에 왔는지. 시간 오름차순.
+dailyReportsRoutes.get("/attendance/day", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date");
+  if (!branchId || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return fail(c, "INVALID_REQUEST", "branch_id, date(YYYY-MM-DD) 필수", 400);
+  }
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  // KST 하루 = UTC 전날 15:00 ~ 당일 15:00. attend_date 로만 자르면 자정 근처가 새거나 섞인다.
+  const startUtc = new Date(Date.parse(`${date}T00:00:00+09:00`)).toISOString();
+  const endUtc = new Date(Date.parse(`${date}T00:00:00+09:00`) + 86400000).toISOString();
+  const { data, error } = await db.from("attendance_logs")
+    .select("member_name, phone, attended_at, attendance_type, ticket_name, ticket_type, remain_count, device_name")
+    .eq("branch_id", branchId)
+    .gte("attended_at", startUtc).lt("attended_at", endUtc)
+    .order("attended_at", { ascending: true })
+    .limit(2000);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+
+  type Row = {
+    member_name: string | null; phone: string | null; attended_at: string;
+    attendance_type: string | null; ticket_name: string | null; ticket_type: string | null;
+    remain_count: number | null; device_name: string | null;
+  };
+  const rows = ((data as Row[] | null) ?? []).map((r) => {
+    const t = kstHm(r.attended_at);
+    return {
+      name: r.member_name ?? "회원",
+      phone: r.phone,
+      time: t.hm,
+      hour: t.hour,
+      shift: shiftKoOf(t.hour),
+      ticket_name: r.ticket_name,
+      ticket_type: r.ticket_type,
+      remain_count: r.remain_count,
+      device_name: r.device_name,
+      attendance_type: r.attendance_type,
+    };
+  });
+  // 같은 사람이 하루에 두 번 찍는 경우가 있다(재입장). 인원수는 사람 기준으로 센다.
+  const people = new Set(rows.map((r) => (r.phone ?? "").replace(/\D/g, "") || `n:${r.name}`));
+  const shifts = ATT_SHIFTS.map((s) => ({ ko: s.ko, n: rows.filter((r) => r.shift === s.ko).length }))
+    .filter((s) => s.n > 0);
+  return ok(c, { date, rows, visits: rows.length, members: people.size, shifts });
+});
+
+// 회원 1명의 출석 이력 — "이 회원은 언제언제 왔나".
+// 사람 식별은 **전화번호 숫자만** 우선(브로제이 표기가 010-1234 / 01012340000 로 섞인다).
+// 번호가 없는 회원만 이름으로 찾는다(동명이인은 합쳐질 수 있어 응답에 그 사실을 알린다).
+dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const phoneQ = (c.req.query("phone") ?? "").replace(/\D/g, "");
+  const nameQ = (c.req.query("name") ?? "").trim();
+  if (!branchId || (!phoneQ && !nameQ)) {
+    return fail(c, "INVALID_REQUEST", "branch_id 와 phone 또는 name 이 필요합니다", 400);
+  }
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 180) || 180, 30), 400);
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+
+  // 전화번호는 저장 표기가 제각각이라 DB에서 못 거른다 → 지점+기간으로 좁힌 뒤 코드에서 정규화 비교.
+  // ⚠️ PostgREST 1000행 한도 — 전량을 읽어야 방문 횟수가 안 깎인다.
+  type Row = {
+    member_name: string | null; phone: string | null; attended_at: string;
+    ticket_name: string | null; ticket_type: string | null; remain_count: number | null; device_name: string | null;
+  };
+  const all: Row[] = [];
+  for (let off = 0; off < 60000; off += 1000) {
+    const { data, error } = await db.from("attendance_logs")
+      .select("member_name, phone, attended_at, ticket_name, ticket_type, remain_count, device_name")
+      .eq("branch_id", branchId)
+      .gte("attended_at", sinceIso)
+      .order("attended_at", { ascending: false })
+      .range(off, off + 999);
+    if (error) return fail(c, "DB_ERROR", error.message, 500);
+    const arr = (data as Row[] | null) ?? [];
+    all.push(...arr);
+    if (arr.length < 1000) break;
+  }
+
+  const mine = all.filter((r) =>
+    phoneQ ? (r.phone ?? "").replace(/\D/g, "") === phoneQ
+      : (r.member_name ?? "").trim() === nameQ && !(r.phone ?? "").replace(/\D/g, ""));
+
+  const visits = mine.map((r) => {
+    const t = kstHm(r.attended_at);
+    return {
+      date: t.date, time: t.hm, hour: t.hour, shift: shiftKoOf(t.hour),
+      ticket_name: r.ticket_name, ticket_type: r.ticket_type,
+      remain_count: r.remain_count, device_name: r.device_name,
+    };
+  });
+
+  // 요약 — 숫자마다 '그래서 어떤 회원인지'를 판단할 수 있게
+  const dayset = Array.from(new Set(visits.map((v) => v.date))).sort();   // 오름차순
+  const today = kstDateStr();
+  const todayN = dayNumber(today);
+  const last = dayset[dayset.length - 1] ?? null;
+  const first = dayset[0] ?? null;
+  const inLast = (n: number) => dayset.filter((d) => todayN - dayNumber(d) < n).length;
+
+  // 요일별(월=0) · 시간대별 분포 — 이 회원이 '언제 오는 사람'인지
+  const weekday = Array.from({ length: 7 }, (_, i) => ({ dow: i, n: 0 }));
+  for (const d of dayset) {
+    const i = (new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7;
+    const w = weekday[i];
+    if (w) w.n += 1;
+  }
+  const hourMap = new Map<number, number>();
+  for (const v of visits) hourMap.set(v.hour, (hourMap.get(v.hour) ?? 0) + 1);
+  const hours = Array.from(hourMap.entries()).map(([hour, n]) => ({ hour, n })).sort((a, b) => a.hour - b.hour);
+
+  // 가장 오래 쉰 구간 — "예전에도 이렇게 쉬었다가 돌아온 회원"인지 판단 근거
+  let maxGap = 0;
+  for (let i = 1; i < dayset.length; i++) {
+    const g = dayNumber(dayset[i] as string) - dayNumber(dayset[i - 1] as string);
+    if (g > maxGap) maxGap = g;
+  }
+
+  return ok(c, {
+    name: (mine[0]?.member_name ?? "").trim() || nameQ || "회원",
+    phone: mine[0]?.phone ?? (phoneQ || null),
+    window_days: days,
+    visits: visits.slice(0, 400),
+    summary: {
+      total_days: dayset.length,
+      total_visits: visits.length,
+      first_date: first, last_date: last,
+      days_since: last ? todayN - dayNumber(last) : null,
+      last_7: inLast(7), last_30: inLast(30), last_90: inLast(90),
+      per_week: dayset.length ? Math.round((inLast(30) / 30) * 7 * 10) / 10 : 0,
+      max_gap_days: maxGap,
+      /** 번호 없이 이름으로 찾은 경우 — 동명이인이 합쳐졌을 수 있다 */
+      matched_by: phoneQ ? "phone" : "name",
+    },
+    weekday, hours,
+  });
+});
+
+// 회원 찾기 — 출입 기록에 이름이 남은 사람 중에서 검색(회원 명부에 없는 사람도 잡힌다)
+dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const q = (c.req.query("q") ?? "").trim();
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 90) || 90, 30), 400);
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+  type Row = { member_name: string | null; phone: string | null; attended_at: string };
+  const all: Row[] = [];
+  for (let off = 0; off < 60000; off += 1000) {
+    const { data, error } = await db.from("attendance_logs")
+      .select("member_name, phone, attended_at")
+      .eq("branch_id", branchId).gte("attended_at", sinceIso)
+      .order("attended_at", { ascending: false })
+      .range(off, off + 999);
+    if (error) return fail(c, "DB_ERROR", error.message, 500);
+    const arr = (data as Row[] | null) ?? [];
+    all.push(...arr);
+    if (arr.length < 1000) break;
+  }
+
+  const qDigits = q.replace(/\D/g, "");
+  const todayN = dayNumber(kstDateStr());
+  const byKey = new Map<string, { name: string; phone: string | null; days: Set<string>; last: string }>();
+  for (const r of all) {
+    const dg = (r.phone ?? "").replace(/\D/g, "");
+    const key = dg || `n:${(r.member_name ?? "").trim()}`;
+    const day = kstHm(r.attended_at).date;
+    const a = byKey.get(key);
+    if (!a) byKey.set(key, { name: (r.member_name ?? "회원").trim() || "회원", phone: r.phone, days: new Set([day]), last: day });
+    else { a.days.add(day); if (day > a.last) a.last = day; }
+  }
+  let list = Array.from(byKey.values()).map((a) => ({
+    name: a.name, phone: a.phone,
+    visit_days: a.days.size,
+    // 등급 판정은 화면·시트가 같은 30일 기준을 써야 한다(90일 수치로 등급을 매기면 시트와 배지가 어긋난다)
+    visit_days_30: Array.from(a.days).filter((d) => todayN - dayNumber(d) < 30).length,
+    last_date: a.last, days_since: todayN - dayNumber(a.last),
+  }));
+  if (q) {
+    list = list.filter((m) =>
+      m.name.includes(q) || (qDigits.length >= 2 && (m.phone ?? "").replace(/\D/g, "").includes(qDigits)));
+  }
+  list.sort((x, y) => x.days_since - y.days_since || y.visit_days - x.visit_days);
+  // ⚠️ 자르면 '오래 안 온 사람'부터 사라진다 — 정렬이 최근 방문순이라 잘려나가는 쪽이 정확히 찾으려던 사람들이다.
+  //    상한을 넉넉히 두고, 그래도 넘치면 화면이 그 사실을 밝히도록 truncated 를 함께 준다.
+  const LIMIT = 1000;
+  return ok(c, {
+    people: list.slice(0, LIMIT), total: list.length,
+    truncated: list.length > LIMIT, window_days: days,
+  });
+});
+
+// 수동 재수집 — "이 기간이 비어 보이는데 다시 가져와줘". 지점장·본사만.
+dailyReportsRoutes.post("/attendance/backfill", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  // from·to 를 직접 받을 수 있게 한다 — days 만 있으면 '오늘 기준 최근 N일'뿐이라
+  // 몇 달 전 구멍(예: 3월)은 이 버튼으로 영영 못 메운다. syncAttendance 가 80일 창으로 알아서 쪼갠다.
+  const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD 형식이어야 합니다");
+  const parsed = z.object({
+    branch_id: z.string().uuid(),
+    days: z.number().int().min(1).max(80).nullish(),
+    from: DATE.nullish(),
+    to: DATE.nullish(),
+  }).safeParse(body);
+  if (!parsed.success) {
+    const i = parsed.error.issues[0];
+    return fail(c, "INVALID_REQUEST", `${i?.path.join(".") ?? "입력"}: ${i?.message ?? "형식 오류"}`, 400);
+  }
+  const branchId = parsed.data.branch_id;
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data: br } = await db.from("branches").select("id, name, broj_group_id").eq("id", branchId).maybeSingle();
+  const groupId = (br as { broj_group_id: string | null } | null)?.broj_group_id ?? null;
+  if (!groupId) return fail(c, "INVALID_REQUEST", "이 지점은 브로제이와 연결되어 있지 않습니다", 400);
+
+  const to = parsed.data.to ?? kstDateStr();
+  const from = parsed.data.from ?? addDays(to, -((parsed.data.days ?? 60) - 1));
+  // from/to 를 직접 받는 이상 범위를 반드시 막는다.
+  //  · 역전(from>to)이면 syncAttendance 의 창 루프가 한 번도 안 돌아 "0건 성공"으로 기록된다(거짓 성공).
+  //  · 너무 긴 구간은 80일 창 × 상태 2종 × 페이지로 쪼개져 워커 실행시간·서브리퀘스트 한도를 넘긴다.
+  const span = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+  if (!Number.isFinite(span) || span < 0) return fail(c, "INVALID_REQUEST", "시작일이 종료일보다 늦습니다", 400);
+  if (span > 80) return fail(c, "INVALID_REQUEST", "한 번에 최대 80일까지만 다시 가져올 수 있습니다", 400);
+  const startedAt = new Date().toISOString();
+  try {
+    const r = await syncAttendance(db, c.env, { branchId, groupId, from, to });
+    // 수동 버튼도 자동 동기화와 같은 이력 테이블에 남긴다 — '마지막 동기화'를 한 곳에서 보게 한다는 설계.
+    await logSyncRun(db, {
+      branchId, kind: "attendance_backfill", mode: "manual", status: "success",
+      from, to, fetched: r.fetched, written: r.written, startedAt,
+    });
+    // 과거를 메웠으면 방문 통계(7·30·90일)도 다시 — 안 하면 케어 판정이 옛 숫자로 남는다.
+    try { await refreshAttendanceStats(db, branchId); } catch (e) { console.error("[attendance/backfill] stats", e); }
+    // ⚠️ written 은 '새로 생긴 건수'가 아니라 upsert 한 전체 건수다. "N건 반영"이라고 하면
+    //    아무것도 안 바뀌어도 수천 건이 새로 들어온 것처럼 읽힌다 — 문구를 정직하게 쓴다.
+    return ok(c, { from, to, fetched: r.fetched, written: r.written }, `${from}~${to} 기간을 다시 확인했어요 (기록 ${r.fetched}건 대조)`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "재수집 실패";
+    await logSyncRun(db, {
+      branchId, kind: "attendance_backfill", mode: "manual", status: "failed",
+      from, to, error: msg, startedAt,
+    });
+    return fail(c, "SYNC_FAILED", msg, 500);
+  }
+});
 
 // 수업 일지 — 반(shift)별 하루 1장 upsert. 분위기·프로그램·참여 인원 기록.
 dailyReportsRoutes.get("/class-logs", requireJwt, async (c) => {
