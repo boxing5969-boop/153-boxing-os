@@ -373,12 +373,24 @@ export async function syncSales(
   }
 
   // 3) sales_entries: 기간 내 broj 분 삭제 후 재삽입 (멱등)
-  await db.from("sales_entries").delete()
-    .eq("branch_id", branchId).eq("source", "broj").gte("sale_date", from).lte("sale_date", to);
+  // ⚠️ 회원 명부와 같은 원칙 — **먼저 쓰고, 나중에 지운다**.
+  //    delete 를 앞에 두면 insert 가 한 번 실패했을 때 그 기간 매출이 0으로 남는다(역삼점 회원 사고와 같은 구조).
+  //    워커가 네트워크·타임아웃으로 중간에 죽은 이력이 실제로 있어 가정이 아니다.
+  const { data: oldRows } = await db.from("sales_entries")
+    .select("id").eq("branch_id", branchId).eq("source", "broj")
+    .gte("sale_date", from).lte("sale_date", to)
+    .order("id", { ascending: true }).limit(20000);
+  const oldIds = ((oldRows as { id: string }[] | null) ?? []).map((r) => r.id);
+
   for (let i = 0; i < lines.length; i += 500) {
     const chunk = lines.slice(i, i + 500);
     const { error } = await db.from("sales_entries").insert(chunk);
     if (error) throw new Error(`sales_entries 삽입 실패: ${error.message}`);
+  }
+  // 새 줄이 다 들어간 뒤에야 옛 줄을 지운다(잠깐 중복이 있어도 0이 되는 것보다 낫다)
+  for (let i = 0; i < oldIds.length; i += 100) {
+    const { error } = await db.from("sales_entries").delete().in("id", oldIds.slice(i, i + 100));
+    if (error) { console.error(`[syncSales] 옛 매출 정리 실패: ${error.message}`); break; }
   }
 
   // 4) daily_reports: 일자별 매출 필드만 SET (수기 항목 보존, 멱등)
@@ -439,8 +451,11 @@ function memberStatus(endDate: string | null, today: string): string {
 
 // ⚠️ normalized_phone 은 DB 생성 컬럼(phone 에서 자동 계산) — insert 에 포함하면 안 된다.
 interface SnapshotRow {
-  /** 기존 회원이면 종전 id를 그대로 재사용 — 전체 교체(delete+insert)에도 id가 바뀌지 않게. 신규는 미지정(DB 기본값) */
-  id?: string;
+  /**
+   * 항상 채운다. 기존 회원이면 종전 id 재사용(전체 교체에도 id 불변 → 발송·케어 이력 링크 보존),
+   * 신규면 코드에서 uuid 발급. **선택 필드로 두면 안 된다** — 아래 insert 주석 참고.
+   */
+  id: string;
   branch_id: string;
   member_name: string;
   phone: string | null;
@@ -493,6 +508,8 @@ export async function syncMembers(
     cursor = page.pagination?.has_next ? page.pagination?.next_cursor : undefined;
     pages += 1;
   } while (cursor && pages < MAX_PAGES);
+  // 페이지 상한에 걸려 끊겼는가 — 목록이 불완전하면 '없는 회원 = 탈퇴'로 볼 수 없다(아래 4-2 안전장치).
+  const incomplete = !!cursor;
 
   // 2) 기존 결제금액 + **기존 id** 보존용 맵 (전화번호 → 값)
   //    ⚠️ id 보존은 필수다. 아래 4)에서 지점 명부를 전체 교체(delete+insert)하는데,
@@ -502,13 +519,26 @@ export async function syncMembers(
   //    같은 사람(=같은 번호)은 같은 id를 유지해 케어 이력·발송 이력 링크를 지킨다.
   const paidByPhone = new Map<string, number>();
   const idByPhone = new Map<string, string>();
+  const existingIds = new Set<string>();   // 이번에 안 들어온 회원을 나중에 정확히 지우기 위한 기존 id 전체
   {
-    const { data } = await db.from("member_snapshots")
-      .select("id, normalized_phone, payment_amount").eq("branch_id", branchId);
-    for (const r of (data as { id: string; normalized_phone: string | null; payment_amount: number | null }[] | null) ?? []) {
-      if (!r.normalized_phone) continue;
-      if (r.payment_amount != null) paidByPhone.set(r.normalized_phone, r.payment_amount);
-      idByPhone.set(r.normalized_phone, r.id);
+    // ⚠️ PostgREST 기본 1000행 한도 — 회원이 1000명을 넘는 지점은 뒷부분 id가 안 잡혀
+    //    "기존 회원인데 신규로 인식" → id 재발급 → 발송 중복방지가 깨진다. 전량을 페이지네이션으로 읽는다.
+    for (let off = 0; off < 20000; off += 1000) {
+      const { data, error } = await db.from("member_snapshots")
+        .select("id, normalized_phone, payment_amount").eq("branch_id", branchId)
+        // ⚠️ order 없는 .range() 는 페이지마다 순서가 달라져 행을 건너뛴다(그 사이 UPDATE 가 들어오면 발생).
+        //    한 명이라도 누락되면 '기존 회원인데 신규로 인식' → 새 id 발급 → 번호 유니크 위반으로 전량 실패한다.
+        .order("id", { ascending: true })
+        .range(off, off + 999);
+      if (error) throw new Error(`기존 회원 조회 실패: ${error.message}`);
+      const arr = (data as { id: string; normalized_phone: string | null; payment_amount: number | null }[] | null) ?? [];
+      for (const r of arr) {
+        existingIds.add(r.id);
+        if (!r.normalized_phone) continue;
+        if (r.payment_amount != null) paidByPhone.set(r.normalized_phone, r.payment_amount);
+        idByPhone.set(r.normalized_phone, r.id);
+      }
+      if (arr.length < 1000) break;
     }
   }
 
@@ -531,9 +561,15 @@ export async function syncMembers(
     const status = memberStatus(endDate, today);
     const paid = np ? paidByPhone.get(np) ?? null : null;
 
-    const keepId = np ? idByPhone.get(np) : undefined;   // 같은 번호가 이미 있으면 그 id를 유지(발송·케어 이력 링크 보존)
+    // 같은 번호가 이미 있으면 그 id를 유지(발송·케어 이력 링크 보존), 신규는 여기서 직접 발급한다.
+    //
+    // ⚠️ 신규 행에서 id 키를 '빼면' 안 된다 — PostgREST 는 배열 insert 를 한 문장으로 만들면서
+    //    **모든 행의 키를 합집합**으로 맞추고, 없는 키에는 DEFAULT 가 아니라 NULL 을 넣는다.
+    //    그래서 id 있는 행과 없는 행이 섞이면 통째로 `null value in column "id"` 로 실패한다.
+    //    (2026-08-02 역삼·선릉 회원 동기화가 이 이유로 멈춰 있었다. 컬럼 기본값은 정상이었다.)
+    const keepId = (np ? idByPhone.get(np) : undefined) ?? crypto.randomUUID();
     const row: SnapshotRow = {
-      ...(keepId ? { id: keepId } : {}),
+      id: keepId,
       branch_id: branchId,
       member_name: name,
       phone,
@@ -576,13 +612,38 @@ export async function syncMembers(
     if (r.payment_amount != null) keptPaid += 1;
   }
 
-  // 4) 전체 교체 — 브로제이가 원본
+  // 4) 반영 — **먼저 쓰고, 나중에 지운다**
+  //
+  // ⚠️ 예전엔 delete → insert 순서였다. 그러다 insert 가 한 번 실패하면 그 지점 명부가 **0명으로 남는다**.
+  //    (2026-08-02 역삼점이 실제로 이렇게 통째로 비었다. 회원관리·케어·환불 자동채움이 다 죽었다.)
+  //    순서를 뒤집으면 쓰기가 실패해도 기존 명부가 그대로 살아 있다 — 최악이 '갱신 안 됨'에서 멈춘다.
   if (rows.length > 0) {
-    const { error: delErr } = await db.from("member_snapshots").delete().eq("branch_id", branchId);
-    if (delErr) throw new Error(`기존 회원 삭제 실패: ${delErr.message}`);
+    // 4-1) 있으면 갱신, 없으면 추가 (id 기준). 모든 행이 id 를 갖고 있어야 한다(SnapshotRow.id 주석 참고).
     for (let i = 0; i < rows.length; i += 500) {
-      const { error } = await db.from("member_snapshots").insert(rows.slice(i, i + 500));
+      const { error } = await db.from("member_snapshots")
+        // defaultToNull:false = 키가 빠진 행에 NULL 대신 컬럼 DEFAULT 를 쓰게 한다.
+        // 이번 사고(키 합집합 → NULL)의 마지막 안전망. id 는 이미 전 행에 채우지만 이중으로 막는다.
+        .upsert(rows.slice(i, i + 500), { onConflict: "id", defaultToNull: false });
       if (error) throw new Error(`회원 저장 실패: ${error.message}`);
+    }
+    // 4-2) 이번 브로제이 응답에 없던 회원만 정리(탈퇴·타지점 이동). 전체 삭제가 아니다.
+    //
+    // 🚨 삭제 안전장치 — 브로제이가 '일부만' 돌려준 걸 탈퇴로 오해하면 명부가 반토막 난다.
+    //    ① 페이지 상한(MAX_PAGES)에 걸려 커서가 남았으면 목록이 불완전하다 → 삭제 금지
+    //    ② 기존 대비 절반 이하로 줄었으면 정상 탈퇴가 아니다(실측 변동은 1~3명 수준) → 삭제 금지
+    //    막았을 땐 탈퇴자가 하루 더 남을 뿐이고, 안 막으면 수백 명이 사라진다. 어느 쪽이 싼지는 분명하다.
+    const keep = new Set(rows.map((r) => r.id));
+    const stale = [...existingIds].filter((id) => !keep.has(id));
+    const shrankTooMuch = existingIds.size >= 50 && rows.length < existingIds.size * 0.5;
+    if (incomplete || shrankTooMuch) {
+      console.warn(`[syncMembers] 목록이 불완전해 탈퇴 정리를 건너뜀 branch=${branchId} 기존=${existingIds.size} 수신=${rows.length} 커서잔존=${incomplete}`);
+    } else {
+      for (let i = 0; i < stale.length; i += 100) {   // URL 길이(8KB) 한도 — uuid 100개면 여유 있다
+        const { error } = await db.from("member_snapshots")
+          .delete().eq("branch_id", branchId).in("id", stale.slice(i, i + 100));
+        // 정리 실패는 치명적이지 않다(탈퇴자가 남을 뿐). 저장은 이미 끝났으니 동기화를 실패로 만들지 않는다.
+        if (error) { console.error(`[syncMembers] 탈퇴 정리 실패: ${error.message}`); break; }
+      }
     }
   }
 
