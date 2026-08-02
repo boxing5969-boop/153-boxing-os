@@ -1443,6 +1443,22 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
     phoneQ ? (r.phone ?? "").replace(/\D/g, "") === phoneQ
       : (r.member_name ?? "").trim() === nameQ && !(r.phone ?? "").replace(/\D/g, ""));
 
+  // 명부(member_snapshots)의 마지막 방문일도 같이 본다.
+  // ⚠️ 두 출처가 다르다: 명부 값은 브로제이가 주는 '전체 기간' 기준이고, attendance_logs 는 우리가 동기화한 구간뿐이다.
+  //    이걸 안 알려주면 목록엔 "3일째 안 보임"인데 상세엔 "기록 없음"이 떠서 화면끼리 모순된다(실제 102명이 그랬다).
+  let snapLastVisit: string | null = null;
+  {
+    const { data: snap } = await db.from("member_snapshots")
+      .select("latest_visit_date, phone, member_name")
+      .eq("branch_id", branchId).limit(2000);
+    for (const s of ((snap as { latest_visit_date: string | null; phone: string | null; member_name: string | null }[] | null) ?? [])) {
+      const hit = phoneQ
+        ? (s.phone ?? "").replace(/\D/g, "") === phoneQ
+        : (s.member_name ?? "").trim() === nameQ;
+      if (hit && s.latest_visit_date) { snapLastVisit = s.latest_visit_date; break; }
+    }
+  }
+
   const visits = mine.map((r) => {
     const t = kstHm(r.attended_at);
     return {
@@ -1489,6 +1505,11 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
       first_date: first, last_date: last,
       days_since: last ? todayN - dayNumber(last) : null,
       last_7: inLast(7), last_30: inLast(30), last_90: inLast(90),
+      // 등급 판정 입력 — 목록(visits_30d)과 같은 '횟수' 기준을 써야 이름을 눌렀을 때 배지가 안 바뀐다.
+      // 위 last_30 은 '일수'(하루 두 번 찍어도 1)라 임계값 12/5/1 에 넣으면 목록과 어긋난다.
+      last_30_visits: visits.filter((v) => todayN - dayNumber(v.date) < 30).length,
+      /** 명부 기준 마지막 방문일(브로제이 전체 기간) — 로그가 비었을 때 화면이 사실대로 설명하게 */
+      snapshot_last_visit: snapLastVisit,
       per_week: dayset.length ? Math.round((inLast(30) / 30) * 7 * 10) / 10 : 0,
       max_gap_days: maxGap,
       /** 번호 없이 이름으로 찾은 경우 — 동명이인이 합쳐졌을 수 있다 */
