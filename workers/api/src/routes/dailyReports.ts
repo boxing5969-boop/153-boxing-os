@@ -1498,7 +1498,12 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
   });
 });
 
-// 회원 찾기 — 출입 기록에 이름이 남은 사람 중에서 검색(회원 명부에 없는 사람도 잡힌다)
+// 회원 찾기 — **회원 명부 전체**가 기준이다.
+//
+// ⚠️ 처음엔 출입 기록(attendance_logs)에서 사람을 뽑았는데, 그러면 '아직 한 번도 안 온 회원'과
+//    '90일 넘게 안 온 회원'이 검색에서 통째로 사라진다. 정작 찾아야 할 사람들이다.
+//    그래서 명부(member_snapshots)를 기준으로 하고, 방문 횟수는 이미 계산돼 있는 visits_* 컬럼을 쓴다
+//    (브로제이 출석 동기화가 refreshAttendanceStats 로 매시간 채운다 — 여기서 다시 세지 않는다).
 dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id");
   const q = (c.req.query("q") ?? "").trim();
@@ -1508,15 +1513,19 @@ dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
   if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
 
-  const days = Math.min(Math.max(Number(c.req.query("days") ?? 90) || 90, 30), 400);
-  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
-  type Row = { member_name: string | null; phone: string | null; attended_at: string };
+  type Row = {
+    member_name: string | null; phone: string | null; status: string | null;
+    end_date: string | null; product_name: string | null; hold_status: string | null;
+    visits_7d: number | null; visits_30d: number | null; visits_90d: number | null;
+    latest_visit_date: string | null;
+  };
+  // PostgREST 1000행 한도 — 500명 넘는 지점이 이미 있다. 전량을 읽어야 "전체 회원"이 된다.
   const all: Row[] = [];
-  for (let off = 0; off < 60000; off += 1000) {
-    const { data, error } = await db.from("attendance_logs")
-      .select("member_name, phone, attended_at")
-      .eq("branch_id", branchId).gte("attended_at", sinceIso)
-      .order("attended_at", { ascending: false })
+  for (let off = 0; off < 20000; off += 1000) {
+    const { data, error } = await db.from("member_snapshots")
+      .select("member_name, phone, status, end_date, product_name, hold_status, visits_7d, visits_30d, visits_90d, latest_visit_date")
+      .eq("branch_id", branchId)
+      .order("member_name", { ascending: true })
       .range(off, off + 999);
     if (error) return fail(c, "DB_ERROR", error.message, 500);
     const arr = (data as Row[] | null) ?? [];
@@ -1524,35 +1533,41 @@ dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
     if (arr.length < 1000) break;
   }
 
-  const qDigits = q.replace(/\D/g, "");
   const todayN = dayNumber(kstDateStr());
-  const byKey = new Map<string, { name: string; phone: string | null; days: Set<string>; last: string }>();
-  for (const r of all) {
-    const dg = (r.phone ?? "").replace(/\D/g, "");
-    const key = dg || `n:${(r.member_name ?? "").trim()}`;
-    const day = kstHm(r.attended_at).date;
-    const a = byKey.get(key);
-    if (!a) byKey.set(key, { name: (r.member_name ?? "회원").trim() || "회원", phone: r.phone, days: new Set([day]), last: day });
-    else { a.days.add(day); if (day > a.last) a.last = day; }
-  }
-  let list = Array.from(byKey.values()).map((a) => ({
-    name: a.name, phone: a.phone,
-    visit_days: a.days.size,
-    // 등급 판정은 화면·시트가 같은 30일 기준을 써야 한다(90일 수치로 등급을 매기면 시트와 배지가 어긋난다)
-    visit_days_30: Array.from(a.days).filter((d) => todayN - dayNumber(d) < 30).length,
-    last_date: a.last, days_since: todayN - dayNumber(a.last),
-  }));
+  const qDigits = q.replace(/\D/g, "");
+  let list = all.map((m) => {
+    const last = m.latest_visit_date;
+    return {
+      name: (m.member_name ?? "회원").trim() || "회원",
+      phone: m.phone,
+      status: m.status,
+      /** 홀딩(일시정지) 중인가 — 브로제이 원본 값 */
+      holding: m.hold_status === "HOLDING",
+      product_name: m.product_name,
+      end_date: m.end_date,
+      visit_days: m.visits_90d ?? 0,
+      visit_days_30: m.visits_30d ?? 0,
+      visits_7d: m.visits_7d ?? 0,
+      last_date: last,
+      /** 한 번도 안 온 회원은 null — 화면이 '방문 기록 없음'으로 구분해 보여준다 */
+      days_since: last ? todayN - dayNumber(last) : null,
+    };
+  });
+
   if (q) {
     list = list.filter((m) =>
       m.name.includes(q) || (qDigits.length >= 2 && (m.phone ?? "").replace(/\D/g, "").includes(qDigits)));
   }
-  list.sort((x, y) => x.days_since - y.days_since || y.visit_days - x.visit_days);
-  // ⚠️ 자르면 '오래 안 온 사람'부터 사라진다 — 정렬이 최근 방문순이라 잘려나가는 쪽이 정확히 찾으려던 사람들이다.
-  //    상한을 넉넉히 두고, 그래도 넘치면 화면이 그 사실을 밝히도록 truncated 를 함께 준다.
-  const LIMIT = 1000;
+  // 기본 정렬: 최근 방문순(기록 없는 회원은 맨 뒤)
+  list.sort((x, y) => {
+    const a = x.days_since ?? 99999, b = y.days_since ?? 99999;
+    return a - b || y.visit_days - x.visit_days;
+  });
+
+  const LIMIT = 2000;
   return ok(c, {
     people: list.slice(0, LIMIT), total: list.length,
-    truncated: list.length > LIMIT, window_days: days,
+    truncated: list.length > LIMIT, window_days: 90,
   });
 });
 
