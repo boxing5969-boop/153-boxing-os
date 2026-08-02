@@ -282,8 +282,14 @@ brojRoutes.post("/sync/attendance", requireJwt, async (c) => {
   const mapped = (data as { id: string; name: string; broj_group_id: string }[] | null) ?? [];
   if (mapped.length === 0) return fail(c, "NO_MAPPING", "브로제이 센터가 연결된 지점이 없습니다", 400);
 
+  // 지점을 연달아 돌면 브로제이 분당 한도(429)에 걸린다 — 특히 '최근 6개월'은 지점당 호출이 많다.
+  // 지점 사이에 잠깐 쉬어 한도를 넘기지 않는다(대기는 I/O라 워커 CPU 시간을 쓰지 않는다).
+  // 그래도 걸리면 brojClient 가 Retry-After 만큼 기다렸다 한 번 더 시도한다.
   const branches: { branch_id: string; name: string; ok: boolean; fetched: number; written: number; error?: string }[] = [];
-  for (const b of mapped) {
+  for (let i = 0; i < mapped.length; i++) {
+    const b = mapped[i];
+    if (!b) continue;
+    if (i > 0) await new Promise((r) => setTimeout(r, 1_200));
     try {
       const r = await syncAttendance(db, c.env, { branchId: b.id, groupId: b.broj_group_id, from, to });
       branches.push({ branch_id: b.id, name: b.name, ok: true, fetched: r.fetched, written: r.written });
@@ -333,10 +339,22 @@ brojRoutes.post("/sync/holds", requireJwt, async (c) => {
   const mapped = (data as { id: string; name: string; broj_group_id: string }[] | null) ?? [];
   if (mapped.length === 0) return fail(c, "NO_MAPPING", "브로제이 센터가 연결된 지점이 없습니다", 400);
 
-  const branches: { branch_id: string; name: string; ok: boolean; checked: number; holding: number; remaining: number; error?: string }[] = [];
+  // ⚠️ 홀딩 조회는 **회원 1명당 브로제이 1콜**이다. 지점을 한 번에 돌면 워커 1회 실행의
+  //    서브리퀘스트 한도를 넘어 "Too many subrequests by single Worker invocation" 으로 통째로 죽는다.
+  //    (2026-08-02 3지점 동시 실행에서 실제 발생.) 그래서 **한 번에 확인할 총 인원**을 예산으로 묶는다.
+  //    다 못 돌면 remaining 으로 남겨 다음 실행에서 이어간다 — 어차피 '마지막 조회가 가장 오래된 회원'부터 돈다.
+  const MAX_PER_RUN = 30;
+  let budget = Math.min(Math.max(body.batch ?? MAX_PER_RUN, 1), MAX_PER_RUN);
+
+  const branches: { branch_id: string; name: string; ok: boolean; checked: number; holding: number; remaining: number; skipped?: boolean; error?: string }[] = [];
   for (const b of mapped) {
+    if (budget <= 0) {
+      branches.push({ branch_id: b.id, name: b.name, ok: true, checked: 0, holding: 0, remaining: 0, skipped: true });
+      continue;
+    }
     try {
-      const r = await syncMemberHolds(db, c.env, { branchId: b.id, groupId: b.broj_group_id, batch: body.batch });
+      const r = await syncMemberHolds(db, c.env, { branchId: b.id, groupId: b.broj_group_id, batch: budget });
+      budget -= r.checked;
       branches.push({ branch_id: b.id, name: b.name, ok: true, checked: r.checked, holding: r.holding, remaining: r.remaining });
     } catch (e) {
       branches.push({
@@ -345,7 +363,9 @@ brojRoutes.post("/sync/holds", requireJwt, async (c) => {
       });
     }
   }
-  return ok(c, { branches });
+  const left = branches.reduce((s, x) => s + x.remaining, 0);
+  return ok(c, { branches, per_run: MAX_PER_RUN, remaining_total: left },
+    left > 0 ? `${MAX_PER_RUN}명씩 확인합니다 · 남은 ${left}명은 버튼을 다시 누르거나 매일 자동으로 처리됩니다` : undefined);
 });
 
 /**

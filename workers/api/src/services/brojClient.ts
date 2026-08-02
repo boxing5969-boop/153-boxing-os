@@ -84,8 +84,25 @@ async function brojGet<T>(
         : `BROJ 연결 실패: ${msg}`);
     }
   }
+
+  // 분당 호출 한도(429) — 사람이 지점 3곳을 연달아 누르면 쉽게 걸린다.
+  // 사용자에게 "잠시 후 다시" 라고 떠넘기지 말고 여기서 한 번 기다렸다 재시도한다.
+  // Retry-After 를 주면 그 값을, 없으면 5초. 대기는 I/O 라 워커 CPU 시간을 쓰지 않는다.
+  if (res.status === 429) {
+    const ra = Number(res.headers.get("Retry-After") ?? "");
+    const waitMs = Math.min(Math.max(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 5_000, 1_000), 10_000);
+    await new Promise((r) => setTimeout(r, waitMs));
+    try {
+      res = await once();
+    } catch {
+      throw new BrojError(429, "BROJ 호출 한도 초과(분당 제한). 1분 뒤 다시 시도해 주세요.");
+    }
+  }
+
   const text = await res.text();
-  if (res.status === 429) throw new BrojError(429, "BROJ 호출 한도 초과(분당 제한). 잠시 후 재시도.");
+  if (res.status === 429) {
+    throw new BrojError(429, "BROJ 호출 한도 초과(분당 제한). 1분 뒤 다시 시도해 주세요.");
+  }
   if (!res.ok) throw new BrojError(res.status, `BROJ ${res.status}: ${text.slice(0, 300)}`);
   try {
     return JSON.parse(text) as T;
