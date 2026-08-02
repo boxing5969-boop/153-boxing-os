@@ -85,23 +85,28 @@ async function brojGet<T>(
     }
   }
 
-  // 분당 호출 한도(429) — 사람이 지점 3곳을 연달아 누르면 쉽게 걸린다.
-  // 사용자에게 "잠시 후 다시" 라고 떠넘기지 말고 여기서 한 번 기다렸다 재시도한다.
-  // Retry-After 를 주면 그 값을, 없으면 5초. 대기는 I/O 라 워커 CPU 시간을 쓰지 않는다.
-  if (res.status === 429) {
+  // 분당 호출 한도(429) — 한도는 브로제이 **계정 전체 공용**이라 매시간 자동 동기화와 겹치면
+  // 사람이 버튼을 한 번만 눌러도 걸린다. 사용자에게 "잠시 후 다시"를 떠넘기지 말고 여기서 기다렸다 재시도한다.
+  // 분당 한도라 한 번(5초) 쉬어서는 창이 안 열릴 수 있어 총 3회까지, 점점 길게 기다린다(5→15→30초).
+  // 대기는 I/O 라 워커 CPU 시간을 쓰지 않는다.
+  const BACKOFF_MS = [5_000, 15_000, 30_000];
+  for (let attempt = 0; attempt < BACKOFF_MS.length && res.status === 429; attempt++) {
     const ra = Number(res.headers.get("Retry-After") ?? "");
-    const waitMs = Math.min(Math.max(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 5_000, 1_000), 10_000);
+    const waitMs = Number.isFinite(ra) && ra > 0
+      ? Math.min(ra * 1000, 35_000)
+      : (BACKOFF_MS[attempt] ?? 5_000);
     await new Promise((r) => setTimeout(r, waitMs));
     try {
       res = await once();
     } catch {
-      throw new BrojError(429, "BROJ 호출 한도 초과(분당 제한). 1분 뒤 다시 시도해 주세요.");
+      break;   // 네트워크까지 죽으면 아래에서 429 메시지로 마무리
     }
   }
 
   const text = await res.text();
   if (res.status === 429) {
-    throw new BrojError(429, "BROJ 호출 한도 초과(분당 제한). 1분 뒤 다시 시도해 주세요.");
+    throw new BrojError(429,
+      "브로제이 호출 한도(분당)에 걸렸습니다. 출석은 매시간 자동으로 채워지니 그대로 두셔도 됩니다 — 급하면 1~2분 뒤 다시 눌러주세요.");
   }
   if (!res.ok) throw new BrojError(res.status, `BROJ ${res.status}: ${text.slice(0, 300)}`);
   try {

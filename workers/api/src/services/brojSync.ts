@@ -75,6 +75,10 @@ export interface SyncAttendanceResult {
   pages: number;
   fetched: number;
   written: number;
+  /** 호출 예산이 다 떨어져 중간에 끊겼는가 — true 면 다시 실행해 이어받아야 한다 */
+  truncated?: boolean;
+  /** 이번에 쓴 브로제이 호출 수(서브리퀘스트 예산 배분용) */
+  calls?: number;
 }
 
 /**
@@ -87,11 +91,16 @@ export interface SyncAttendanceResult {
 export async function syncAttendance(
   db: SupabaseClient,
   env: Env,
-  opts: { branchId: string; groupId: string; from: string; to: string },
+  opts: { branchId: string; groupId: string; from: string; to: string; maxCalls?: number },
 ): Promise<SyncAttendanceResult> {
   const { branchId, groupId, from, to } = opts;
   const SIZE = 200;
   const MAX_PAGES = 60;          // 안전 상한 = 12,000건
+  // ⚠️ 워커 1회 실행의 **서브리퀘스트 한도**(무료 플랜 50)가 진짜 상한이다.
+  //    '최근 6개월'은 지점 하나가 20~30페이지라 한도를 그냥 넘겨 통째로 죽는다.
+  //    호출 수를 세다가 예산을 넘기면 거기서 멈추고 truncated 로 알린다 — 나머지는 다음 실행에서.
+  const maxCalls = Math.max(opts.maxCalls ?? 60, 2);
+  let calls = 0;
   const rows: Record<string, unknown>[] = [];
   const seen = new Set<string>(); // 같은 배치 안 중복 id 방어(upsert 는 배치 내 중복을 못 거른다)
   let pages = 0, fetched = 0;
@@ -122,10 +131,14 @@ export async function syncAttendance(
   const isUnsupportedStatus = (e: unknown): boolean =>
     e instanceof Error && /attendance_status must be one of/i.test(e.message);
 
+  let truncated = false;
+  outer:
   for (const w of windows) {
   for (const status of ["SUCCESS", "SHOW"] as const) {
     if (unsupported.has(status)) continue;
     for (let page = 0; page < MAX_PAGES; page++) {
+      if (calls >= maxCalls) { truncated = true; break outer; }   // 예산 소진 — 여기까지만
+      calls += 1;
       let res: Awaited<ReturnType<typeof brojAttendance>>;
       try {
         res = await brojAttendance(env, {
@@ -180,7 +193,7 @@ export async function syncAttendance(
     written += chunk.length;
   }
 
-  return { ok: true, branch_id: branchId, from, to, pages, fetched, written };
+  return { ok: true, branch_id: branchId, from, to, pages, fetched, written, truncated, calls };
 }
 
 export interface SyncHoldResult {

@@ -282,24 +282,38 @@ brojRoutes.post("/sync/attendance", requireJwt, async (c) => {
   const mapped = (data as { id: string; name: string; broj_group_id: string }[] | null) ?? [];
   if (mapped.length === 0) return fail(c, "NO_MAPPING", "브로제이 센터가 연결된 지점이 없습니다", 400);
 
-  // 지점을 연달아 돌면 브로제이 분당 한도(429)에 걸린다 — 특히 '최근 6개월'은 지점당 호출이 많다.
-  // 지점 사이에 잠깐 쉬어 한도를 넘기지 않는다(대기는 I/O라 워커 CPU 시간을 쓰지 않는다).
-  // 그래도 걸리면 brojClient 가 Retry-After 만큼 기다렸다 한 번 더 시도한다.
-  const branches: { branch_id: string; name: string; ok: boolean; fetched: number; written: number; error?: string }[] = [];
+  // 🚨 두 가지 한도를 동시에 지켜야 한다.
+  //    ① 워커 1회 실행의 **서브리퀘스트 한도** — '최근 6개월'은 지점 하나가 20~30페이지라 그냥 넘긴다.
+  //    ② 브로제이 **분당 호출 한도(429)** — 지점을 연달아 돌면 걸린다.
+  //  그래서 이번 실행에서 쓸 총 호출 수를 예산으로 묶고, 예산이 남는 지점까지만 처리한다.
+  //  못 끝낸 지점은 '남음'으로 알려 다시 누르면 이어받는다(upsert라 중복 저장 없음).
+  const CALL_BUDGET = 26;
+  let budget = CALL_BUDGET;
+
+  const branches: { branch_id: string; name: string; ok: boolean; fetched: number; written: number; truncated?: boolean; skipped?: boolean; error?: string }[] = [];
   for (let i = 0; i < mapped.length; i++) {
     const b = mapped[i];
     if (!b) continue;
-    if (i > 0) await new Promise((r) => setTimeout(r, 1_200));
+    if (budget < 2) {
+      branches.push({ branch_id: b.id, name: b.name, ok: true, fetched: 0, written: 0, skipped: true });
+      continue;
+    }
+    if (i > 0) await new Promise((r) => setTimeout(r, 1_200));   // 분당 한도 완화(I/O 대기라 CPU 안 씀)
     try {
-      const r = await syncAttendance(db, c.env, { branchId: b.id, groupId: b.broj_group_id, from, to });
-      branches.push({ branch_id: b.id, name: b.name, ok: true, fetched: r.fetched, written: r.written });
+      const r = await syncAttendance(db, c.env, {
+        branchId: b.id, groupId: b.broj_group_id, from, to, maxCalls: budget,
+      });
+      budget -= r.calls ?? 1;
+      branches.push({ branch_id: b.id, name: b.name, ok: true, fetched: r.fetched, written: r.written, truncated: r.truncated });
     } catch (e) {
+      budget -= 2;
       branches.push({
         branch_id: b.id, name: b.name, ok: false, fetched: 0, written: 0,
         error: e instanceof Error ? e.message : "실패",
       });
     }
   }
+  const unfinished = branches.filter((x) => x.truncated || x.skipped).map((x) => x.name.replace("153복싱짐 ", ""));
 
   let updated = 0;
   try {
@@ -315,7 +329,11 @@ brojRoutes.post("/sync/attendance", requireJwt, async (c) => {
     console.error("[broj] refreshTicketStats", e);
   }
 
-  return ok(c, { from, to, branches, members_updated: updated, sessions_filled: tickets.sessions, expiry_filled: tickets.expiry });
+  return ok(c,
+    { from, to, branches, unfinished, members_updated: updated, sessions_filled: tickets.sessions, expiry_filled: tickets.expiry },
+    unfinished.length
+      ? `${unfinished.join("·")}은 분량이 많아 아직 남았어요 — 버튼을 한 번 더 누르면 이어서 가져옵니다`
+      : undefined);
 });
 
 /**
