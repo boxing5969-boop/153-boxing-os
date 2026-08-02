@@ -1287,6 +1287,20 @@ function kstHm(iso: string): { hour: number; hm: string; date: string } {
 }
 const shiftKoOf = (h: number): string => ATT_SHIFTS.find((s) => h >= s.from && h <= s.to)?.ko ?? "기타";
 
+/**
+ * 시간대 필터 — 새벽반 코치처럼 **자기 반 시간에 온 회원만** 봐야 하는 경우.
+ * h_from·h_to 는 KST 시(0~23) 포함 구간. 예: 7~9 이면 07:00~09:59.
+ * 값이 없으면 필터 없음(지점장·본사는 전 시간대를 본다).
+ */
+function hourWindow(c: { req: { query: (k: string) => string | undefined } }): [number, number] | null {
+  const f = Number(c.req.query("h_from"));
+  const t = Number(c.req.query("h_to"));
+  if (!Number.isInteger(f) || !Number.isInteger(t)) return null;
+  if (f < 0 || t > 23 || f > t) return null;
+  return [f, t];
+}
+const inHours = (h: number, w: [number, number] | null): boolean => !w || (h >= w[0] && h <= w[1]);
+
 // 기간 내 날짜별 방문 수 — 달력에 찍을 숫자. 어느 날을 열어볼지 고르는 화면용.
 dailyReportsRoutes.get("/attendance/days", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id");
@@ -1325,8 +1339,11 @@ dailyReportsRoutes.get("/attendance/days", requireJwt, async (c) => {
     if (arr.length < 1000) break;
   }
 
+  const hw = hourWindow(c);
   const byDay = new Map<string, { n: number; people: Set<string>; shifts: Map<string, number> }>();
   for (const r of all) {
+    // 시간대 필터(새벽반 등) — 시각이 없는 기록은 시간 판정이 불가하므로 필터가 켜지면 제외한다
+    if (hw && (!r.attended_at || !inHours(kstHm(r.attended_at).hour, hw))) continue;
     // 집계 기준일은 attended_at(KST) — attend_date 가 브로제이 원본 그대로라 경계가 어긋날 수 있다
     const day = r.attended_at ? kstHm(r.attended_at).date : r.attend_date;
     let a = byDay.get(day);
@@ -1379,7 +1396,8 @@ dailyReportsRoutes.get("/attendance/day", requireJwt, async (c) => {
     attendance_type: string | null; ticket_name: string | null; ticket_type: string | null;
     remain_count: number | null; device_name: string | null;
   };
-  const rows = ((data as Row[] | null) ?? []).map((r) => {
+  const hw = hourWindow(c);
+  const rows = ((data as Row[] | null) ?? []).filter((r) => inHours(kstHm(r.attended_at).hour, hw)).map((r) => {
     const t = kstHm(r.attended_at);
     return {
       name: r.member_name ?? "회원",
@@ -1459,7 +1477,8 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
     }
   }
 
-  const visits = mine.map((r) => {
+  const hw = hourWindow(c);
+  const visits = mine.filter((r) => inHours(kstHm(r.attended_at).hour, hw)).map((r) => {
     const t = kstHm(r.attended_at);
     return {
       date: t.date, time: t.hm, hour: t.hour, shift: shiftKoOf(t.hour),
@@ -1533,6 +1552,52 @@ dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  // 시간대 필터가 켜지면(새벽반 등) 명부가 아니라 **그 시간에 온 기록**에서 사람을 뽑는다.
+  // 명부에는 시간 정보가 없어 "오전에 오는 회원"을 가릴 방법이 없기 때문이다.
+  const hw = hourWindow(c);
+  if (hw) {
+    const days = Math.min(Math.max(Number(c.req.query("days") ?? 90) || 90, 30), 400);
+    const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+    type L = { member_name: string | null; phone: string | null; attended_at: string };
+    const logs: L[] = [];
+    for (let off = 0; off < 60000; off += 1000) {
+      const { data, error } = await db.from("attendance_logs")
+        .select("member_name, phone, attended_at")
+        .eq("branch_id", branchId).gte("attended_at", sinceIso)
+        .order("attended_at", { ascending: false }).range(off, off + 999);
+      if (error) return fail(c, "DB_ERROR", error.message, 500);
+      const arr = (data as L[] | null) ?? [];
+      logs.push(...arr);
+      if (arr.length < 1000) break;
+    }
+    const todayN2 = dayNumber(kstDateStr());
+    const agg = new Map<string, { name: string; phone: string | null; days: Set<string>; last: string }>();
+    for (const r of logs) {
+      const t = kstHm(r.attended_at);
+      if (!inHours(t.hour, hw)) continue;
+      const dg = (r.phone ?? "").replace(/\D/g, "");
+      const key = dg || `n:${(r.member_name ?? "").trim()}`;
+      const a = agg.get(key);
+      if (!a) agg.set(key, { name: (r.member_name ?? "회원").trim() || "회원", phone: r.phone, days: new Set([t.date]), last: t.date });
+      else { a.days.add(t.date); if (t.date > a.last) a.last = t.date; }
+    }
+    const qd = q.replace(/\D/g, "");
+    let list2 = Array.from(agg.values()).map((a) => ({
+      name: a.name, phone: a.phone, status: null as string | null, holding: false,
+      product_name: null as string | null, end_date: null as string | null,
+      visit_days: a.days.size,
+      visit_days_30: Array.from(a.days).filter((d) => todayN2 - dayNumber(d) < 30).length,
+      visits_7d: Array.from(a.days).filter((d) => todayN2 - dayNumber(d) < 7).length,
+      last_date: a.last, days_since: todayN2 - dayNumber(a.last) as number | null,
+    }));
+    if (q) {
+      list2 = list2.filter((m) =>
+        m.name.includes(q) || (qd.length >= 2 && (m.phone ?? "").replace(/\D/g, "").includes(qd)));
+    }
+    list2.sort((x, y) => (x.days_since ?? 0) - (y.days_since ?? 0) || y.visit_days - x.visit_days);
+    return ok(c, { people: list2.slice(0, 2000), total: list2.length, truncated: list2.length > 2000, window_days: days });
+  }
 
   type Row = {
     member_name: string | null; phone: string | null; status: string | null;
