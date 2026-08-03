@@ -62,6 +62,8 @@ faceAdminRoutes.get("/enrollments", async (c) => {
     .eq("active", true)
     .limit(5000);
   if (fpErr) return fail(c, "DB_ERROR", "등록 현황 조회 실패", 500);
+  // PostgREST 전역 상한(현재 1000행) 도달 시 무음 절단 — 화면이 과소 보고된다(검수 반영)
+  if ((fpRaw || []).length >= 1000) console.error("[face-admin/enrollments] 절단 의심:", (fpRaw || []).length);
 
   type FpRow = { member_id: string; consent_at: string; created_at: string };
   const grouped = new Map<string, { shots: number; enrolled_at: string; consent_at: string }>();
@@ -91,7 +93,8 @@ faceAdminRoutes.get("/enrollments", async (c) => {
     const { data: mRaw, error: mErr } = await db
       .from("members")
       .select("id, name, phone, status, branch_id, branch:branches(name)")
-      .in("id", ids);
+      .in("id", ids)
+      .is("deleted_at", null); // 검수 반영: /list·verify 와 대칭 — 삭제 회원이 등록 현황에 유령으로 남지 않게
     if (mErr) return fail(c, "DB_ERROR", "회원 조회 실패", 500);
     members = (mRaw ?? []) as unknown as MemberRow[];
 

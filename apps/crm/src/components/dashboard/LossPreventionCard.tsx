@@ -3,6 +3,10 @@
  * - 최근 30일 핵심 거절 사유 5종 집계
  * - 기존 get_denied_reason_stats RPC 재사용 (DB 변경 없음)
  * - 각 사유 클릭 → AccessLogsPage 딥링크 (denied_reason URL param)
+ *
+ * 문구 주의(2026-08-03 boxer 검수): 이 숫자는 "거절 기록"이지 "물리적 차단"이 아니다.
+ * 얼굴 출석은 문 제어(릴레이) 연동 전이라 거절해도 문이 잠기지 않는다 — "차단"으로 쓰면
+ * 대표님·지점장이 "장비가 막아줬다"로 오독한다. QR·카드·얼굴이 한 집계에 섞이는 점도 명시.
  */
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -37,21 +41,21 @@ export function LossPreventionCard() {
 
   const rows: StatRow[] = [
     {
-      label: "만료회원 출입 차단",
-      sub: "이용권 만료 후 입장 시도",
+      label: "만료회원 입장 시도",
+      sub: "이용권 만료 후 시도 · 거절 기록",
       value: data?.expired_membership ?? 0,
       icon: ShieldX,
       deniedReason: "expired_membership",
     },
     {
-      label: "미납회원 출입 차단",
-      sub: "미납 상태 입장 시도",
+      label: "미납회원 입장 시도",
+      sub: "미납 상태 시도 · 거절 기록",
       value: data?.unpaid ?? 0,
       icon: BanknoteIcon,
       deniedReason: "unpaid",
     },
     {
-      label: "체험권 종료 후 출입 차단",
+      label: "체험권 종료 후 시도",
       sub: "체험 만료·횟수 초과 후 시도",
       value: data?.trial_blocked ?? 0,
       icon: TimerOff,
@@ -85,7 +89,7 @@ export function LossPreventionCard() {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-foreground">손실방지 리포트</h2>
-            <p className="text-xs text-muted-foreground">최근 30일 · 시스템이 막은 무단 입장</p>
+            <p className="text-xs text-muted-foreground">최근 30일 · 출입 거절 기록 (QR·얼굴 포함)</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -96,7 +100,7 @@ export function LossPreventionCard() {
                 total > 0 ? "text-success" : "text-muted-foreground"
               )}
             >
-              총 {total}건 차단
+              총 {total}건 거절
             </span>
           )}
           <Link
@@ -166,8 +170,8 @@ export function LossPreventionCard() {
       {/* 푸터 */}
       <div className="border-t border-border px-5 py-2.5 bg-muted/20">
         <p className="text-[11px] text-muted-foreground">
-          💡 차단 건수가 많은 사유는 회원 관리 정책을 점검하세요.
-          상세 로그는{" "}
+          💡 거절 건수가 많은 사유는 회원 관리 정책을 점검하세요. 얼굴 출석은 문 제어 연동 전이라
+          기록만 남습니다. 상세 로그는{" "}
           <Link
             to="/access-logs"
             className="text-primary underline underline-offset-2"

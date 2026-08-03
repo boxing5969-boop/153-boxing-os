@@ -79,6 +79,9 @@ faceAccessRoutes.post("/list", async (c) => {
   const { data: rows, error: fpErr } = await db.from("face_profiles")
     .select("member_id, embedding").eq("active", true).limit(3000);
   if (fpErr) return c.json({ success: false, error: { code: "DB", message: "명단 조회 실패" } }, 500);
+  // PostgREST 전역 상한(현재 1000행)에 걸리면 오류 없이 잘린다 — 등록자가 조용히 사라지는
+  // 사고를 막기 위해 상한 도달을 로그로 남긴다(검수 반영). 근본 해결은 range() 페이징.
+  if ((rows || []).length >= 1000) console.error("[face/list] 명단 절단 의심 — 페이징 전환 필요:", (rows || []).length);
   const ids = [...new Set((rows || []).map((r) => r.member_id))];
   const nameMap = new Map<string, string>();
   if (ids.length) {
@@ -98,10 +101,21 @@ faceAccessRoutes.post("/verify", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const memberId = String(body?.member_id || "");
   if (!memberId) return c.json({ success: false, error: { code: "BAD_INPUT", message: "member_id 필요" } }, 400);
+  // 검수 반영: 삭제 회원을 404 로 끊으면 access_logs 에 한 줄도 안 남아 감사 공백이 된다.
+  // 삭제 여부를 함께 읽어 "거절 + 기록" 으로 처리한다(키오스크도 네트워크 오류가 아닌 거절로 안내).
   const { data: m } = await db.from("members")
-    .select("id, name, phone, branch_id, company_id, status, ranking_app_user_id")
-    .eq("id", memberId).is("deleted_at", null).maybeSingle();
+    .select("id, name, phone, branch_id, company_id, status, ranking_app_user_id, deleted_at")
+    .eq("id", memberId).maybeSingle();
   if (!m) return c.json({ success: false, error: { code: "NOT_FOUND", message: "회원 없음" } }, 404);
+  if (m.deleted_at) {
+    const { error: delLogErr } = await db.from("access_logs").insert({
+      branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
+      credential_type: "face", result: "denied", denied_reason: "unknown_user",
+      occurred_at: new Date().toISOString(),
+    });
+    if (delLogErr) console.error("[face/verify] access_logs insert 실패(deleted member)", delLogErr);
+    return c.json({ success: true, data: { allowed: false, reason: "unknown_user", name: m.name, end_date: null, app_user_id: null } });
+  }
 
   // 검수 반영(FC-4): 등록 해제(동의 철회) 회원은 켜져 있는 키오스크 RAM 명단에 남아 있어도
   // 서버가 최종 차단한다 — "데스크 요청 시 즉시 삭제" 약속의 서버측 방어선.
@@ -109,11 +123,12 @@ faceAccessRoutes.post("/verify", async (c) => {
     .select("id", { count: "exact", head: true })
     .eq("member_id", m.id).eq("active", true);
   if ((activeShots ?? 0) === 0) {
-    await db.from("access_logs").insert({
+    const { error: revLogErr } = await db.from("access_logs").insert({
       branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
       credential_type: "face", result: "denied", denied_reason: "consent_revoked",
       occurred_at: new Date().toISOString(),
     });
+    if (revLogErr) console.error("[face/verify] access_logs insert 실패(consent_revoked)", revLogErr);
     return c.json({ success: true, data: { allowed: false, reason: "consent_revoked", name: m.name, end_date: null, app_user_id: null } });
   }
 
@@ -133,17 +148,39 @@ faceAccessRoutes.post("/verify", async (c) => {
     return Number.isFinite(from) && from <= nowMs && until >= nowMs;
   });
   if (staffGrant) {
-    await db.from("access_logs").insert({
+    const { error: staffLogErr } = await db.from("access_logs").insert({
       branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
       credential_type: "face", result: "success", denied_reason: null,
       raw_event_id: `staff_grant:${staffGrant.id}`, occurred_at: new Date().toISOString(),
     });
+    if (staffLogErr) console.error("[face/verify] access_logs insert 실패(staff)", staffLogErr);
     c.executionCtx.waitUntil(openDoorSafe(c.env, m.branch_id)); // 문 열기(설정 시) — 응답 지연 없음
     return c.json({ success: true, data: { allowed: true, reason: null, staff: true, name: m.name, end_date: null, app_user_id: m.ranking_app_user_id ?? null } });
   }
 
+  // 검수 반영(boxer): CRM 원장(members.status)의 정지·미납·탈퇴는 스냅샷과 무관하게 차단 —
+  // CLAUDE.md 핵심목적 1(미납 자동 차단)·필수원칙 6(정지 차단). 스냅샷(브로제이 명부)의
+  // memberStatus()는 유효/만료/미상만 생산해 '정지·미납' 신호가 없으므로 members.status 가 유일한 차단 신호다.
+  // PILOT_SOFT 완화 대상이 아님(삭제·동의철회와 동일한 하드 차단).
+  const STATUS_BLOCK: Record<string, string> = {
+    suspended: "suspended",
+    unpaid: "unpaid",
+    withdrawn: "unknown_user",
+  };
+  const statusBlock = STATUS_BLOCK[String(m.status)];
+  if (statusBlock) {
+    const { error: stLogErr } = await db.from("access_logs").insert({
+      branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
+      credential_type: "face", result: "denied", denied_reason: statusBlock,
+      occurred_at: new Date().toISOString(),
+    });
+    if (stLogErr) console.error("[face/verify] access_logs insert 실패(status block)", stLogErr);
+    return c.json({ success: true, data: { allowed: false, reason: statusBlock, name: m.name, end_date: null, app_user_id: m.ranking_app_user_id ?? null } });
+  }
+
   // 이용권 판단 — member_snapshots(브로제이 명부, (지점,전화) 키)가 실질 원장
   let allowed = false; let reason: string | null = null; let endDate: string | null = null;
+  let unknownLedger = false; // 원장에 상태·만료일이 전혀 없는데 통과한 경우(감사 표식용)
   const phone = onlyDigits(m.phone);
   if (phone.length >= 10) {
     const { data: snaps } = await db.from("member_snapshots")
@@ -152,8 +189,13 @@ faceAccessRoutes.post("/verify", async (c) => {
     if (s) {
       endDate = s.end_date ?? null;
       const notExpiredByDate = !s.end_date || String(s.end_date) >= kstToday();
-      const badStatus = typeof s.status === "string" && /만료|정지|환불|탈퇴/.test(s.status);
-      if (notExpiredByDate && !badStatus) { allowed = true; }
+      // 검수 반영: '미납' 도 방어적으로 차단 목록에 포함(스냅샷 소스가 미납 표기를 추가할 경우 대비)
+      const badStatus = typeof s.status === "string" && /만료|정지|환불|탈퇴|미납/.test(s.status);
+      if (notExpiredByDate && !badStatus) {
+        allowed = true;
+        // end_date 도 없고 status 도 미입력/미상이면 "원장 근거 없는 통과" — 거절로 바꾸진 않되(유효 회원 오차단 방지) 감사 표식을 남긴다
+        unknownLedger = !s.end_date && (!s.status || /미입력|미상/.test(String(s.status)));
+      }
       else { reason = "expired_membership"; }
     } else {
       reason = "no_valid_grant";
@@ -165,11 +207,18 @@ faceAccessRoutes.post("/verify", async (c) => {
     // 파일럿: 차단 대신 통과 + 사유 보존 (문 제어 전 단계라 표시용)
     allowed = true;
   }
-  await db.from("access_logs").insert({
+  const { error: logErr } = await db.from("access_logs").insert({
     branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
-    credential_type: "face", result: reason ? (PILOT_SOFT ? "success" : "denied") : "success",
-    denied_reason: reason, occurred_at: new Date().toISOString(),
+    // result 는 최종 판정(allowed) 기준으로 적는다 — 사유(reason)로 적으면 파일럿 완화 시
+    // "success + 거절사유" 같은 모순 행이 남아 리포트 해석이 갈린다(검수 반영).
+    credential_type: "face", result: allowed ? "success" : "denied",
+    denied_reason: allowed ? null : reason,
+    // 파일럿 완화로 통과시킨 경우 사유는 raw_event_id 에 보존(감사용, 집계 오염 없음)
+    // 원장 근거 없는 통과(미입력·미상 + end_date null)도 unknown_ledger 로 표식(운영 모니터링용)
+    raw_event_id: allowed && reason ? `pilot_soft:${reason}` : allowed && unknownLedger ? "unknown_ledger" : null,
+    occurred_at: new Date().toISOString(),
   });
+  if (logErr) console.error("[face/verify] access_logs insert 실패", logErr);
   if (allowed) c.executionCtx.waitUntil(openDoorSafe(c.env, m.branch_id)); // 문 열기(설정 시)
   return c.json({ success: true, data: { allowed, reason, name: m.name, end_date: endDate, app_user_id: m.ranking_app_user_id ?? null } });
 });

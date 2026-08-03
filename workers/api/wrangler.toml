@@ -9,6 +9,9 @@ ENVIRONMENT = "development"
 PAGES_URL = "https://153-boxing-os.pages.dev"
 # 브로제이 오픈 API 베이스(공개 URL — 비밀 아님). 키는 시크릿 BROJ_API_KEY.
 BROJ_API_URL = "https://api.broj.co.kr"
+# FC-4 문 제어 릴레이 — 미설정(기본)이면 no-op(문 제어 안 함).
+# 크라이저 명세 수령 후 "kreiser" 로 바꾸고 아래 시크릿 2개를 등록한다.
+# DOOR_RELAY_PROVIDER = "mock"
 
 # 시크릿은 wrangler secret put 으로 등록 (평문 저장 금지)
 # 또는 로컬 개발 시 workers/api/.dev.vars 파일에 KEY=VALUE 형식으로 저장 (gitignored)
@@ -19,6 +22,10 @@ BROJ_API_URL = "https://api.broj.co.kr"
 # - SUPABASE_JWT_SECRET           : Settings → API → JWT Secret
 # - QR_SIGNING_SECRET             : 임의의 32+ 바이트 (openssl rand -base64 32)
 # - DEVICE_API_KEY                : 단말기 공용 HMAC 키 (Phase 8 에서 per-device 로 전환)
+#
+# 선택 시크릿 — FC-4 문 제어 릴레이(크라이저):
+# - DOOR_RELAY_API_URL            : 릴레이 오픈 API 엔드포인트
+# - DOOR_RELAY_API_KEY            : 릴레이 API 키
 #
 # 선택 시크릿 — 카카오 알림톡 (Solapi):
 # - SOLAPI_API_KEY                : Solapi 콘솔 → API Key

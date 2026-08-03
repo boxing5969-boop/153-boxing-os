@@ -21,3 +21,7 @@ CREATE TABLE IF NOT EXISTS public.face_profiles (
 ALTER TABLE public.face_profiles ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.face_profiles FROM PUBLIC, anon, authenticated;
 CREATE INDEX IF NOT EXISTS idx_face_profiles_member ON public.face_profiles (member_id) WHERE active;
+
+-- 워커(service_role) 접근 권한 — 미부여 시 42501 로 인증이 전부 401 나던 사고 (2026-08-03)
+GRANT ALL ON public.internal_config TO service_role;
+GRANT ALL ON public.face_profiles TO service_role;

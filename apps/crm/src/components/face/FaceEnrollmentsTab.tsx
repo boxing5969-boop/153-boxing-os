@@ -42,6 +42,7 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [target, setTarget] = useState<FaceEnrollmentRow | null>(null);
+  const [staffTarget, setStaffTarget] = useState<FaceEnrollmentRow | null>(null); // 직원 지정 확인용
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -67,10 +68,14 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
   const staffMutation = useMutation({
     mutationFn: (v: { memberId: string; enable: boolean }) => setStaffGrant(v.memberId, v.enable),
     onSuccess: () => {
+      setStaffTarget(null);
       setError(null);
       void qc.invalidateQueries({ queryKey: ["face-enrollments"] });
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "직원 통과 변경에 실패했습니다"),
+    onError: (e) => {
+      setStaffTarget(null);
+      setError(e instanceof Error ? e.message : "직원 통과 변경에 실패했습니다");
+    },
   });
 
   const rows = useMemo(() => {
@@ -170,9 +175,9 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
                             직원
                           </span>
                         )}
-                        {!r.is_staff && status && status !== "active" && (
-                          <MemberStatusBadge status={status} />
-                        )}
+                        {/* 검수 반영: 직원 배지가 회원상태를 덮으면 "퇴사했는데 무기한 통과" 대상을
+                            운영자가 식별할 수 없다 — 두 배지를 함께 보여준다. */}
+                        {status && status !== "active" && <MemberStatusBadge status={status} />}
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground tabular whitespace-nowrap">
@@ -193,15 +198,17 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={staffMutation.isPending}
+                          disabled={staffMutation.isPending && staffTarget?.member_id === r.member_id}
                           className={
                             r.is_staff
                               ? "gap-1.5 text-muted-foreground"
                               : "gap-1.5 text-primary hover:bg-primary/10"
                           }
-                          onClick={() =>
-                            staffMutation.mutate({ memberId: r.member_id, enable: !r.is_staff })
-                          }
+                          onClick={() => {
+                            // 무기한 출입 권한이므로 지정·해제 모두 확인을 거친다(검수 반영)
+                            setError(null);
+                            setStaffTarget(r);
+                          }}
                         >
                           <ShieldCheck className="size-3.5" />
                           {r.is_staff ? "직원 해제" : "직원 지정"}
@@ -250,6 +257,35 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
         pending={mutation.isPending}
         onConfirm={() => {
           if (target) mutation.mutate(target.member_id);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!staffTarget}
+        onClose={() => {
+          if (!staffMutation.isPending) setStaffTarget(null);
+        }}
+        title={staffTarget?.is_staff ? "직원 통과 해제" : "직원 통과 지정"}
+        description={
+          <div className="space-y-2">
+            <p>
+              <b>{staffTarget?.name}</b> 회원의 직원 통과를{" "}
+              {staffTarget?.is_staff ? "해제합니다." : "설정합니다."}
+            </p>
+            <p className="text-muted-foreground">
+              {staffTarget?.is_staff
+                ? "앞으로는 이용권 상태에 따라 판정됩니다. 이용권이 없으면 거절돼요."
+                : "이용권과 무관하게 기한 없이 출입이 허용됩니다. 관장·코치 등 직원에게만 사용하고, 퇴사 시 반드시 해제해주세요."}
+            </p>
+          </div>
+        }
+        confirmLabel={staffTarget?.is_staff ? "해제" : "직원으로 지정"}
+        variant={staffTarget?.is_staff ? "outline" : "default"}
+        pending={staffMutation.isPending}
+        onConfirm={() => {
+          if (staffTarget) {
+            staffMutation.mutate({ memberId: staffTarget.member_id, enable: !staffTarget.is_staff });
+          }
         }}
       />
     </div>
