@@ -26,13 +26,20 @@ faceAccessRoutes.use("*", async (c, next) => {
 });
 
 // 전화번호 → 회원 (등록 1단계)
+// FC-5: 회원 3천+ 규모 대응 — 전체 스캔(limit 2000, 잘림 사고)을 버리고
+//       뒷 4자리로 서버에서 좁힌 뒤 정규화 정확 대조. 하이픈 유무 모두 잡힌다.
+//       같은 번호가 여러 지점에 있으면 최근 생성 회원(최근 등록 지점) 우선.
 faceAccessRoutes.post("/lookup", async (c) => {
   const db = getServiceClient(c.env);
   const body = await c.req.json().catch(() => ({}));
   const phone = onlyDigits(body?.phone);
   if (phone.length < 10) return c.json({ success: false, error: { code: "BAD_PHONE", message: "전화번호 형식 오류" } }, 400);
   const { data: rows } = await db.from("members")
-    .select("id, name, branch_id, phone").not("phone", "is", null).limit(2000);
+    .select("id, name, branch_id, phone")
+    .is("deleted_at", null)
+    .ilike("phone", `%${phone.slice(-4)}%`)
+    .order("created_at", { ascending: false })
+    .limit(300);
   const m = (rows || []).find((r) => onlyDigits(r.phone) === phone);
   if (!m) return c.json({ success: false, error: { code: "NOT_FOUND", message: "회원을 찾지 못했습니다" } }, 404);
   const { count } = await db.from("face_profiles").select("id", { count: "exact", head: true })
