@@ -56,14 +56,27 @@ faceAdminRoutes.get("/enrollments", async (c) => {
   const scope = await resolveScope(db, c.get("user").id, c.req.query("branch_id") || null);
   if ("error" in scope) return fail(c, "PERMISSION_DENIED", scope.error, 403);
 
-  const { data: fpRaw, error: fpErr } = await db
-    .from("face_profiles")
-    .select("member_id, consent_at, created_at")
-    .eq("active", true)
-    .limit(5000);
-  if (fpErr) return fail(c, "DB_ERROR", "등록 현황 조회 실패", 500);
-  // PostgREST 전역 상한(현재 1000행) 도달 시 무음 절단 — 화면이 과소 보고된다(검수 반영)
-  if ((fpRaw || []).length >= 1000) console.error("[face-admin/enrollments] 절단 의심:", (fpRaw || []).length);
+  // FC-6: PostgREST 전역 상한(1000행)은 오류 없이 잘린다 — range() 로 끊어 모두 받는다.
+  //       지점 스코프는 임베드 조인으로 서버에서 걸어 절단이 지점 필터보다 먼저 오는 문제도 제거.
+  type FpJoin = { member_id: string; consent_at: string; created_at: string };
+  const PAGE = 1000, MAX_PAGES = 8;
+  const fpRaw: FpJoin[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    let q = db
+      .from("face_profiles")
+      .select("member_id, consent_at, created_at, members!inner(id, branch_id, deleted_at)")
+      .eq("active", true)
+      .is("members.deleted_at", null)
+      .order("member_id", { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (scope.branchId) q = q.eq("members.branch_id", scope.branchId);
+    const { data, error: pErr } = await q;
+    if (pErr) return fail(c, "DB_ERROR", "등록 현황 조회 실패", 500);
+    const batch = (data ?? []) as unknown as FpJoin[];
+    fpRaw.push(...batch);
+    if (batch.length < PAGE) break;
+    if (page === MAX_PAGES - 1) console.error("[face-admin/enrollments] MAX_PAGES 초과:", fpRaw.length);
+  }
 
   type FpRow = { member_id: string; consent_at: string; created_at: string };
   const grouped = new Map<string, { shots: number; enrolled_at: string; consent_at: string }>();
@@ -115,7 +128,7 @@ faceAdminRoutes.get("/enrollments", async (c) => {
   }
 
   const rows = members
-    .filter((m) => !scope.branchId || m.branch_id === scope.branchId)
+    .filter((m) => !scope.branchId || m.branch_id === scope.branchId) // 서버 스코프의 이중 안전장치
     .map((m) => {
       const g = grouped.get(m.id);
       return {

@@ -19,8 +19,14 @@
   - 키오스크: **통과음·호명을 판정 확정 후로** (거절자에게 성공음 나가던 문제), 응답이 4.5초를 넘어도 **거절 사유가 반드시 표시**(종전엔 소리만), `allowed === true` 부정 기본값, await 이후 유령 인식 차단, localStorage 안전 접근.
   - CRM: 직원 지정/해제에 **확인창**(무기한 출입 권한인데 원클릭이었음), 직원 배지가 회원상태를 덮지 않게, 손실방지 카드 문구 **"차단"→"거절 기록"**(문 제어 no-op인데 "시스템이 막았다"고 표기돼 있었음).
   - 오탐 기각 3건: `result='denied'` 0건(=거절 사건이 없었을 뿐), 키오스크 fail-open(응답 4경로 모두 allowed 명시), config.toml max_rows(미링크 로컬 템플릿). E 에이전트의 "거절률 85%·부당거절 389명"은 조건식 오독으로 폐기 → **실제 73.1%(2,334명), end_date NULL 384명은 오히려 통과(fail-open)**.
-- **남은 것**: ① 크라이저 릴레이 연동(회신 대기 — 어댑터 골격 준비됨) ② **키오스크 지점 파라미터**(verify에 키오스크 지점 전달 — 다지점 확산·릴레이 연동 전 필수: 현재 로그·개문 대상이 회원 소속 지점) ③ `.in()` 청크·/list limit 재설계(등록 ~400명 도달 전) ④ **홀딩 정책 결정 대기**(HOLDING 3명 현재 통과 중 — 차단할지 대표 결정) ⑤ 선릉 active 1명 스냅샷 만료 대사(데스크 확인) ⑥ staff_grant 로그 멱등키(LOW).
-- **boxer 2회차 잔여(다음 회차 우선순위)**: ⓐ **PostgREST 1000행 전역 상한** — `/list`·`/enrollments` 가 등록 약 333명(3샷 기준)부터 **오류 없이 잘린다**. 확산 전 range() 페이징 필수 ⓑ **키오스크 키 1개가 마스터 키** — 이 키로 `/list`(전 회원 이름+얼굴 특징값 덤프)·`/enroll`(임의 회원에 타인 얼굴 등록) 가능, rate limit 없음. 지점별 키 분리 + `/enroll` 을 관리자 JWT 라우트로 이관 권장 ⓒ 앱 Edge Function `face-kiosk` **소스가 저장소에 없음**(verify_jwt=false, config.toml 미선언 — CLI 재배포 시 무음 401 위험). 배포본 커밋 필요 ⓓ `get_daily_report_stats` 가 UTC 자정 기준이라 KST 00~09시 누락 → 문자 리포트 숫자와 CRM 화면 숫자가 다름 ⓔ 동의철회 트리거가 `face_profiles.active` 를 끄지 않음(정상 경로 /deactivate 는 끄므로 현 불일치 0건) ⓕ `net.*` anon EXECUTE 회수(현재 REST 도달 경로 없음) ⓖ 앱 checkin `already` 판정이 method 무관 — QR 과 이중 카운트 가능.
+- **FC-6 다지점 확산 준비 완료(2026-08-03 심야)** — boxer 2회차 잔여 ⓐⓑ + H-3 해결.
+  - **키가 지점을 결정한다**: `internal_config.face_kiosk_key:<branch_id>` 지점 키 4개 발급(선릉·역삼·잠실·칠금). 워커 미들웨어가 키→지점을 유도해 `c.set("kioskBranchId")`. 구형 공용 키 `face_kiosk_key` 는 전 지점 스코프로 **호환 유지**(현행 운영 무중단). 키오스크는 지점을 주장하지 않는다(위조 불가).
+  - **로그·문열기 = 키오스크 지점**: verify 의 access_logs.branch_id 와 openDoorSafe 인자를 `kioskBranchId ?? m.branch_id` 로. 타지점 회원 방문은 `raw_event_id='cross_branch'` 로 표시. → 릴레이 연동 시 "타지점 문이 열리는" H-3 리스크 제거.
+  - **명단 지점 스코프 + 페이징**: `/list`·`/enrollments` 를 `face_profiles → members!inner` 임베드 조인으로 바꿔 ①지점 필터를 서버에서 적용 ②`range()` 1000행 페이징(MAX_PAGES 8 = 약 2,600명)으로 **무음 절단 제거** ③`.in(ids)` URL 한도 회피. 종전엔 등록 약 333명부터 오류 없이 잘렸다.
+  - **등록·조회 지점 제한**: 지점 키로는 그 지점 회원만 `/lookup` 조회·`/enroll` 등록 가능(403 OTHER_BRANCH). 유출된 키 1개로 전 지점에 얼굴을 심는 경로 차단.
+  - **키오스크 오설정 감지**: `/list` 가 `branch_name` 을 돌려주고 상단에 `🔑 지점명` 표시 — URL 지점과 다르면 육안 즉시 식별. 배포 파일: `얼굴키오스크-지점별키-대외비.md`(키 배포용), 세팅 가이드 갱신.
+- **남은 것**: ① 크라이저 릴레이 연동(회신 대기 — 어댑터 골격 준비됨) ④ **홀딩 정책 결정 대기**(HOLDING 3명 현재 통과 중 — 차단할지 대표 결정) ⑤ 선릉 active 1명 스냅샷 만료 대사(데스크 확인) ⑥ staff_grant 로그 멱등키(LOW).
+- **boxer 2회차 잔여(다음 회차 우선순위)**: ⓐ~ⓑ(1000행 절단·키 분리)는 FC-6 에서 해결됨. 남은 보안 과제: `/enroll` 을 관리자 JWT 라우트로 이관 + 키당 rate limit(현재 지점 키라 피해 반경은 1개 지점) ⓒ 앱 Edge Function `face-kiosk` **소스가 저장소에 없음**(verify_jwt=false, config.toml 미선언 — CLI 재배포 시 무음 401 위험). 배포본 커밋 필요 ⓓ `get_daily_report_stats` 가 UTC 자정 기준이라 KST 00~09시 누락 → 문자 리포트 숫자와 CRM 화면 숫자가 다름 ⓔ 동의철회 트리거가 `face_profiles.active` 를 끄지 않음(정상 경로 /deactivate 는 끄므로 현 불일치 0건) ⓕ `net.*` anon EXECUTE 회수(현재 REST 도달 경로 없음) ⓖ 앱 checkin `already` 판정이 method 무관 — QR 과 이중 카운트 가능.
 - 검수 판정 메모: face_profiles RLS는 "enabled+정책 0+비서비스롤 grant 0" = 의도된 전면 차단(오탐 기각). 실차단 직전 실측: 오늘 no_valid_grant 통과(파일럿) 5건 → 전환 후 거절로 바뀌는 규모.
 
 ## 완료 상태 (FC-1·2·3·5)
