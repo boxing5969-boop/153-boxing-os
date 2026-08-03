@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { ScanFace, Search, Trash2 } from "lucide-react";
+import { ScanFace, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import type { MemberStatus } from "@153/shared";
 import {
   deactivateFaceEnrollment,
   listFaceEnrollments,
+  setStaffGrant,
   type FaceEnrollmentRow,
 } from "@/services/faceAttendance";
 
@@ -57,6 +58,16 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
       void qc.invalidateQueries({ queryKey: ["face-enrollments"] });
     },
     onError: (e) => setError(e instanceof Error ? e.message : "등록 해제에 실패했습니다"),
+  });
+
+  // FC-4: 직원 통과 토글 — 관장·코치 등 이용권 없이 출입해야 하는 사람 (즉시 가역)
+  const staffMutation = useMutation({
+    mutationFn: (v: { memberId: string; enable: boolean }) => setStaffGrant(v.memberId, v.enable),
+    onSuccess: () => {
+      setError(null);
+      void qc.invalidateQueries({ queryKey: ["face-enrollments"] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "직원 통과 변경에 실패했습니다"),
   });
 
   const rows = useMemo(() => {
@@ -150,7 +161,15 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
                         >
                           {r.name}
                         </button>
-                        {status && status !== "active" && <MemberStatusBadge status={status} />}
+                        {r.is_staff && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                            <ShieldCheck className="size-3" />
+                            직원
+                          </span>
+                        )}
+                        {!r.is_staff && status && status !== "active" && (
+                          <MemberStatusBadge status={status} />
+                        )}
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground tabular whitespace-nowrap">
@@ -167,18 +186,36 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
                       {formatDate(r.consent_at)}
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1.5 text-danger hover:bg-danger/10"
-                        onClick={() => {
-                          setError(null);
-                          setTarget(r);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                        해제
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={staffMutation.isPending}
+                          className={
+                            r.is_staff
+                              ? "gap-1.5 text-muted-foreground"
+                              : "gap-1.5 text-primary hover:bg-primary/10"
+                          }
+                          onClick={() =>
+                            staffMutation.mutate({ memberId: r.member_id, enable: !r.is_staff })
+                          }
+                        >
+                          <ShieldCheck className="size-3.5" />
+                          {r.is_staff ? "직원 해제" : "직원 지정"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1.5 text-danger hover:bg-danger/10"
+                          onClick={() => {
+                            setError(null);
+                            setTarget(r);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                          해제
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 );

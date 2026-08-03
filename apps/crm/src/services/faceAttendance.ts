@@ -18,6 +18,8 @@ export interface FaceEnrollmentRow {
   shots: number;
   enrolled_at: string | null;
   consent_at: string | null;
+  /** 직원 통과(access_grants staff·admin_override) 여부 — 이용권과 무관하게 출입 허용 */
+  is_staff: boolean;
 }
 
 export interface FaceLogRow {
@@ -121,5 +123,16 @@ export async function deactivateFaceEnrollment(memberId: string): Promise<Deacti
   return authedFetch<DeactivateFaceResult>("/api/face-admin/deactivate", {
     method: "POST",
     body: JSON.stringify({ member_id: memberId }),
+  });
+}
+
+/** FC-4: 직원 통과 지정/해제 — 관장·코치 등 이용권 없이 출입해야 하는 사람용 */
+export async function setStaffGrant(
+  memberId: string,
+  enable: boolean
+): Promise<{ member_id: string; is_staff: boolean }> {
+  return authedFetch<{ member_id: string; is_staff: boolean }>("/api/face-admin/staff-grant", {
+    method: "POST",
+    body: JSON.stringify({ member_id: memberId, enable }),
   });
 }

@@ -86,6 +86,7 @@ faceAdminRoutes.get("/enrollments", async (c) => {
     branch: { name: string } | null;
   };
   let members: MemberRow[] = [];
+  const staffIds = new Set<string>();
   if (ids.length > 0) {
     const { data: mRaw, error: mErr } = await db
       .from("members")
@@ -93,6 +94,21 @@ faceAdminRoutes.get("/enrollments", async (c) => {
       .in("id", ids);
     if (mErr) return fail(c, "DB_ERROR", "회원 조회 실패", 500);
     members = (mRaw ?? []) as unknown as MemberRow[];
+
+    // FC-4: 직원 통과(access_grants staff·admin_override) 여부 표시
+    const { data: gRaw } = await db
+      .from("access_grants")
+      .select("member_id, valid_from, valid_until")
+      .in("member_id", ids)
+      .eq("status", "active")
+      .in("grant_type", ["staff", "admin_override"]);
+    type GrantRow = { member_id: string; valid_from: string; valid_until: string | null };
+    const nowMs = Date.now();
+    for (const g of (gRaw ?? []) as GrantRow[]) {
+      const from = new Date(g.valid_from).getTime();
+      const until = g.valid_until ? new Date(g.valid_until).getTime() : Infinity;
+      if (Number.isFinite(from) && from <= nowMs && until >= nowMs) staffIds.add(g.member_id);
+    }
   }
 
   const rows = members
@@ -109,6 +125,7 @@ faceAdminRoutes.get("/enrollments", async (c) => {
         shots: g?.shots ?? 0,
         enrolled_at: g?.enrolled_at ?? null,
         consent_at: g?.consent_at ?? null,
+        is_staff: staffIds.has(m.id),
       };
     })
     .sort((a, b) => String(b.enrolled_at ?? "").localeCompare(String(a.enrolled_at ?? "")));
@@ -171,6 +188,62 @@ faceAdminRoutes.get("/logs", async (c) => {
   }));
 
   return ok(c, { rows, total: count ?? 0, pilot_soft: PILOT_SOFT });
+});
+
+// FC-4: 직원 통과 지정/해제 — verify 가 이용권보다 먼저 보는 access_grants(staff)를 관리.
+// 지정=grant 1건 생성(무기한), 해제=활성 staff grant 전부 revoked. 즉시 가역.
+const staffGrantSchema = z.object({ member_id: z.string().uuid(), enable: z.boolean() });
+
+faceAdminRoutes.post("/staff-grant", async (c) => {
+  const parsed = staffGrantSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return fail(c, "INVALID_REQUEST", "member_id(uuid)·enable(boolean)이 필요합니다", 400);
+
+  const db = getServiceClient(c.env);
+  const scope = await resolveScope(db, c.get("user").id, null);
+  if ("error" in scope) return fail(c, "PERMISSION_DENIED", scope.error, 403);
+
+  const { data: mRaw } = await db
+    .from("members")
+    .select("id, name, branch_id")
+    .eq("id", parsed.data.member_id)
+    .maybeSingle();
+  const member = mRaw as { id: string; name: string; branch_id: string } | null;
+  if (!member) return fail(c, "NOT_FOUND", "회원을 찾을 수 없습니다", 404);
+  if (scope.branchId && member.branch_id !== scope.branchId) {
+    return fail(c, "PERMISSION_DENIED", "다른 지점 회원의 권한은 변경할 수 없습니다", 403);
+  }
+
+  if (parsed.data.enable) {
+    const { data: existing } = await db
+      .from("access_grants")
+      .select("id")
+      .eq("member_id", member.id)
+      .eq("grant_type", "staff")
+      .eq("status", "active")
+      .limit(1);
+    if ((existing ?? []).length > 0) {
+      return ok(c, { member_id: member.id, is_staff: true }, "이미 직원 통과가 설정되어 있습니다");
+    }
+    const { error } = await db.from("access_grants").insert({
+      member_id: member.id,
+      branch_id: member.branch_id,
+      grant_type: "staff",
+      valid_from: new Date().toISOString(),
+      status: "active",
+      reason: "CRM 얼굴 출석 — 직원 통과 설정",
+    });
+    if (error) return fail(c, "DB_ERROR", "직원 통과 설정 실패", 500);
+    return ok(c, { member_id: member.id, is_staff: true }, `${member.name}님을 직원 통과로 설정했습니다`);
+  }
+
+  const { error } = await db
+    .from("access_grants")
+    .update({ status: "revoked", revoked_at: new Date().toISOString() })
+    .eq("member_id", member.id)
+    .eq("grant_type", "staff")
+    .eq("status", "active");
+  if (error) return fail(c, "DB_ERROR", "직원 통과 해제 실패", 500);
+  return ok(c, { member_id: member.id, is_staff: false }, `${member.name}님의 직원 통과를 해제했습니다`);
 });
 
 const deactivateSchema = z.object({ member_id: z.string().uuid() });
