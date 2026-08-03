@@ -92,6 +92,30 @@ faceAccessRoutes.post("/verify", async (c) => {
     .select("id, name, phone, branch_id, company_id, status, ranking_app_user_id").eq("id", memberId).maybeSingle();
   if (!m) return c.json({ success: false, error: { code: "NOT_FOUND", message: "회원 없음" } }, 404);
 
+  // FC-4: 직원·관리자 권한(access_grants staff/admin_override) 우선 확인 —
+  // 관장·코치는 명부(이용권)와 무관하게 통과한다. 실차단(PILOT_SOFT=false) 전환의 전제 조건.
+  // 감사 기록엔 raw_event_id 로 grant 통과를 구분해 남긴다.
+  const nowMs = Date.now();
+  const { data: grants } = await db.from("access_grants")
+    .select("id, grant_type, valid_from, valid_until")
+    .eq("member_id", m.id)
+    .eq("status", "active")
+    .in("grant_type", ["staff", "admin_override"])
+    .limit(5);
+  const staffGrant = (grants || []).find((g) => {
+    const from = new Date(g.valid_from).getTime();
+    const until = g.valid_until ? new Date(g.valid_until).getTime() : Infinity;
+    return Number.isFinite(from) && from <= nowMs && until >= nowMs;
+  });
+  if (staffGrant) {
+    await db.from("access_logs").insert({
+      branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
+      credential_type: "face", result: "success", denied_reason: null,
+      raw_event_id: `staff_grant:${staffGrant.id}`, occurred_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, data: { allowed: true, reason: null, staff: true, name: m.name, end_date: null, app_user_id: m.ranking_app_user_id ?? null } });
+  }
+
   // 이용권 판단 — member_snapshots(브로제이 명부, (지점,전화) 키)가 실질 원장
   let allowed = false; let reason: string | null = null; let endDate: string | null = null;
   const phone = onlyDigits(m.phone);
