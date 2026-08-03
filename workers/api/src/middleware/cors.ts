@@ -26,6 +26,6 @@ export const corsMiddleware = cors({
     "X-Signature",
     "X-Timestamp",
     "X-Partner-Key",
-    "X-Ranking-User-Id",
+    "X-Ranking-User-Id", "X-Kiosk-Key",
   ],
 });

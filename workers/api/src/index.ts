@@ -18,6 +18,8 @@ import { branchAppRoutes } from "./routes/branchApp";
 import { paymentsRoutes } from "./routes/payments";
 import { brojRoutes } from "./routes/broj";
 import { feedbackRoutes } from "./routes/feedback";
+import { sparringConsentRoutes } from "./routes/sparringConsent";
+import { guestPassRoutes } from "./routes/guestPass";
 import { certRoutes } from "./routes/cert";
 import {
   processNextSyncJobs,
@@ -31,7 +33,8 @@ import { runDailyReport } from "./services/dailyReporter";
 import { runResumeDueHolds } from "./services/holdResume";
 import { runAutomationDaily } from "./services/automationRunner";
 import { runDailyAutomationReport } from "./services/dailyAutomationReport";
-import { runBrojAutoSync } from "./services/brojAutoSync";
+import { runBrojAutoSync, runBrojAttendanceSync, runBrojAttendanceBackfill, runHoldsSweep } from "./services/brojAutoSync";
+import { faceAccessRoutes } from "./routes/faceAccess";
 import type { Env } from "./lib/env";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -61,7 +64,10 @@ app.route("/api/reports", dailyReportsRoutes);
 app.route("/api/branch-app", branchAppRoutes);
 app.route("/api/payments", paymentsRoutes);
 app.route("/api/broj", brojRoutes);
+app.route("/api/face", faceAccessRoutes);
 app.route("/api/feedback", feedbackRoutes);
+app.route("/api/sparring", sparringConsentRoutes);
+app.route("/api/guest-pass", guestPassRoutes);
 app.route("/api/cert", certRoutes);
 
 app.notFound((c) =>
@@ -101,11 +107,43 @@ async function handleScheduled(
         .then(() => {
           console.log("[scheduled:fcDailyRun] done");
         })
+        // ※ 시스템 점검 보고는 여기서 따로 보내지 않는다.
+        //   대표님은 카톡 한 통으로 보길 원하셔서 11시 '자동관리 리포트'에 본문을 합쳤다
+        //   (dailyAutomationReport → buildHealthReport). 리포트를 쪼개면 알림만 늘고 안 읽힌다.
+    );
+    // 출석 깊은 백필 — 하루 한 지점씩 최근 60일 재수집(매시간 3일 창이 놓친 구멍 메우기).
+    // ⚠️ 위 체인에 붙이지 않는다: 앞 단계(만료·리포트·FC) 중 하나가 reject 하면 .then 이 끊겨
+    //    백필이 통째로 건너뛰어지고 그날 로테이션이 통으로 밀린다. 독립 실행이 안전하다.
+    ctx.waitUntil(
+      runBrojAttendanceBackfill(env)
+        .then((r) => console.log("[scheduled:attBackfill]", JSON.stringify(r)))
+        .catch((e) => console.error("[scheduled:attBackfill]", e))
     );
     return;
   }
   if (controller.cron === QR_CLEANUP_CRON) {
     ctx.waitUntil(runQrCleanup(env));
+    // 🚨 서브리퀘스트 한도(무료 50)는 **크론 이벤트 1회(invocation) 단위**이고, 같은 이벤트 안의
+    //    waitUntil 여러 개는 예산을 **공유**한다(예전 주석 "쪼개면 따로 받는다"는 틀렸다 — 실측으로
+    //    홀딩 스윕이 18명 중 13명에서 끊기고, 10·11시엔 4~6명까지 떨어지는 걸로 증명됨).
+    //    그래서 무거운 매시간 작업 둘을 이 */10 크론의 **다른 분(minute) 슬롯**으로 옮겨
+    //    각자 온전한 예산 50을 받게 한다. QR 정리는 1~2콜뿐이라 동거해도 넉넉하다.
+    const minute = new Date(controller.scheduledTime).getUTCMinutes();
+    if (minute === 20) {
+      // :20 — 출석 매시간 동기화 (지점당 2~3콜 + 통계 1 ≈ 17콜)
+      ctx.waitUntil(
+        runBrojAttendanceSync(env)
+          .then((r) => console.log("[scheduled:attendance]", JSON.stringify(r)))
+          .catch((e) => console.error("[scheduled:attendance]", e))
+      );
+    } else if (minute === 40) {
+      // :40 — 홀딩(일시정지) 스윕 (18명×2콜 + 고정 6콜 ≈ 42콜, 예산 50 안)
+      ctx.waitUntil(
+        runHoldsSweep(env)
+          .then((r) => console.log("[scheduled:holds]", JSON.stringify(r)))
+          .catch((e) => console.error("[scheduled:holds]", e))
+      );
+    }
     return;
   }
   if (controller.cron === ALERT_CHECK_CRON) {
@@ -133,6 +171,9 @@ async function handleScheduled(
         .then(() => console.log("[scheduled:autoReport] done"))
         .catch((e) => console.error("[scheduled:autoReport]", e))
     );
+    // ※ 출석 매시간 동기화(:20)와 홀딩 스윕(:40)은 QR_CLEANUP(*/10) 크론의 분 슬롯으로 옮겼다.
+    //   여기(정각)에 같이 두면 예약발송·자동발송·11시 리포트와 서브리퀘스트 50을 나눠 써
+    //   서로를 굶긴다(위 QR_CLEANUP 분기 주석 참고).
     return;
   }
   // every minute fallback — sync queue
