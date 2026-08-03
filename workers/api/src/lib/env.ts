@@ -29,4 +29,8 @@ export interface Env {
   // 브로제이 출입·안면인식 어댑터 (오픈 API 명세 수령 후 채움)
   BROJ_API_URL?: string;
   BROJ_API_KEY?: string;
+  // FC-4 문 제어 릴레이 (크라이저 명세 수령 후 채움). 미설정 = no-op.
+  DOOR_RELAY_PROVIDER?: string; // 'mock' | 'kreiser'
+  DOOR_RELAY_API_URL?: string;
+  DOOR_RELAY_API_KEY?: string;
 }

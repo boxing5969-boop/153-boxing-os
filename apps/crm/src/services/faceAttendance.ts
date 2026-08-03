@@ -56,7 +56,8 @@ export interface FaceLogListResult {
 export const FACE_REASON_SHORT: Partial<Record<DeniedReason, string>> = {
   expired_membership: "이용권 만료",
   no_valid_grant: "이용권 없음",
-  unknown_user: "미등록(명부 없음)",
+  unknown_user: "미등록(전화번호 없음)",
+  consent_revoked: "등록 해제됨",
 };
 
 interface ApiSuccess<T> {

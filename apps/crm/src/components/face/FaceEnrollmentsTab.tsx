@@ -57,7 +57,10 @@ export default function FaceEnrollmentsTab({ branchId }: { branchId: string | nu
       setError(null);
       void qc.invalidateQueries({ queryKey: ["face-enrollments"] });
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "등록 해제에 실패했습니다"),
+    onError: (e) => {
+      setTarget(null); // 검수 반영: 다이얼로그를 닫아야 에러 배너가 보인다(뒤에 가려 실패를 성공으로 오인)
+      setError(e instanceof Error ? e.message : "등록 해제에 실패했습니다");
+    },
   });
 
   // FC-4: 직원 통과 토글 — 관장·코치 등 이용권 없이 출입해야 하는 사람 (즉시 가역)

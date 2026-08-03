@@ -23,7 +23,8 @@ const REASON_OPTIONS: { value: FaceReasonFilter; label: string }[] = [
   { value: "ok", label: "정상 통과" },
   { value: "expired_membership", label: "이용권 만료" },
   { value: "no_valid_grant", label: "이용권 없음" },
-  { value: "unknown_user", label: "미등록(명부 없음)" },
+  { value: "unknown_user", label: "미등록(전화번호 없음)" },
+  { value: "consent_revoked", label: "등록 해제됨" },
 ];
 
 function reasonLabel(r: DeniedReason): string {
@@ -59,7 +60,7 @@ export default function FaceLogsTab({ branchId }: { branchId: string | null }) {
     () => ({
       branch_id: branchId,
       reason,
-      from: from ? new Date(from).toISOString() : null,
+      from: from ? new Date(`${from}T00:00:00`).toISOString() : null, // 검수 반영: 날짜만 넘기면 UTC 자정 파싱 → KST 00~09시 로그 누락
       to: to ? new Date(`${to}T23:59:59`).toISOString() : null,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,

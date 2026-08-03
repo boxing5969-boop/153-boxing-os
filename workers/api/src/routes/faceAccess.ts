@@ -8,8 +8,9 @@
 import { Hono } from "hono";
 import type { Env } from "../lib/env";
 import { getServiceClient } from "../lib/supabase";
+import { openDoorSafe } from "../services/doorRelay";
 
-export const PILOT_SOFT = true; // faceAdmin(관리 화면)도 참조 — 해제 시 실차단 전환(FC-4)
+export const PILOT_SOFT = false; // FC-4 실차단 가동(2026-08-03) — 거절은 denied 실기록 + 키오스크 사유 안내. faceAdmin 배너도 이 값 따름
 const onlyDigits = (s: unknown) => String(s ?? "").replace(/[^0-9]/g, "");
 const kstToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -37,7 +38,7 @@ faceAccessRoutes.post("/lookup", async (c) => {
   const { data: rows } = await db.from("members")
     .select("id, name, branch_id, phone")
     .is("deleted_at", null)
-    .ilike("phone", `%${phone.slice(-4)}%`)
+    .ilike("phone", `%${phone.slice(-4)}`)
     .order("created_at", { ascending: false })
     .limit(300);
   const m = (rows || []).find((r) => onlyDigits(r.phone) === phone);
@@ -59,6 +60,9 @@ faceAccessRoutes.post("/enroll", async (c) => {
     return c.json({ success: false, error: { code: "CONSENT_REQUIRED", message: "생체정보 수집·이용 동의가 필요합니다" } }, 400);
   if (embs.some((e) => !Array.isArray(e) || e.length !== 128 || e.some((v) => typeof v !== "number" || !isFinite(v))))
     return c.json({ success: false, error: { code: "BAD_EMBEDDING", message: "임베딩 형식 오류" } }, 400);
+  // 검수 반영: 존재하는(미삭제) 회원인지 확인 — 유령 명단 행 방지
+  const { data: em } = await db.from("members").select("id").eq("id", memberId).is("deleted_at", null).maybeSingle();
+  if (!em) return c.json({ success: false, error: { code: "NOT_FOUND", message: "회원을 찾을 수 없습니다" } }, 404);
   await db.from("face_profiles").update({ active: false }).eq("member_id", memberId).eq("active", true);
   const now = new Date().toISOString();
   const { error } = await db.from("face_profiles")
@@ -69,17 +73,23 @@ faceAccessRoutes.post("/enroll", async (c) => {
 });
 
 // 매칭용 목록 (키오스크가 메모리에 들고 현장 매칭)
+// 검수 반영: 조회 실패는 빈 명단으로 위장하지 않고 오류로 알린다. 삭제(deleted_at) 회원 임베딩은 제외.
 faceAccessRoutes.post("/list", async (c) => {
   const db = getServiceClient(c.env);
-  const { data: rows } = await db.from("face_profiles").select("member_id, embedding").eq("active", true).limit(3000);
+  const { data: rows, error: fpErr } = await db.from("face_profiles")
+    .select("member_id, embedding").eq("active", true).limit(3000);
+  if (fpErr) return c.json({ success: false, error: { code: "DB", message: "명단 조회 실패" } }, 500);
   const ids = [...new Set((rows || []).map((r) => r.member_id))];
   const nameMap = new Map<string, string>();
   if (ids.length) {
-    const { data: ms } = await db.from("members").select("id, name").in("id", ids);
+    const { data: ms, error: msErr } = await db.from("members")
+      .select("id, name").in("id", ids).is("deleted_at", null);
+    if (msErr) return c.json({ success: false, error: { code: "DB", message: "명단 조회 실패" } }, 500);
     for (const m of ms || []) nameMap.set(m.id, (m.name || "회원").trim());
   }
-  return c.json({ success: true, data: { profiles: (rows || []).map((r) => ({
-    member_id: r.member_id, name: nameMap.get(r.member_id) || "회원", embedding: r.embedding })) } });
+  return c.json({ success: true, data: { profiles: (rows || [])
+    .filter((r) => nameMap.has(r.member_id))
+    .map((r) => ({ member_id: r.member_id, name: nameMap.get(r.member_id) || "회원", embedding: r.embedding })) } });
 });
 
 // 출입 판단 + access_logs 기록 (153OS 핵심 — 만료·미납 자동 판정)
@@ -89,8 +99,23 @@ faceAccessRoutes.post("/verify", async (c) => {
   const memberId = String(body?.member_id || "");
   if (!memberId) return c.json({ success: false, error: { code: "BAD_INPUT", message: "member_id 필요" } }, 400);
   const { data: m } = await db.from("members")
-    .select("id, name, phone, branch_id, company_id, status, ranking_app_user_id").eq("id", memberId).maybeSingle();
+    .select("id, name, phone, branch_id, company_id, status, ranking_app_user_id")
+    .eq("id", memberId).is("deleted_at", null).maybeSingle();
   if (!m) return c.json({ success: false, error: { code: "NOT_FOUND", message: "회원 없음" } }, 404);
+
+  // 검수 반영(FC-4): 등록 해제(동의 철회) 회원은 켜져 있는 키오스크 RAM 명단에 남아 있어도
+  // 서버가 최종 차단한다 — "데스크 요청 시 즉시 삭제" 약속의 서버측 방어선.
+  const { count: activeShots } = await db.from("face_profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", m.id).eq("active", true);
+  if ((activeShots ?? 0) === 0) {
+    await db.from("access_logs").insert({
+      branch_id: m.branch_id, company_id: m.company_id, member_id: m.id,
+      credential_type: "face", result: "denied", denied_reason: "consent_revoked",
+      occurred_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, data: { allowed: false, reason: "consent_revoked", name: m.name, end_date: null, app_user_id: null } });
+  }
 
   // FC-4: 직원·관리자 권한(access_grants staff/admin_override) 우선 확인 —
   // 관장·코치는 명부(이용권)와 무관하게 통과한다. 실차단(PILOT_SOFT=false) 전환의 전제 조건.
@@ -113,6 +138,7 @@ faceAccessRoutes.post("/verify", async (c) => {
       credential_type: "face", result: "success", denied_reason: null,
       raw_event_id: `staff_grant:${staffGrant.id}`, occurred_at: new Date().toISOString(),
     });
+    c.executionCtx.waitUntil(openDoorSafe(c.env, m.branch_id)); // 문 열기(설정 시) — 응답 지연 없음
     return c.json({ success: true, data: { allowed: true, reason: null, staff: true, name: m.name, end_date: null, app_user_id: m.ranking_app_user_id ?? null } });
   }
 
@@ -144,5 +170,6 @@ faceAccessRoutes.post("/verify", async (c) => {
     credential_type: "face", result: reason ? (PILOT_SOFT ? "success" : "denied") : "success",
     denied_reason: reason, occurred_at: new Date().toISOString(),
   });
+  if (allowed) c.executionCtx.waitUntil(openDoorSafe(c.env, m.branch_id)); // 문 열기(설정 시)
   return c.json({ success: true, data: { allowed, reason, name: m.name, end_date: endDate, app_user_id: m.ranking_app_user_id ?? null } });
 });

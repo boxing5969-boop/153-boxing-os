@@ -73,7 +73,7 @@ export default function AccessLogsPage() {
       result: result || null,
       credential_type: credential || null,
       denied_reason: deniedReason || null,
-      from: from ? new Date(from).toISOString() : null,
+      from: from ? new Date(`${from}T00:00:00`).toISOString() : null, // 검수 반영: 날짜만 파싱 시 UTC 자정 → KST 00~09시 로그 누락
       to: to ? new Date(`${to}T23:59:59`).toISOString() : null,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,

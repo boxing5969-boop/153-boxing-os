@@ -240,7 +240,7 @@ faceAdminRoutes.post("/staff-grant", async (c) => {
     .from("access_grants")
     .update({ status: "revoked", revoked_at: new Date().toISOString() })
     .eq("member_id", member.id)
-    .eq("grant_type", "staff")
+    .in("grant_type", ["staff", "admin_override"]) // 검수 반영: is_staff 판정과 대칭 — admin_override도 해제
     .eq("status", "active");
   if (error) return fail(c, "DB_ERROR", "직원 통과 해제 실패", 500);
   return ok(c, { member_id: member.id, is_staff: false }, `${member.name}님의 직원 통과를 해제했습니다`);
