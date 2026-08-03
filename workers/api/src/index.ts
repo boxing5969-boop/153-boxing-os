@@ -35,6 +35,7 @@ import { runAutomationDaily } from "./services/automationRunner";
 import { runDailyAutomationReport } from "./services/dailyAutomationReport";
 import { runBrojAutoSync, runBrojAttendanceSync, runBrojAttendanceBackfill, runHoldsSweep } from "./services/brojAutoSync";
 import { faceAccessRoutes } from "./routes/faceAccess";
+import { faceAdminRoutes } from "./routes/faceAdmin";
 import type { Env } from "./lib/env";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -65,6 +66,7 @@ app.route("/api/branch-app", branchAppRoutes);
 app.route("/api/payments", paymentsRoutes);
 app.route("/api/broj", brojRoutes);
 app.route("/api/face", faceAccessRoutes);
+app.route("/api/face-admin", faceAdminRoutes); // FC-3: CRM 관리자용(JWT) — 키오스크 키 라우트와 분리
 app.route("/api/feedback", feedbackRoutes);
 app.route("/api/sparring", sparringConsentRoutes);
 app.route("/api/guest-pass", guestPassRoutes);

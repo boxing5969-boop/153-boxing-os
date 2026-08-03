@@ -1,0 +1,217 @@
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { ScanFace, Search, Trash2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirmDialog";
+import MemberStatusBadge from "@/components/members/MemberStatusBadge";
+import { formatDate, formatPhone } from "@/lib/format";
+import type { MemberStatus } from "@153/shared";
+import {
+  deactivateFaceEnrollment,
+  listFaceEnrollments,
+  type FaceEnrollmentRow,
+} from "@/services/faceAttendance";
+
+const MEMBER_STATUSES: MemberStatus[] = [
+  "active", "trial", "expired", "suspended", "unpaid", "withdrawn",
+];
+
+function asMemberStatus(s: string): MemberStatus | null {
+  return (MEMBER_STATUSES as string[]).includes(s) ? (s as MemberStatus) : null;
+}
+
+function SkeletonRow() {
+  return (
+    <tr className="border-b border-border">
+      {[120, 110, 80, 40, 80, 80].map((w, i) => (
+        <td key={i} className="px-5 py-3.5">
+          <div className="h-4 rounded-md bg-muted animate-pulse" style={{ width: w }} />
+        </td>
+      ))}
+      <td className="px-5 py-3.5" />
+    </tr>
+  );
+}
+
+export default function FaceEnrollmentsTab({ branchId }: { branchId: string | null }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [q, setQ] = useState("");
+  const [target, setTarget] = useState<FaceEnrollmentRow | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["face-enrollments", branchId],
+    queryFn: () => listFaceEnrollments(branchId),
+    staleTime: 10_000,
+  });
+
+  const mutation = useMutation({
+    mutationFn: (memberId: string) => deactivateFaceEnrollment(memberId),
+    onSuccess: () => {
+      setTarget(null);
+      setError(null);
+      void qc.invalidateQueries({ queryKey: ["face-enrollments"] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "등록 해제에 실패했습니다"),
+  });
+
+  const rows = useMemo(() => {
+    const all = data?.rows ?? [];
+    const term = q.trim().toLowerCase();
+    if (!term) return all;
+    const digits = term.replace(/\D/g, "");
+    return all.filter(
+      (r) =>
+        r.name.toLowerCase().includes(term) ||
+        (digits.length > 1 && (r.phone ?? "").replace(/\D/g, "").includes(digits))
+    );
+  }, [data, q]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="이름·전화번호 검색"
+            className="w-64 pl-9"
+          />
+        </div>
+        <span className="text-sm text-muted-foreground tabular">
+          등록 회원 {rows.length.toLocaleString()}명
+        </span>
+      </div>
+
+      {error && (
+        <p className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
+
+      <Card className="overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="border-b border-border bg-muted/40">
+            <tr>
+              {["회원", "연락처", "지점", "샷", "등록일", "동의일", ""].map((h, i) => (
+                <th
+                  key={i}
+                  className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {isLoading && [...Array(5)].map((_, i) => <SkeletonRow key={i} />)}
+
+            {isError && (
+              <tr>
+                <td colSpan={7} className="px-5 py-14 text-center text-sm text-danger">
+                  등록 현황을 불러오지 못했습니다
+                </td>
+              </tr>
+            )}
+
+            {!isLoading && !isError && rows.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-5 py-14 text-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <ScanFace className="size-8 text-muted-foreground/40" />
+                    <p className="text-sm font-medium text-foreground">
+                      {q ? "검색 결과가 없습니다" : "얼굴 등록 회원이 없습니다"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {q ? "다른 이름이나 번호로 검색해보세요" : "키오스크에서 등록하면 여기에 표시됩니다"}
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            )}
+
+            {!isLoading &&
+              !isError &&
+              rows.map((r) => {
+                const status = asMemberStatus(r.member_status);
+                return (
+                  <tr key={r.member_id} className="transition-colors hover:bg-muted/40">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/members/${r.member_id}`)}
+                          className="font-semibold text-foreground hover:underline"
+                        >
+                          {r.name}
+                        </button>
+                        {status && status !== "active" && <MemberStatusBadge status={status} />}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground tabular whitespace-nowrap">
+                      {formatPhone(r.phone)}
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                      {r.branch_name ?? "—"}
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground tabular">{r.shots}</td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground tabular whitespace-nowrap">
+                      {formatDate(r.enrolled_at)}
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground tabular whitespace-nowrap">
+                      {formatDate(r.consent_at)}
+                    </td>
+                    <td className="px-5 py-3.5 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1.5 text-danger hover:bg-danger/10"
+                        onClick={() => {
+                          setError(null);
+                          setTarget(r);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                        해제
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </Card>
+
+      <ConfirmDialog
+        open={!!target}
+        onClose={() => {
+          if (!mutation.isPending) setTarget(null);
+        }}
+        title="얼굴 등록 해제"
+        description={
+          <div className="space-y-2">
+            <p>
+              <b>{target?.name}</b> 회원의 얼굴 등록을 해제합니다.
+            </p>
+            <p className="text-muted-foreground">
+              키오스크 인식 대상에서 제외되고 생체정보 수집 동의가 철회 처리됩니다. 다시
+              이용하려면 키오스크에서 재등록해야 합니다. (이미 켜져 있는 키오스크는 화면
+              새로고침 후 반영)
+            </p>
+          </div>
+        }
+        confirmLabel="등록 해제"
+        variant="destructive"
+        pending={mutation.isPending}
+        onConfirm={() => {
+          if (target) mutation.mutate(target.member_id);
+        }}
+      />
+    </div>
+  );
+}

@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import type { Env } from "../lib/env";
 import { getServiceClient } from "../lib/supabase";
 
-const PILOT_SOFT = true;
+export const PILOT_SOFT = true; // faceAdmin(관리 화면)도 참조 — 해제 시 실차단 전환(FC-4)
 const onlyDigits = (s: unknown) => String(s ?? "").replace(/[^0-9]/g, "");
 const kstToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
