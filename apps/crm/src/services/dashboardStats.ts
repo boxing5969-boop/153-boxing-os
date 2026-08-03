@@ -1,83 +1,31 @@
 import { supabase } from "@/integrations/supabase/client";
 
+/**
+ * 홈 대시보드 — 운영 액션 카운트만 담당.
+ * 검수 반영(boxer): 핵심 숫자(출입·신규·미납·만료예정)는 브로제이 명부 기준
+ * 통합 집계(reportAutoStats.getAutoStats — 워커 /api/reports/auto-stats)로 이관했다.
+ * 여기 남은 것은 TodayActionStrip 용 3개뿐 — 안 쓰는 count 쿼리 6개는 제거(주기 낭비 방지).
+ */
 export interface DashboardStats {
-  todaySuccessCount: number;
-  todayDeniedCount: number;
-  expiringMembershipsCount: number; // 다음 7일 (오늘 포함)
-  failedSyncJobsCount: number;
-  unpaidMembersCount: number;        // 미납 회원 수
-  // ── 센터 운영 OS Phase 1 추가 ──────────────────────────
-  todayNewMembersCount: number;              // 오늘 신규 등록 회원
   pendingVisitorCount: number;               // 방문 신청 대기
   pendingScheduledMessagesCount: number;     // 예약 발송 대기
   dueFollowupsCount: number;                 // 상담 팔로업 예정 (오늘까지)
 }
 
-function startOfTodayIso(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+// KST 자정 앵커 — reportAutoStats 와 동일 방식
+function kstDay(offsetDays = 0): string {
+  return new Date(Date.now() + 9 * 3600 * 1000 + offsetDays * 86400 * 1000)
+    .toISOString().slice(0, 10);
 }
 
 function endOfTodayIso(): string {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d.toISOString();
-}
-
-function dateOnly(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return `${kstDay(0)}T23:59:59+09:00`;
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const todayIso = startOfTodayIso();
   const endTodayIso = endOfTodayIso();
-  const today = new Date();
-  const in7 = new Date();
-  in7.setDate(in7.getDate() + 7);
 
-  const [
-    success,
-    denied,
-    expiring,
-    failed,
-    unpaid,
-    newMembers,
-    pendingVisitors,
-    pendingMsgs,
-    dueFollowups,
-  ] = await Promise.all([
-    // ── 기존 5개 ──────────────────────────────────────────
-    supabase
-      .from("access_logs")
-      .select("id", { count: "exact", head: true })
-      .eq("result", "success")
-      .gte("occurred_at", todayIso),
-    supabase
-      .from("access_logs")
-      .select("id", { count: "exact", head: true })
-      .eq("result", "denied")
-      .gte("occurred_at", todayIso),
-    supabase
-      .from("memberships")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "active")
-      .gte("end_date", dateOnly(today))
-      .lte("end_date", dateOnly(in7)),
-    supabase
-      .from("device_sync_jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "failed"),
-    supabase
-      .from("members")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "unpaid"),
-    // ── 센터 운영 OS Phase 1 추가 4개 ────────────────────
-    // 오늘 신규 등록 회원
-    supabase
-      .from("members")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", todayIso),
+  const [pendingVisitors, pendingMsgs, dueFollowups] = await Promise.all([
     // 방문 신청 대기 (status = 'requested')
     supabase
       .from("visitor_requests")
@@ -97,12 +45,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   ]);
 
   return {
-    todaySuccessCount: success.count ?? 0,
-    todayDeniedCount: denied.count ?? 0,
-    expiringMembershipsCount: expiring.count ?? 0,
-    failedSyncJobsCount: failed.count ?? 0,
-    unpaidMembersCount: unpaid.count ?? 0,
-    todayNewMembersCount: newMembers.count ?? 0,
     pendingVisitorCount: pendingVisitors.count ?? 0,
     pendingScheduledMessagesCount: pendingMsgs.count ?? 0,
     dueFollowupsCount: dueFollowups.count ?? 0,

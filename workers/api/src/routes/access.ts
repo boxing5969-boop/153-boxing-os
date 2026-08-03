@@ -14,7 +14,7 @@ import { DENIED_REASON_LABELS, type DeniedReason } from "@153/shared";
 export const accessRoutes = new Hono<{ Bindings: Env }>();
 
 const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
-const BRANCH_ROLES = new Set(["branch_admin", "branch_owner", "coach", "staff"]);
+const BRANCH_ROLES = new Set(["branch_manager", "branch_owner", "coach", "staff"]);
 
 const verifySchema = z.object({
   branch_id: z.string().uuid(),

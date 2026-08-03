@@ -67,6 +67,7 @@ export default function Header() {
       {/* 왼쪽: 검색 버튼 */}
       <button
         type="button"
+        aria-label="검색"
         onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
         className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground transition-all hover:border-primary/30 hover:bg-muted hover:text-foreground"
       >
@@ -95,6 +96,7 @@ export default function Header() {
         <div className="relative">
           <button
             type="button"
+            aria-label="동기화 실패 알림"
             className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="동기화 실패 알림"
           >

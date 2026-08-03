@@ -207,9 +207,9 @@ export default function BulkNotifyPage() {
     <div className="space-y-6 max-w-5xl">
       {/* 헤더 */}
       <div>
-        <h1 className="text-2xl font-black text-foreground">문자 발송</h1>
+        <h1 className="text-2xl font-black text-foreground">문자 보내기</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          만료 예정 회원 알림과 자유 공지·안내 문자를 발송합니다.
+          대상 고르기 → 미리보기 → 보내기. 만료 알림부터 공지까지 여기서 보내요.
         </p>
       </div>
 

@@ -189,7 +189,7 @@ export default function KpiDashboardPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-black text-foreground">
-          {isHq ? "본사 KPI 대시보드" : "지점 운영 대시보드"}
+          {isHq ? "본사 핵심 지표" : "지점 핵심 지표"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {isHq ? "전 지점 핵심 지표 — 이번달 기준" : "오늘 기준 운영 현황"}
@@ -206,7 +206,7 @@ export default function KpiDashboardPage() {
 
       {active.isError && (
         <div className="rounded-xl bg-danger/5 border border-danger/20 px-4 py-3 text-sm text-danger">
-          KPI를 불러오지 못했습니다: {active.error instanceof Error ? active.error.message : "알 수 없는 오류"}
+          핵심 지표를 불러오지 못했습니다: {active.error instanceof Error ? active.error.message : "알 수 없는 오류"}
         </div>
       )}
 

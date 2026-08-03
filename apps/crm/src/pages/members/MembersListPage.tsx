@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Search, Users, ChevronRight, SlidersHorizontal, CreditCard, Megaphone } from "lucide-react";
+import { Plus, Search, Users, ChevronRight, SlidersHorizontal, CreditCard, Megaphone, Upload } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,10 +54,27 @@ function SkeletonRow() {
 
 export default function MembersListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | MemberStatus>("");
+  // 상태 필터는 URL 쿼리(?status=)와 동기화 → 홈 카드 딥링크·공유·뒤로가기 보존
+  const statusFilter = (searchParams.get("status") as MemberStatus | null) ?? "";
+  const setStatusFilter = (value: "" | MemberStatus) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set("status", value);
+        else next.delete("status");
+        return next;
+      },
+      { replace: true }
+    );
+  };
   const [page, setPage] = useState(0);
   const debouncedQuery = useDebouncedValue(query, 300);
+
+  // 검수 반영(boxer): 상태 필터가 URL 로 바뀌는 경로(홈 카드 딥링크·사이드바 재클릭)는
+  // Select onChange 를 안 타므로 여기서 페이지를 리셋 — 범위 밖 빈 페이지 방지.
+  useEffect(() => { setPage(0); }, [statusFilter]);
 
   // 이용권 바로 등록 (목록에서 클릭)
   const [quickRegisterMember, setQuickRegisterMember] = useState<Member | null>(null);
@@ -103,6 +120,12 @@ export default function MembersListPage() {
               <Megaphone className="size-4" />
               공지 발송
             </Button>
+            <Link to="/members/import">
+              <Button variant="outline" className="gap-2">
+                <Upload className="size-4" />
+                명단 업로드
+              </Button>
+            </Link>
             <Link to="/members/new">
               <Button className="gap-2">
                 <Plus className="size-4" />

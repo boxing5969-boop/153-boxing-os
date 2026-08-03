@@ -11,7 +11,7 @@ import { fail, ok } from "../lib/responses";
 import { requireJwt } from "../middleware/jwt";
 import { getServiceClient } from "../lib/supabase";
 import { generateFcMessage } from "../services/fcMessageGen";
-import { sendSms } from "../services/smsNotifier";
+import { sendSms, sendFriendTalk } from "../services/smsNotifier";
 
 export const fcRoutes = new Hono<{ Bindings: Env }>();
 
@@ -165,6 +165,57 @@ fcRoutes.post("/send-message", requireJwt, async (c) => {
   const phone = (member as { phone: string | null } | null)?.phone;
   if (!phone) return fail(c, "INVALID_STATE", "회원 전화번호가 없습니다", 422);
 
+  // ── V2 광고성 문자 발송 가드 (정보성 문자는 제약 없음) ───────────────
+  // (광고) = 광고성. 지점에 카카오 채널이 연동돼 있으면 친구톡(카카오가 수신거부 처리, 080 불필요)으로,
+  // 아니면 SMS(080 무료수신거부 필수)로 발송한다. 둘 다 마케팅 동의 + 발송 가능시간을 강제한다.
+  let adViaFriendTalk = false;
+  const adBody = sug.generated_body.replace(/^\s+/, "");
+  if (adBody.startsWith("(광고)")) {
+    // 1) 마케팅 수신동의 — 동의했고 철회하지 않은 회원만 (공통)
+    const { data: consent } = await db
+      .from("consent_records")
+      .select("agreed,revoked_at")
+      .eq("member_id", sug.member_id)
+      .eq("consent_type", "marketing")
+      .order("agreed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const cr = consent as { agreed: boolean; revoked_at: string | null } | null;
+    if (!cr || !cr.agreed || cr.revoked_at) {
+      return fail(c, "AD_NO_CONSENT",
+        "광고성 문자는 마케팅 수신동의 회원에게만 발송할 수 있습니다.", 422);
+    }
+
+    // 광고 채널 결정 — 지점에 카카오 채널(@채널)이 연동돼 있으면 친구톡으로 발송
+    const { data: brow } = await db
+      .from("branches")
+      .select("kakao_channel_id")
+      .eq("id", sug.branch_id)
+      .maybeSingle();
+    adViaFriendTalk = !!(brow as { kakao_channel_id: string | null } | null)
+      ?.kakao_channel_id?.trim();
+
+    // 2) 발송 가능시간(KST) — 친구톡 광고 20시~08시 금지, SMS 광고 21시~08시 금지
+    const kstHour = (new Date().getUTCHours() + 9) % 24;
+    const nightStart = adViaFriendTalk ? 20 : 21;
+    if (kstHour < 8 || kstHour >= nightStart) {
+      return fail(c, "AD_OUTSIDE_HOURS",
+        `광고성 문자는 한국시간 08~${nightStart - 1}시에만 발송할 수 있습니다.`, 422);
+    }
+
+    // 3) SMS 광고만 무료 수신거부 번호 필수 (친구톡은 카카오가 수신거부 처리 → 면제)
+    if (!adViaFriendTalk) {
+      const b = sug.generated_body;
+      const hasPlaceholder = /\[[^\]]*수신\s*거부[^\]]*\]/.test(b);
+      const hasRealOptout =
+        /(무료\s*수신거부|무료거부)[^\d]{0,8}\d{3,}/.test(b) || /080[\d-]{6,}/.test(b);
+      if (hasPlaceholder || !hasRealOptout) {
+        return fail(c, "AD_NO_OPTOUT",
+          "광고성 SMS에는 실제 무료 수신거부 번호 표기가 필요합니다(자리표시자 불가). 카카오 채널 연동 또는 무료수신거부번호 설정 후 발송하세요.", 422);
+      }
+    }
+  }
+
   // 원자적 발송 권한 확보 — status 를 approved → sent 로 조건부 전환한다.
   // eq("status","approved") 덕분에 같은 메시지로 동시 요청이 들어와도
   // 이 UPDATE 는 한 요청에서만 row 를 반영하고, 나머지는 빈 결과를 받는다.
@@ -180,7 +231,9 @@ fcRoutes.post("/send-message", requireJwt, async (c) => {
     return fail(c, "ALREADY_SENT", "이미 발송되었거나 다른 요청이 발송 처리 중입니다", 409);
   }
 
-  const result = await sendSms(db, c.env, sug.branch_id, phone, sug.generated_body);
+  const result = adViaFriendTalk
+    ? await sendFriendTalk(db, c.env, sug.branch_id, phone, sug.generated_body, { isAd: true })
+    : await sendSms(db, c.env, sug.branch_id, phone, sug.generated_body);
   if (!result.success) {
     // 발송 실패 — 상태를 approved 로 되돌려 재시도할 수 있게 한다.
     await db.from("message_suggestions")
@@ -195,7 +248,7 @@ fcRoutes.post("/send-message", requireJwt, async (c) => {
     member_id: sug.member_id,
     fc_task_id: sug.fc_task_id,
     staff_id: caller.id,
-    channel: "sms",
+    channel: adViaFriendTalk ? "kakao" : "sms",
     message_body: sug.generated_body,
     result: "sent",
   });

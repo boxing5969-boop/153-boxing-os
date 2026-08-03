@@ -361,7 +361,9 @@ brojRoutes.post("/sync/holds", requireJwt, async (c) => {
   //    서브리퀘스트 한도를 넘어 "Too many subrequests by single Worker invocation" 으로 통째로 죽는다.
   //    (2026-08-02 3지점 동시 실행에서 실제 발생.) 그래서 **한 번에 확인할 총 인원**을 예산으로 묶는다.
   //    다 못 돌면 remaining 으로 남겨 다음 실행에서 이어간다 — 어차피 '마지막 조회가 가장 오래된 회원'부터 돈다.
-  const MAX_PER_RUN = 30;
+  // 회원 1명 = 브로제이 1콜 + DB 갱신 1콜 = 2콜. 30명이면 고정비 포함 64콜 > 무료 50 으로
+  // 통째로 죽는다(실측: 23명에서 절단). 20명 = 44콜로 예산 안.
+  const MAX_PER_RUN = 20;
   let budget = Math.min(Math.max(body.batch ?? MAX_PER_RUN, 1), MAX_PER_RUN);
 
   const branches: { branch_id: string; name: string; ok: boolean; checked: number; holding: number; remaining: number; skipped?: boolean; error?: string }[] = [];

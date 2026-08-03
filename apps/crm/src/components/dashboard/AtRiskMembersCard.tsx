@@ -62,9 +62,12 @@ export function AtRiskMembersCard() {
             ))}
           </div>
         ) : !branchId ? (
-          <p className="p-5 text-sm text-muted-foreground text-center">
-            지점을 선택하면 이탈 위험 회원이 표시됩니다
-          </p>
+          <div className="p-5 text-center">
+            <p className="text-sm text-muted-foreground">본사 계정입니다</p>
+            <Link to="/hq" className="mt-1 inline-block text-xs font-semibold text-primary hover:underline">
+              지점 현황에서 확인 →
+            </Link>
+          </div>
         ) : members.length === 0 ? (
           <p className="p-5 text-sm text-muted-foreground text-center">
             이탈 위험 회원이 없습니다 🎉

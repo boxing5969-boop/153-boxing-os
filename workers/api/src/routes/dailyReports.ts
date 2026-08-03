@@ -189,6 +189,69 @@ dailyReportsRoutes.get("/daily", requireJwt, async (c) => {
   });
 });
 
+// ── 자동 집계: 브로제이 명부(member_snapshots) 기준 ──────────
+// 검수 반영(boxing): 회원 현황(활성·만료예정·신규)은 브로제이가 원본 원장이다.
+// 153OS 자체 테이블(members/memberships) 기준으로 세면 브로제이 화면과 숫자가 갈라진다.
+// 출입은 153OS 고유 데이터(access_logs), 미납은 CRM 수기 처리(members.status) 기준 유지.
+dailyReportsRoutes.get("/auto-stats", requireJwt, async (c) => {
+  const branchParam = c.req.query("branch_id") || null;
+  const date = c.req.query("date") ?? kstDateStr();
+
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+
+  // 지점 결정 — 지정 시 접근권한 검사, 미지정 시 본사=전 지점 합계, 지점 사용자=자기 지점
+  let branchId: string | null;
+  if (branchParam) {
+    if (!canAccessBranch(profile, branchParam)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+    branchId = branchParam;
+  } else if (HQ_ROLES.has(profile.role)) {
+    branchId = null;
+  } else {
+    if (!profile.branch_id) return fail(c, "FORBIDDEN", "지점이 배정되지 않았습니다", 403);
+    branchId = profile.branch_id;
+  }
+
+  const dayStart = `${date}T00:00:00+09:00`;
+  const dayEnd = `${date}T23:59:59+09:00`;
+  const today = kstDateStr();
+  const in7 = addDays(today, 7);
+
+  // 지점 스코프 count 쿼리 빌더 (branchId null = 전 지점)
+  const bq = (table: string) => {
+    const q = db.from(table).select("id", { count: "exact", head: true });
+    return branchId ? q.eq("branch_id", branchId) : q;
+  };
+
+  const [success, denied, activeByDate, activeNoEnd, expiring, newJoined, unpaid] = await Promise.all([
+    bq("access_logs").eq("result", "success")
+      .gte("occurred_at", dayStart).lte("occurred_at", dayEnd),
+    bq("access_logs").eq("result", "denied")
+      .gte("occurred_at", dayStart).lte("occurred_at", dayEnd),
+    // 활성(브로제이): 만료일이 오늘 이후인 회원
+    bq("member_snapshots").gte("end_date", today),
+    // 활성 보조: 만료일 없이 상태가 유효/활성으로 찍힌 회원
+    bq("member_snapshots").is("end_date", null).in("status", ["유효", "활성"]),
+    // 7일 내 만료 예정 (오늘 포함)
+    bq("member_snapshots").gte("end_date", today).lte("end_date", in7),
+    // 해당일 신규 등록 — 브로제이 가입일(raw_payload.joined_at) 기준
+    bq("member_snapshots").eq("raw_payload->>joined_at", date),
+    // 미납 — 브로제이엔 미납 개념이 없어 CRM 수기 처리 기준
+    bq("members").eq("status", "unpaid").is("deleted_at", null),
+  ]);
+
+  return ok(c, {
+    accessSuccess: success.count ?? 0,
+    accessDenied: denied.count ?? 0,
+    newMembers: newJoined.count ?? 0,
+    expiringSoon: expiring.count ?? 0,
+    unpaid: unpaid.count ?? 0,
+    activeMembers: (activeByDate.count ?? 0) + (activeNoEnd.count ?? 0),
+    source: "broj_snapshot",
+  });
+});
+
 // ── 일일 리포트 저장 (upsert, 하루 1건) ──────────────────────
 const reportSchema = z.object({
   branch_id: z.string().uuid(),
@@ -1133,7 +1196,9 @@ dailyReportsRoutes.post("/members/import", requireJwt, async (c) => {
 // ── 새벽반(오전) 코치 모드 ─────────────────────────────────────
 // 오전반 회원 = 최근 30일, 오전 6~9시대(KST 06:00~09:59) 출입 기록이 있는 회원.
 // 수업은 7~9시지만 일찍 오는 회원을 놓치지 않게 앞뒤로 여유를 둔다. 돈 필드 없음(코치 안전).
-const MORNING_HOURS: [number, number] = [6, 9];
+// 대표 지시(2026-08-02): 새벽반은 7~9시. 프론트 MORNING_WINDOW 와 반드시 같은 값이어야
+// 한 화면 안에서 '오늘 출석 배지'와 '출석 조회' 숫자가 갈리지 않는다.
+const MORNING_HOURS: [number, number] = [7, 9];
 dailyReportsRoutes.get("/morning/members", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id");
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
@@ -1167,7 +1232,7 @@ dailyReportsRoutes.get("/morning/members", requireJwt, async (c) => {
   const members = Array.from(byKey.values())
     .map((a) => ({ name: a.name, phone: a.phone, morning_visits_30d: a.days.size, last_morning_date: a.last, today: a.today }))
     .sort((x, y) => (y.today ? 1 : 0) - (x.today ? 1 : 0) || y.morning_visits_30d - x.morning_visits_30d);
-  return ok(c, { members, today_count: members.filter((m) => m.today).length, window: "오전 6시~9시대" });
+  return ok(c, { members, today_count: members.filter((m) => m.today).length, window: "오전 7시~9시대" });
 });
 
 // 새벽반 데이터 센터 — 오전 시간대만 떼어낸 통계.
@@ -1240,7 +1305,7 @@ dailyReportsRoutes.get("/morning/stats", requireJwt, async (c) => {
   const attendRate = active30 > 0 && openDays > 0 ? Math.round((visits30 / (active30 * openDays)) * 100) : 0;
 
   return ok(c, {
-    window: "오전 6시~9시대", days,
+    window: "오전 7시~9시대", days,
     summary: {
       active_30d: active30,
       today: members.filter((m) => m.last_date === today).length,
@@ -1466,14 +1531,22 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
   //    이걸 안 알려주면 목록엔 "3일째 안 보임"인데 상세엔 "기록 없음"이 떠서 화면끼리 모순된다(실제 102명이 그랬다).
   let snapLastVisit: string | null = null;
   {
-    const { data: snap } = await db.from("member_snapshots")
-      .select("latest_visit_date, phone, member_name")
-      .eq("branch_id", branchId).limit(2000);
-    for (const s of ((snap as { latest_visit_date: string | null; phone: string | null; member_name: string | null }[] | null) ?? [])) {
-      const hit = phoneQ
-        ? (s.phone ?? "").replace(/\D/g, "") === phoneQ
-        : (s.member_name ?? "").trim() === nameQ;
-      if (hit && s.latest_visit_date) { snapLastVisit = s.latest_visit_date; break; }
+    // PostgREST 1000행 캡 — 2,000명 지점은 limit(2000)로도 절반이 잘린다. 전량 페이지네이션.
+    outer2:
+    for (let off = 0; off < 20000; off += 1000) {
+      const { data: snap } = await db.from("member_snapshots")
+        .select("latest_visit_date, phone, member_name")
+        .eq("branch_id", branchId)
+        .order("id", { ascending: true })
+        .range(off, off + 999);
+      const arr = (snap as { latest_visit_date: string | null; phone: string | null; member_name: string | null }[] | null) ?? [];
+      for (const s of arr) {
+        const hit = phoneQ
+          ? (s.phone ?? "").replace(/\D/g, "") === phoneQ
+          : (s.member_name ?? "").trim() === nameQ;
+        if (hit && s.latest_visit_date) { snapLastVisit = s.latest_visit_date; break outer2; }
+      }
+      if (arr.length < 1000) break;
     }
   }
 
@@ -1493,7 +1566,9 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
   const todayN = dayNumber(today);
   const last = dayset[dayset.length - 1] ?? null;
   const first = dayset[0] ?? null;
-  const inLast = (n: number) => dayset.filter((d) => todayN - dayNumber(d) < n).length;
+  // RPC(visits_*)와 같은 창: 'n일 전'까지 **포함**(<=). < 로 하루 좁히면 경계 회원의 등급이
+  // 목록과 시트에서 달라진다(31일 vs 30일 창 실측 재현됨).
+  const inLast = (n: number) => dayset.filter((d) => todayN - dayNumber(d) <= n).length;
 
   // 요일별(월=0) · 시간대별 분포 — 이 회원이 '언제 오는 사람'인지
   const weekday = Array.from({ length: 7 }, (_, i) => ({ dow: i, n: 0 }));
@@ -1526,7 +1601,7 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
       last_7: inLast(7), last_30: inLast(30), last_90: inLast(90),
       // 등급 판정 입력 — 목록(visits_30d)과 같은 '횟수' 기준을 써야 이름을 눌렀을 때 배지가 안 바뀐다.
       // 위 last_30 은 '일수'(하루 두 번 찍어도 1)라 임계값 12/5/1 에 넣으면 목록과 어긋난다.
-      last_30_visits: visits.filter((v) => todayN - dayNumber(v.date) < 30).length,
+      last_30_visits: visits.filter((v) => todayN - dayNumber(v.date) <= 30).length,   // RPC 창(>= today-30)과 동일
       /** 명부 기준 마지막 방문일(브로제이 전체 기간) — 로그가 비었을 때 화면이 사실대로 설명하게 */
       snapshot_last_visit: snapLastVisit,
       per_week: dayset.length ? Math.round((inLast(30) / 30) * 7 * 10) / 10 : 0,
@@ -1572,23 +1647,25 @@ dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
       if (arr.length < 1000) break;
     }
     const todayN2 = dayNumber(kstDateStr());
-    const agg = new Map<string, { name: string; phone: string | null; days: Set<string>; last: string }>();
+    // ⚠️ '횟수'로 센다(하루 두 번 찍으면 2) — 일반 분기(visits_*)·상세 시트와 같은 기준.
+    //    일수로 세면 이름을 눌렀을 때 등급 배지가 바뀐다(실행 검증에서 재현된 버그).
+    const agg = new Map<string, { name: string; phone: string | null; dates: string[]; last: string }>();
     for (const r of logs) {
       const t = kstHm(r.attended_at);
       if (!inHours(t.hour, hw)) continue;
       const dg = (r.phone ?? "").replace(/\D/g, "");
       const key = dg || `n:${(r.member_name ?? "").trim()}`;
       const a = agg.get(key);
-      if (!a) agg.set(key, { name: (r.member_name ?? "회원").trim() || "회원", phone: r.phone, days: new Set([t.date]), last: t.date });
-      else { a.days.add(t.date); if (t.date > a.last) a.last = t.date; }
+      if (!a) agg.set(key, { name: (r.member_name ?? "회원").trim() || "회원", phone: r.phone, dates: [t.date], last: t.date });
+      else { a.dates.push(t.date); if (t.date > a.last) a.last = t.date; }
     }
     const qd = q.replace(/\D/g, "");
     let list2 = Array.from(agg.values()).map((a) => ({
       name: a.name, phone: a.phone, status: null as string | null, holding: false,
       product_name: null as string | null, end_date: null as string | null,
-      visit_days: a.days.size,
-      visit_days_30: Array.from(a.days).filter((d) => todayN2 - dayNumber(d) < 30).length,
-      visits_7d: Array.from(a.days).filter((d) => todayN2 - dayNumber(d) < 7).length,
+      visit_days: a.dates.length,
+      visit_days_30: a.dates.filter((d) => todayN2 - dayNumber(d) <= 30).length,   // RPC 창과 동일(<=)
+      visits_7d: a.dates.filter((d) => todayN2 - dayNumber(d) <= 7).length,
       last_date: a.last, days_since: todayN2 - dayNumber(a.last) as number | null,
     }));
     if (q) {
@@ -3073,7 +3150,8 @@ const configSchema = z.object({
   medium_threshold: z.number().nullish(),
   max_ad_contacts_30d: z.number().int().nullish(),
   min_contact_gap_days: z.number().int().nullish(),
-  send_hour: z.number().int().min(0).max(23).nullish(),
+  // 검수 반영(boxer): 발송 시각은 주간(08~20시)만 허용 — 심야 설정 자체를 차단(runner 의 야간 가드와 이중 방어)
+  send_hour: z.number().int().min(8).max(20).nullish(),
   send_minute: z.number().int().min(0).max(59).nullish(),
   // 완전 자동화 그룹·채널 설정
   renewal_enabled: z.boolean().nullish(),

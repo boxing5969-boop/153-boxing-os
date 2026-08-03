@@ -212,3 +212,101 @@ export async function sendSensSms(
     };
   }
 }
+
+// ────────────────────────────────────────────────────────────────
+// 카카오 브랜드 메시지(BrandMessage) 발송 — 광고성 메시지를 카카오 채널 친구에게.
+// (친구톡은 2025-12-31 종료, 브랜드메시지가 후속 정식 서비스)
+//
+// SMS 와 동일한 NCP IAM 자격증명·HMAC 서명을 사용한다. 단 config.serviceId 는
+// 비즈메시지 서비스 ID(ncp:kkobizmsg:...) 여야 하며(SMS serviceId 와 다름),
+// 엔드포인트는 POST /brandmessage/v2/services/{serviceId}/messages 이다.
+// plusFriendId = 카카오 채널 검색용 ID(@채널). targeting "I" = 광고 수신동의 + 채널 친구.
+//
+// 광고(광고) 표기·수신거부는 카카오가 처리한다(targeting I 는 080 불필요).
+// 야간(20:50~08:00) 발송 제한은 호출부 fc.ts 에서 차단한다.
+// 함수명은 호출부 호환을 위해 유지(과거 친구톡명) — 실제 동작은 브랜드메시지다.
+// ────────────────────────────────────────────────────────────────
+export async function sendSensFriendTalk(
+  config: SensConfig,
+  plusFriendId: string,
+  toPhone: string,
+  content: string,
+  opts?: { targeting?: "M" | "N" | "I"; useSmsFailover?: boolean },
+): Promise<SensSendResult> {
+  if (!isValidPhone(toPhone)) {
+    return { success: false, error: `유효하지 않은 수신번호: ${toPhone}` };
+  }
+  if (!config.serviceId) {
+    return { success: false, error: "NCP SENS Service ID 미설정" };
+  }
+  if (!config.accessKey || !config.secretKey) {
+    return { success: false, error: "NCP SENS Access Key / Secret Key 미설정" };
+  }
+  if (!plusFriendId) {
+    return { success: false, error: "카카오 채널 ID(plusFriendId) 미설정" };
+  }
+
+  const method = "POST";
+  const uri = `/brandmessage/v2/services/${encodeURIComponent(config.serviceId)}/messages`;
+  const timestamp = String(Date.now());
+
+  let signature: string;
+  try {
+    signature = await buildSignature(
+      method, uri, timestamp, config.accessKey, config.secretKey,
+    );
+  } catch (err) {
+    return {
+      success: false,
+      error: `서명 생성 실패: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const body = {
+    plusFriendId,
+    messageType: "TEXT",
+    targeting: opts?.targeting ?? "I",
+    messages: [
+      {
+        to: normalizePhone(toPhone),
+        content,
+        useSmsFailover: opts?.useSmsFailover ?? false,
+      },
+    ],
+  };
+
+  try {
+    const res = await fetch(`${SENS_BASE_URL}${uri}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "x-ncp-apigw-timestamp": timestamp,
+        "x-ncp-iam-access-key": config.accessKey,
+        "x-ncp-apigw-signature-v2": signature,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return {
+        success: false,
+        error: `NCP 브랜드메시지 ${res.status}: ${text.slice(0, 200)}`,
+      };
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      requestId?: string;
+      statusCode?: string;
+    };
+    return {
+      success: true,
+      requestId: json.requestId,
+      statusCode: json.statusCode,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "fetch error",
+    };
+  }
+}

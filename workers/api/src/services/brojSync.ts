@@ -224,12 +224,16 @@ export async function syncMemberHolds(
   const batch = Math.min(Math.max(opts.batch ?? 50, 1), 120);
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
-  // 유효회원 우선 + 조회가 오래된 순 (nulls first)
+  // 조회 대상: 유효회원 + **end_date 없는 회원**(41명 실측 — 홀딩으로 연장 중이면 만료일이 비거나
+  // 지나 있을 수 있다. gte 만 쓰면 이들이 영원히 미조회로 남아 브로제이 홀딩 5명 vs 앱 3명이 어긋났다).
+  // + 최근 24시간 안에 본 회원은 건너뛴다(스윕이 매시간 돌면서 방금 본 회원을 또 보던 낭비 16.6% 실측).
+  const fresh = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const { data, error } = await db
     .from("member_snapshots")
     .select("id, member_name, raw_payload, ticket_checked_at")
     .eq("branch_id", branchId)
-    .gte("end_date", today)
+    .or(`end_date.gte.${today},end_date.is.null,hold_status.eq.HOLDING`)
+    .or(`ticket_checked_at.is.null,ticket_checked_at.lt.${fresh}`)
     .order("ticket_checked_at", { ascending: true, nullsFirst: true })
     .limit(batch);
   if (error) throw new Error(`대상 조회 실패: ${error.message}`);
@@ -268,7 +272,8 @@ export async function syncMemberHolds(
   const since = new Date(Date.now() - 6 * 86400000).toISOString();
   const { count } = await db.from("member_snapshots")
     .select("id", { count: "exact", head: true })
-    .eq("branch_id", branchId).gte("end_date", today)
+    .eq("branch_id", branchId)
+    .or(`end_date.gte.${today},end_date.is.null,hold_status.eq.HOLDING`)
     .or(`ticket_checked_at.is.null,ticket_checked_at.lt.${since}`);
 
   return { ok: true, checked, holding, failed, remaining: count ?? 0 };

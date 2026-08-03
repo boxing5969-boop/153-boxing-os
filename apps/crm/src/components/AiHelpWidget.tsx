@@ -28,8 +28,13 @@ export default function AiHelpWidget() {
         setOpen(false);
       }
     }
-    setTimeout(() => document.addEventListener("mousedown", onClick), 100);
-    return () => document.removeEventListener("mousedown", onClick);
+    // 검수 반영: 타이머를 clear 하지 않으면 100ms 안에 닫힘/언마운트 시
+    // 제거 불가능한 스테일 리스너가 영구 잔존한다.
+    const t = setTimeout(() => document.addEventListener("mousedown", onClick), 100);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("mousedown", onClick);
+    };
   }, [open]);
 
   return (
@@ -38,14 +43,16 @@ export default function AiHelpWidget() {
       <div
         ref={panelRef}
         className={cn(
-          "fixed bottom-20 right-5 z-50 w-[380px] max-w-[calc(100vw-24px)]",
+          // 모바일: 하단 탭바(≈54px) + 버튼 위로. 데스크톱: 기존 위치.
+          "fixed bottom-36 md:bottom-20 right-5 z-50 w-[380px] max-w-[calc(100vw-24px)]",
+          // 작은 화면에서 상단(닫기 버튼) 잘림 방지
+          "h-[560px] max-h-[calc(100dvh-10rem)]",
           "rounded-2xl overflow-hidden shadow-2xl border border-border",
           "transition-all duration-300 origin-bottom-right",
           open
             ? "opacity-100 scale-100 pointer-events-auto"
             : "opacity-0 scale-95 pointer-events-none"
         )}
-        style={{ height: "560px" }}
       >
         {/* 헤더 닫기 버튼 */}
         <div className="absolute top-3 right-3 z-10">
@@ -70,7 +77,8 @@ export default function AiHelpWidget() {
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "fixed bottom-5 right-5 z-50",
+          // 검수 반영: 모바일에선 하단 탭바(z-40, ≈54px)의 '더보기' 탭을 덮지 않게 위로 띄운다
+          "fixed bottom-20 md:bottom-5 right-5 z-50",
           "flex items-center gap-2 rounded-full shadow-xl transition-all duration-200",
           open
             ? "bg-muted text-muted-foreground px-4 py-2.5 text-sm font-medium"

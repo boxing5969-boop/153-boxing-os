@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronUp, CheckCircle2, PencilLine, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ import {
 } from "@/services/dailyReports";
 import { mergeChecklist } from "@/components/reports/checklistItems";
 import { buildKakaoText } from "@/components/reports/buildKakaoText";
+import { getReportAutoStats, type ReportAutoStats } from "@/services/reportAutoStats";
 
 function todayKst(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
@@ -39,13 +41,15 @@ function pickFields(r: DailyReport): DailyReportFields {
 
 interface BranchOpt { id: string; name: string; }
 
-function NumField({ label, value, onChange, disabled }: {
+// 큰 숫자 입력칸 — 관장님이 폰에서도 누르기 쉽게
+function BigNumField({ label, value, onChange, disabled }: {
   label: string; value: number; onChange: (v: number) => void; disabled?: boolean;
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
       <Input type="number" min={0} inputMode="numeric" value={value} disabled={disabled}
+        className="h-12 text-center text-lg font-bold tabular"
         onChange={(e) => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
     </div>
   );
@@ -61,12 +65,22 @@ function TxtField({ label, value, onChange, disabled, placeholder }: {
     </div>
   );
 }
-function Section({ title, children }: { title: string; children: ReactNode }) {
+
+// 단계 섹션 — STEP 배지 + 쉬운 제목
+function Step({ no, title, hint, children }: {
+  no: string; title: string; hint?: string; children: ReactNode;
+}) {
   return (
     <Card>
       <CardContent className="pt-5 space-y-3">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        {children}
+      <div className="flex items-center gap-2">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-black text-primary-foreground">
+          {no}
+        </span>
+        <p className="text-sm font-bold text-foreground">{title}</p>
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </div>
+      {children}
       </CardContent>
     </Card>
   );
@@ -90,8 +104,10 @@ export default function DailyReportFormPage() {
   const [fields, setFields] = useState<DailyReportFields>(emptyReportFields());
   const [checklist, setChecklist] = useState<ChecklistItem[]>(mergeChecklist(null));
   const [summary, setSummary] = useState<ReportSummary | null>(null);
+  const [autoStats, setAutoStats] = useState<ReportAutoStats | null>(null);
   const [editable, setEditable] = useState(true);
   const [tab, setTab] = useState<"report" | "checklist">("report");
+  const [showDetail, setShowDetail] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -106,16 +122,42 @@ export default function DailyReportFormPage() {
     });
   }, [isHq, profile?.branch_id]);
 
+  // 검수 반영(boxer): 지점·날짜 빠른 전환 시 늦게 도착한 이전 응답이 화면을 덮으면
+  // "새 날짜에 옛 숫자 저장" 오염이 생긴다 — 시퀀스 토큰으로 최신 요청만 반영.
+  const loadSeq = useRef(0);
+  // STEP 3 자동 펼침은 (지점|날짜) 별 최초 로드에서만 — 저장 후 재로드가 사용자의 접힘/펼침을 되돌리지 않게.
+  const detailInitKey = useRef("");
+
   const load = useCallback(async () => {
     if (!branchId) return;
-    setErr(null); setMsg(null);
+    const seq = ++loadSeq.current;
+    setErr(null);
     try {
-      const data = await getDailyForm(branchId, date);
+      const [data, auto] = await Promise.all([
+        getDailyForm(branchId, date),
+        getReportAutoStats(branchId, date).catch(() => null),
+      ]);
+      if (seq !== loadSeq.current) return; // 더 새 요청이 나감 — 이 응답은 폐기
       setFields(data.report ? pickFields(data.report) : emptyReportFields());
+      // 저장된 상세 메모가 있으면 STEP 3을 자동으로 펼쳐서 보이게 (최초 1회)
+      const r = data.report;
+      const hasDetail = !!r && !!(
+        r.pipeline_action_plan || r.morning_note || r.lunch_note || r.evening_note ||
+        r.promotion_candidates || r.facility_issue ||
+        r.decision_issue || r.decision_proposal || r.decision_request ||
+        (r.inactive_contacted ?? 0) > 0 || (r.inactive_reached ?? 0) > 0 || (r.inactive_returned ?? 0) > 0
+      );
+      const key = `${branchId}|${date}`;
+      if (detailInitKey.current !== key) {
+        detailInitKey.current = key;
+        setShowDetail(hasDetail);
+      }
       setChecklist(mergeChecklist(data.checklist?.items ?? null));
       setSummary(data.summary);
       setEditable(data.editable);
+      setAutoStats(auto);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setErr(e instanceof Error ? e.message : "불러오기 실패");
     }
   }, [branchId, date]);
@@ -133,8 +175,9 @@ export default function DailyReportFormPage() {
     try {
       await saveDaily({ ...fields, branch_id: branchId, report_date: date });
       await saveChecklist(branchId, date, checklist);
-      setMsg("저장되었습니다"); setTimeout(() => setMsg(null), 2500);
       await load();
+      // 검수 반영: load() 이전에 setMsg 하면 배칭으로 한 프레임도 안 보인다 — 반드시 load 뒤에
+      setMsg("저장되었습니다. 오늘도 수고하셨습니다!"); setTimeout(() => setMsg(null), 3000);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "저장 실패");
     } finally {
@@ -154,11 +197,13 @@ export default function DailyReportFormPage() {
 
   return (
     <div className="space-y-5">
-      {/* 헤더: 날짜·지점 + 저장/복사 */}
+      {/* 헤더: 날짜·지점 */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-foreground">일일 경영 성과 리포트</h1>
-          <p className="text-sm text-muted-foreground">매일 입력 → 자동 계산 → 카톡 공유</p>
+          <h1 className="text-xl font-bold text-foreground">오늘 경영 리포트</h1>
+          <p className="text-sm text-muted-foreground">
+            자동 숫자 확인 → 매출·등록만 입력 → 저장. 1분이면 끝나요.
+          </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           {(isHq || !profile?.branch_id) && (
@@ -168,10 +213,6 @@ export default function DailyReportFormPage() {
             </select>
           )}
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />
-          <Button variant="outline" onClick={onCopy} disabled={!summary}>
-            {copied ? "복사됨" : "카톡 텍스트 복사"}
-          </Button>
-          <Button onClick={onSave} disabled={saving || !editable}>{saving ? "저장 중…" : "저장"}</Button>
         </div>
       </div>
 
@@ -181,17 +222,11 @@ export default function DailyReportFormPage() {
         </p>
       )}
       {err && <p className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{err}</p>}
-      {msg && <p className="rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">{msg}</p>}
-
-      {/* ① 목표/달성 자동 표시 */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="당일 총매출" value={`${won(dayTotal)}원`} tone="text-primary" />
-        <Stat label="월 누적" value={`${won(summary?.month_cumulative ?? 0)}원`} />
-        <Stat label="월 목표" value={`${won(summary?.target_amount ?? 0)}원`} />
-        <Stat label="달성률" value={achievement} tone="text-success" />
-        <Stat label="Gap" value={`${won(summary?.gap ?? 0)}원`} tone={(summary?.gap ?? 0) > 0 ? "text-danger" : "text-success"} />
-        <Stat label="D-Day" value={`D-${summary?.d_day ?? 0}`} />
-      </div>
+      {msg && (
+        <p className="flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2.5 text-sm font-semibold text-success">
+          <CheckCircle2 className="size-4" />{msg}
+        </p>
+      )}
 
       {/* 탭 */}
       <div className="flex gap-2">
@@ -206,56 +241,121 @@ export default function DailyReportFormPage() {
 
       {tab === "report" ? (
         <div className="space-y-4">
-          {/* ② 매출 4분류 */}
-          <Section title="② 매출 (원)">
+          {/* STEP 1 — 자동으로 채워진 숫자, 확인만 */}
+          <Step no="1" title="확인만 하세요" hint="브로제이 명부 기준으로 자동 집계된 숫자예요">
+            {autoStats ? (
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+                <Stat label="오늘 출입" value={`${autoStats.accessSuccess}건`} tone="text-success" />
+                <Stat label="출입 거절" value={`${autoStats.accessDenied}건`} tone={autoStats.accessDenied > 0 ? "text-danger" : undefined} />
+                <Stat label="오늘 신규" value={`${autoStats.newMembers}명`} tone="text-primary" />
+                <Stat label="7일내 만료" value={`${autoStats.expiringSoon}명`} tone={autoStats.expiringSoon > 0 ? "text-warning" : undefined} />
+                <Stat label="미납" value={`${autoStats.unpaid}명`} tone={autoStats.unpaid > 0 ? "text-danger" : undefined} />
+                <Stat label="활성 회원" value={`${autoStats.activeMembers}명`} />
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">자동 집계를 불러오는 중이거나, 아직 데이터가 없어요.</p>
+            )}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <Stat label="오늘 매출" value={`${won(dayTotal)}원`} tone="text-primary" />
+              <Stat label="이번달 누적" value={`${won(summary?.month_cumulative ?? 0)}원`} />
+              <Stat label="이번달 목표" value={`${won(summary?.target_amount ?? 0)}원`} />
+              <Stat label="달성률" value={achievement} tone="text-success" />
+              <Stat label="목표까지" value={`${won(summary?.gap ?? 0)}원`} tone={(summary?.gap ?? 0) > 0 ? "text-danger" : "text-success"} />
+              <Stat label="마감까지" value={`${summary?.d_day ?? 0}일`} />
+            </div>
+          </Step>
+
+          {/* STEP 2 — 오늘 숫자만 입력 */}
+          <Step no="2" title="오늘 숫자를 입력하세요" hint="숫자만 누르면 돼요">
+            <p className="text-xs font-semibold text-muted-foreground">오늘 매출 (원)</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <NumField label="복싱 PT" value={fields.revenue_pt} disabled={!editable} onChange={(v) => setF("revenue_pt", v)} />
-              <NumField label="수강권" value={fields.revenue_membership} disabled={!editable} onChange={(v) => setF("revenue_membership", v)} />
-              <NumField label="물품" value={fields.revenue_goods} disabled={!editable} onChange={(v) => setF("revenue_goods", v)} />
-              <NumField label="단증/승단" value={fields.revenue_dan} disabled={!editable} onChange={(v) => setF("revenue_dan", v)} />
+              <BigNumField label="복싱 PT" value={fields.revenue_pt} disabled={!editable} onChange={(v) => setF("revenue_pt", v)} />
+              <BigNumField label="수강권" value={fields.revenue_membership} disabled={!editable} onChange={(v) => setF("revenue_membership", v)} />
+              <BigNumField label="물품" value={fields.revenue_goods} disabled={!editable} onChange={(v) => setF("revenue_goods", v)} />
+              <BigNumField label="단증 · 승단" value={fields.revenue_dan} disabled={!editable} onChange={(v) => setF("revenue_dan", v)} />
             </div>
-          </Section>
-
-          {/* ③ 영업 파이프라인 */}
-          <Section title="③ 영업 파이프라인">
+            <p className="pt-1 text-xs font-semibold text-muted-foreground">상담 · 등록 (명)</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <NumField label="신규 문의" value={fields.inquiry_count} disabled={!editable} onChange={(v) => setF("inquiry_count", v)} />
-              <NumField label="신규 등록" value={fields.new_signups} disabled={!editable} onChange={(v) => setF("new_signups", v)} />
-              <NumField label="재등록" value={fields.re_signups} disabled={!editable} onChange={(v) => setF("re_signups", v)} />
-              <NumField label="보류" value={fields.pending_count} disabled={!editable} onChange={(v) => setF("pending_count", v)} />
+              <BigNumField label="오늘 문의" value={fields.inquiry_count} disabled={!editable} onChange={(v) => setF("inquiry_count", v)} />
+              <BigNumField label="신규 등록" value={fields.new_signups} disabled={!editable} onChange={(v) => setF("new_signups", v)} />
+              <BigNumField label="재등록" value={fields.re_signups} disabled={!editable} onChange={(v) => setF("re_signups", v)} />
+              <BigNumField label="고민중 (보류)" value={fields.pending_count} disabled={!editable} onChange={(v) => setF("pending_count", v)} />
             </div>
-            <TxtField label="액션 플랜" value={fields.pipeline_action_plan} disabled={!editable} onChange={(v) => setF("pipeline_action_plan", v)} />
-          </Section>
-
-          {/* ④ 타임별 현장 */}
-          <Section title="④ 타임별 현장">
+            <p className="pt-1 text-xs font-semibold text-muted-foreground">시간대별 출석 (명)</p>
             <div className="grid grid-cols-3 gap-3">
-              <NumField label="오전 출석" value={fields.morning_attendance} disabled={!editable} onChange={(v) => setF("morning_attendance", v)} />
-              <NumField label="점심 출석" value={fields.lunch_attendance} disabled={!editable} onChange={(v) => setF("lunch_attendance", v)} />
-              <NumField label="저녁 출석" value={fields.evening_attendance} disabled={!editable} onChange={(v) => setF("evening_attendance", v)} />
+              <BigNumField label="오전" value={fields.morning_attendance} disabled={!editable} onChange={(v) => setF("morning_attendance", v)} />
+              <BigNumField label="점심" value={fields.lunch_attendance} disabled={!editable} onChange={(v) => setF("lunch_attendance", v)} />
+              <BigNumField label="저녁" value={fields.evening_attendance} disabled={!editable} onChange={(v) => setF("evening_attendance", v)} />
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <TxtField label="오전 메모" value={fields.morning_note} disabled={!editable} onChange={(v) => setF("morning_note", v)} />
-              <TxtField label="점심 메모" value={fields.lunch_note} disabled={!editable} onChange={(v) => setF("lunch_note", v)} />
-              <TxtField label="저녁 메모" value={fields.evening_note} disabled={!editable} onChange={(v) => setF("evening_note", v)} />
-            </div>
-          </Section>
+          </Step>
 
-          {/* ⑤ 회원관리 + 의사결정 */}
-          <Section title="⑤ 회원관리 · 의사결정">
-            <div className="grid grid-cols-3 gap-3">
-              <NumField label="비활성 연락" value={fields.inactive_contacted} disabled={!editable} onChange={(v) => setF("inactive_contacted", v)} />
-              <NumField label="연락 성공" value={fields.inactive_reached} disabled={!editable} onChange={(v) => setF("inactive_reached", v)} />
-              <NumField label="복귀" value={fields.inactive_returned} disabled={!editable} onChange={(v) => setF("inactive_returned", v)} />
-            </div>
-            <TxtField label="승급 심사 대상" value={fields.promotion_candidates} disabled={!editable} onChange={(v) => setF("promotion_candidates", v)} />
-            <TxtField label="시설 이슈" value={fields.facility_issue} disabled={!editable} onChange={(v) => setF("facility_issue", v)} />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <TxtField label="이슈" value={fields.decision_issue} disabled={!editable} onChange={(v) => setF("decision_issue", v)} />
-              <TxtField label="제안" value={fields.decision_proposal} disabled={!editable} onChange={(v) => setF("decision_proposal", v)} />
-              <TxtField label="요청" value={fields.decision_request} disabled={!editable} onChange={(v) => setF("decision_request", v)} />
-            </div>
-          </Section>
+          {/* STEP 3 — 더 적을 게 있으면 (선택, 접힘) */}
+          <Card>
+            <CardContent className="pt-5">
+              <button
+                type="button"
+                onClick={() => setShowDetail((v) => !v)}
+                className="flex w-full items-center justify-between rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-black text-muted-foreground">
+                    3
+                  </span>
+                  <span className="text-sm font-bold text-foreground">더 적을 게 있다면</span>
+                  <span className="text-xs text-muted-foreground">선택사항 — 없으면 건너뛰세요</span>
+                </span>
+                {showDetail ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+              </button>
+
+              {showDetail && (
+                <div className="mt-4 space-y-4">
+                  <TxtField label="내일 할 일" value={fields.pipeline_action_plan} disabled={!editable}
+                    placeholder="예: 보류 2명 다시 연락" onChange={(v) => setF("pipeline_action_plan", v)} />
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <TxtField label="오전 메모" value={fields.morning_note} disabled={!editable} onChange={(v) => setF("morning_note", v)} />
+                    <TxtField label="점심 메모" value={fields.lunch_note} disabled={!editable} onChange={(v) => setF("lunch_note", v)} />
+                    <TxtField label="저녁 메모" value={fields.evening_note} disabled={!editable} onChange={(v) => setF("evening_note", v)} />
+                  </div>
+                  <p className="text-xs font-semibold text-muted-foreground">쉬는 회원 연락 (명)</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <BigNumField label="연락함" value={fields.inactive_contacted} disabled={!editable} onChange={(v) => setF("inactive_contacted", v)} />
+                    <BigNumField label="연락 닿음" value={fields.inactive_reached} disabled={!editable} onChange={(v) => setF("inactive_reached", v)} />
+                    <BigNumField label="복귀함" value={fields.inactive_returned} disabled={!editable} onChange={(v) => setF("inactive_returned", v)} />
+                  </div>
+                  <TxtField label="승급 심사 대상" value={fields.promotion_candidates} disabled={!editable} onChange={(v) => setF("promotion_candidates", v)} />
+                  <TxtField label="시설 이슈" value={fields.facility_issue} disabled={!editable}
+                    placeholder="예: 샤워실 수압 약함" onChange={(v) => setF("facility_issue", v)} />
+                  <p className="text-xs font-semibold text-muted-foreground">본사에 알릴 내용</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <TxtField label="이슈" value={fields.decision_issue} disabled={!editable} onChange={(v) => setF("decision_issue", v)} />
+                    <TxtField label="제안" value={fields.decision_proposal} disabled={!editable} onChange={(v) => setF("decision_proposal", v)} />
+                    <TxtField label="요청" value={fields.decision_request} disabled={!editable} onChange={(v) => setF("decision_request", v)} />
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 대형 저장 버튼 — 마지막 한 번만 누르면 끝 */}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              onClick={onSave}
+              disabled={saving || !editable}
+              className="h-14 flex-1 gap-2 text-base font-bold"
+            >
+              <PencilLine className="size-5" />
+              {saving ? "저장 중…" : "오늘 리포트 저장하기"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onCopy}
+              disabled={!summary}
+              className="h-14 gap-2 text-base font-semibold sm:w-56"
+            >
+              <Sparkles className="size-5" />
+              {copied ? "복사됐어요!" : "카톡으로 공유"}
+            </Button>
+          </div>
         </div>
       ) : (
         <Card>
@@ -264,7 +364,7 @@ export default function DailyReportFormPage() {
               <div key={it.no} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
                 <button type="button" disabled={!editable}
                   onClick={() => setChecklist((p) => p.map((x, i) => i === idx ? { ...x, done: !x.done } : x))}
-                  className={cn("flex size-5 shrink-0 items-center justify-center rounded-md border text-xs",
+                  className={cn("flex size-6 shrink-0 items-center justify-center rounded-md border text-xs",
                     it.done ? "bg-success text-white border-success" : "border-border")}>
                   {it.done ? "✓" : ""}
                 </button>
@@ -274,6 +374,9 @@ export default function DailyReportFormPage() {
               </div>
             ))}
             <p className="text-[11px] text-muted-foreground">※ 항목은 임시 표준안입니다. 실제 항목으로 교체 예정.</p>
+            <Button onClick={onSave} disabled={saving || !editable} className="mt-2 h-12 w-full font-bold">
+              {saving ? "저장 중…" : "체크리스트 저장하기"}
+            </Button>
           </CardContent>
         </Card>
       )}

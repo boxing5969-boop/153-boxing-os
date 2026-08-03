@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, Ticket, ChevronRight } from "lucide-react";
+import { CreditCard, Ticket, ChevronRight, UserPlus } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import {
@@ -116,8 +115,16 @@ export default function MembershipsListPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="이용권"
-        description="이용권·체험권을 조회합니다. 등록·정지·환불은 회원 상세에서 진행하세요."
+        title="이용권 · 결제"
+        description="회원 이름을 누르면 연장·결제·정지를 바로 할 수 있어요"
+        action={
+          <Link to="/members">
+            <Button className="gap-2">
+              <UserPlus className="size-4" />
+              회원 찾아 등록하기
+            </Button>
+          </Link>
+        }
       />
 
       {/* 탭 */}
@@ -134,20 +141,62 @@ export default function MembershipsListPage() {
         />
       </div>
 
-      {/* 필터 */}
-      <Card className="p-4">
+      {/* 필터 — 한 번 누르면 되는 큰 칩 버튼 */}
+      <div className="flex flex-wrap gap-2">
         {tab === "memberships" ? (
-          <Select value={memStatus} onChange={(e) => { setMemStatus(e.target.value as MembershipStatus | ""); setPage(0); }} className="max-w-[180px]">
-            <option value="">상태 전체</option>
-            {MEMBERSHIP_STATUS_VALUES.map((s) => <option key={s} value={s}>{membershipStatusLabel(s)}</option>)}
-          </Select>
+          <>
+            <button
+              type="button"
+              onClick={() => { setMemStatus(""); setPage(0); }}
+              className={cn(
+                "rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                memStatus === "" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-muted"
+              )}
+            >
+              전체
+            </button>
+            {MEMBERSHIP_STATUS_VALUES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { setMemStatus(s); setPage(0); }}
+                className={cn(
+                  "rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  memStatus === s ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-muted"
+                )}
+              >
+                {membershipStatusLabel(s)}
+              </button>
+            ))}
+          </>
         ) : (
-          <Select value={trialStatus} onChange={(e) => { setTrialStatus(e.target.value as TrialPassStatus | ""); setPage(0); }} className="max-w-[180px]">
-            <option value="">상태 전체</option>
-            {TRIAL_STATUS_VALUES.map((s) => <option key={s} value={s}>{trialStatusLabel(s)}</option>)}
-          </Select>
+          <>
+            <button
+              type="button"
+              onClick={() => { setTrialStatus(""); setPage(0); }}
+              className={cn(
+                "rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                trialStatus === "" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-muted"
+              )}
+            >
+              전체
+            </button>
+            {TRIAL_STATUS_VALUES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { setTrialStatus(s); setPage(0); }}
+                className={cn(
+                  "rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  trialStatus === s ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-muted"
+                )}
+              >
+                {trialStatusLabel(s)}
+              </button>
+            ))}
+          </>
         )}
-      </Card>
+      </div>
 
       {/* 테이블 */}
       <Card className="overflow-hidden">

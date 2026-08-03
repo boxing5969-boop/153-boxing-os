@@ -32,8 +32,11 @@ export function formatDateTime(value: string | null | undefined): string {
 
 export function daysUntil(endIso: string | null | undefined): number | null {
   if (!endIso) return null;
-  const end = new Date(endIso).getTime();
+  // 검수 반영(boxer): date-only 문자열은 UTC 자정으로 파싱돼 KST 오전 9시까지
+  // 어제 만료가 D-0 으로 보였다 — KST 달력 날짜끼리의 정수 일수 차이로 계산.
+  const end = Date.parse(`${endIso.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(end)) return null;
-  const now = Date.now();
-  return Math.ceil((end - now) / (1000 * 60 * 60 * 24));
+  const todayKst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const today = Date.parse(`${todayKst}T00:00:00Z`);
+  return Math.round((end - today) / 86_400_000);
 }

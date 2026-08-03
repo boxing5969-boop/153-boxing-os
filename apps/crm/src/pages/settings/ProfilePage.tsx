@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { roleLabel } from "@/lib/roleLabels";
 import { updateOwnProfile } from "@/services/profileApi";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth();
@@ -15,6 +16,13 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // 비밀번호 변경
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -40,6 +48,30 @@ export default function ProfilePage() {
     e.preventDefault();
     setSuccess(false);
     mutation.mutate({ name: name.trim(), phone: phone.trim() || null });
+  }
+
+  async function handlePasswordChange(e: FormEvent) {
+    e.preventDefault();
+    setPwError(null);
+    setPwSuccess(false);
+    if (newPw.length < 8) {
+      setPwError("비밀번호는 8자 이상으로 설정해 주세요.");
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError("새 비밀번호가 일치하지 않습니다.");
+      return;
+    }
+    setPwLoading(true);
+    const { error: upErr } = await supabase.auth.updateUser({ password: newPw });
+    setPwLoading(false);
+    if (upErr) {
+      setPwError(upErr.message);
+      return;
+    }
+    setPwSuccess(true);
+    setNewPw("");
+    setConfirmPw("");
   }
 
   return (
@@ -99,6 +131,49 @@ export default function ProfilePage() {
             )}
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? "저장 중…" : "저장"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-sm font-semibold opacity-80">비밀번호 변경</h2>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handlePasswordChange} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="newpw">새 비밀번호 (8자 이상)</Label>
+              <Input
+                id="newpw"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmpw">새 비밀번호 확인</Label>
+              <Input
+                id="confirmpw"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+              />
+            </div>
+            {pwError && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{pwError}</p>
+            )}
+            {pwSuccess && (
+              <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
+                비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용하세요.
+              </p>
+            )}
+            <Button type="submit" disabled={pwLoading}>
+              {pwLoading ? "변경 중…" : "비밀번호 변경"}
             </Button>
           </form>
         </CardContent>

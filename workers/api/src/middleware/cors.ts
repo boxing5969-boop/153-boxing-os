@@ -12,6 +12,9 @@ function isAllowedOrigin(origin: string): boolean {
   if (/^https:\/\/[a-z0-9-]+\.153-boxing-os\.pages\.dev$/i.test(origin)) return true;
   if (origin === "https://153-branch-report.pages.dev") return true;
   if (/^https:\/\/[a-z0-9-]+\.153-branch-report\.pages\.dev$/i.test(origin)) return true;
+  // 마이복서153 앱 — 얼굴 키오스크(/face-kiosk)가 /api/face/* 를 호출한다 (FC-2)
+  if (origin === "https://game-fit-quests.pages.dev") return true;
+  if (/^https:\/\/[a-z0-9-]+\.game-fit-quests\.pages\.dev$/i.test(origin)) return true;
   return false;
 }
 

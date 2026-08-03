@@ -5,10 +5,12 @@
  * 메시지 "승인"은 발송이 아니라 approved 상태 전환까지만 — 자동발송 없음.
  */
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ClipboardList, MessageSquareText, CheckCircle2, PhoneCall,
   ThumbsUp, ThumbsDown, AlarmClock, Sparkles, Send, ShieldAlert,
+  TrendingUp, SmilePlus, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,6 +51,14 @@ const CONTACT_RESULTS: { v: ContactResult; label: string }[] = [
 function won(n: number): string {
   return n.toLocaleString("ko-KR") + "원";
 }
+
+// 고객케어 이동 — 재등록·상담 / 만족도 / 문자 / 발송 이력 (기존 화면 연결)
+const CARE_LINKS: { to: string; label: string; icon: LucideIcon }[] = [
+  { to: "/fc/revenue-board", label: "재등록·상담", icon: TrendingUp },
+  { to: "/surveys", label: "만족도·후속관리", icon: SmilePlus },
+  { to: "/admin/bulk-notify", label: "문자 보내기", icon: MessageSquareText },
+  { to: "/admin/send-logs", label: "발송 이력", icon: ClipboardList },
+];
 
 // ── 연락 기록 다이얼로그 ──────────────────────────────────────
 function ContactDialog({
@@ -330,37 +340,75 @@ export default function FcTaskInboxPage() {
 
   const tasks = tasksQuery.data ?? [];
   const drafts = draftsQuery.data ?? [];
+  // 긴급(미납·만료 등 urgent/high) vs 오늘(일반) 분리 — 기존 priority 사용
+  const urgentTasks = tasks.filter((t) => t.priority === "urgent" || t.priority === "high");
+  const todayTasks = tasks.filter((t) => t.priority !== "urgent" && t.priority !== "high");
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-black text-foreground">FC 업무함</h1>
+        <h1 className="text-xl font-black text-foreground">오늘의 회원 케어</h1>
         <p className="text-sm text-muted-foreground">
-          오늘 처리할 회원 케어 업무와 승인 대기 메시지
+          긴급·오늘 처리할 회원 케어와 승인 대기 문자를 한 곳에서
         </p>
       </div>
 
-      {/* 업무카드 */}
+      {/* 고객케어 이동 — 재등록·상담 / 만족도 / 문자 / 발송 이력 */}
+      <nav aria-label="고객케어 바로가기" className="flex flex-wrap gap-2">
+        {CARE_LINKS.map((l) => {
+          const Icon = l.icon;
+          return (
+            <Link
+              key={l.to}
+              to={l.to}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-card transition hover:border-primary/40 hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Icon className="size-3.5 text-primary" />
+              {l.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* 긴급 관리 — 미납·만료 등 우선 처리 */}
       <section className="space-y-2.5">
         <h2 className="flex items-center gap-1.5 text-sm font-bold text-foreground">
-          <ClipboardList className="size-4" />처리 대기 업무
-          <span className="text-xs font-medium text-muted-foreground">({tasks.length})</span>
+          <ShieldAlert className="size-4 text-danger" />긴급 관리
+          <span className="text-xs font-medium text-muted-foreground">({urgentTasks.length})</span>
         </h2>
         {tasksQuery.isLoading && (
           <div className="grid gap-3 sm:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, i) => (
+            {Array.from({ length: 2 }).map((_, i) => (
               <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />
             ))}
           </div>
         )}
         {tasksQuery.isError && (
-          <p className="text-sm text-danger">업무를 불러오지 못했습니다.</p>
+          <p className="text-sm text-danger">업무를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</p>
         )}
-        {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length === 0 && (
-          <p className="text-sm text-muted-foreground">처리할 업무가 없습니다.</p>
+        {!tasksQuery.isLoading && !tasksQuery.isError && urgentTasks.length === 0 && (
+          <p className="text-sm text-muted-foreground">긴급 처리할 회원이 없습니다.</p>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
-          {tasks.map((t) => (
+          {urgentTasks.map((t) => (
+            <TaskCard key={t.id} task={t}
+              onComplete={(id) => completeMut.mutate(id)}
+              onContact={setContactTask} />
+          ))}
+        </div>
+      </section>
+
+      {/* 오늘 관리 — 일반 케어 */}
+      <section className="space-y-2.5">
+        <h2 className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+          <ClipboardList className="size-4" />오늘 관리
+          <span className="text-xs font-medium text-muted-foreground">({todayTasks.length})</span>
+        </h2>
+        {!tasksQuery.isLoading && !tasksQuery.isError && todayTasks.length === 0 && (
+          <p className="text-sm text-muted-foreground">대기 중인 일반 케어가 없습니다.</p>
+        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {todayTasks.map((t) => (
             <TaskCard key={t.id} task={t}
               onComplete={(id) => completeMut.mutate(id)}
               onContact={setContactTask} />

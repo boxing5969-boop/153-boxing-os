@@ -12,6 +12,7 @@ import {
 } from "../services/manualNotifier";
 import { dispatchMessage, dispatchToGroup, type NotifyChannel } from "../services/messageDispatcher";
 import { getServiceClient as _getServiceClient } from "../lib/supabase";
+import { importMembers, type ImportRow } from "../services/memberImport";
 
 export const adminRoutes = new Hono<{ Bindings: Env }>();
 
@@ -103,9 +104,10 @@ const kakaoSettingsSchema = z.object({
   kakao_api_key:        z.string().optional(),   // plain -- encrypted on save
   kakao_api_secret:     z.string().optional(),   // plain -- encrypted on save
   kakao_enabled:        z.boolean().default(false),
+  kakao_channel_id:     z.string().optional(),   // @채널 = NCP 친구톡 plusFriendId (광고 친구톡 발송용)
 });
 
-const HQ_AND_BRANCH = new Set(["super_admin", "hq_admin", "branch_admin", "branch_owner"]);
+const HQ_AND_BRANCH = new Set(["super_admin", "hq_admin", "branch_manager", "branch_owner"]);
 
 adminRoutes.put("/branches/:id/kakao", requireJwt, async (c) => {
   const branchId = c.req.param("id");
@@ -126,8 +128,8 @@ adminRoutes.put("/branches/:id/kakao", requireJwt, async (c) => {
   if (!profile || !HQ_AND_BRANCH.has(profile.role)) {
     return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
   }
-  // branch_admin can only update their own branch
-  if ((profile.role === "branch_admin" || profile.role === "branch_owner") && profile.branch_id !== branchId) {
+  // branch_manager/branch_owner can only update their own branch
+  if ((profile.role === "branch_manager" || profile.role === "branch_owner") && profile.branch_id !== branchId) {
     return fail(c, "PERMISSION_DENIED", "다른 지점 설정을 변경할 수 없습니다", 403);
   }
 
@@ -153,6 +155,7 @@ adminRoutes.put("/branches/:id/kakao", requireJwt, async (c) => {
     kakao_api_key_enc:     apiKeyEnc,
     kakao_api_secret_enc:  apiSecretEnc,
     kakao_enabled:         parsed.data.kakao_enabled,
+    kakao_channel_id:      parsed.data.kakao_channel_id ?? null,
   }).eq("id", branchId);
 
   if (error) return fail(c, "DB_ERROR", error.message, 500);
@@ -449,7 +452,7 @@ adminRoutes.put("/branches/:id/notify-settings", requireJwt, async (c) => {
   const { data: profileRaw } = await db.from("profiles").select("role,branch_id").eq("auth_user_id", user.id).maybeSingle();
   const profile = profileRaw as { role: string; branch_id: string | null } | null;
   if (!profile || !HQ_AND_BRANCH.has(profile.role)) return fail(c, "PERMISSION_DENIED", "권한이 없습니다", 403);
-  if ((profile.role === "branch_owner" || profile.role === "branch_admin") && profile.branch_id !== branchId) {
+  if ((profile.role === "branch_owner" || profile.role === "branch_manager") && profile.branch_id !== branchId) {
     return fail(c, "PERMISSION_DENIED", "다른 지점 설정을 변경할 수 없습니다", 403);
   }
 
@@ -483,3 +486,52 @@ adminRoutes.get("/hq-stats", requireJwt, async (c) => {
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   return ok(c, data ?? []);
 });
+
+// ── 회원 명단 업로드(브로제이 엑셀) 배치 upsert ──────────────
+// CRM 이 엑셀을 파싱해 한 배치(<=100명)씩 보낸다. (Workers 서브리퀘스트 한도 고려)
+adminRoutes.post("/members/import", requireJwt, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as
+    | { branch_id?: string; rows?: ImportRow[] }
+    | null;
+  if (!body || !Array.isArray(body.rows)) {
+    return fail(c, "INVALID_REQUEST", "rows 배열이 필요합니다", 400);
+  }
+  if (body.rows.length > 100) {
+    return fail(c, "TOO_MANY", "한 번에 최대 100명까지 보낼 수 있습니다", 400);
+  }
+
+  const db = getServiceClient(c.env);
+  const { data: profileRaw } = await db
+    .from("profiles")
+    .select("role,branch_id")
+    .eq("auth_user_id", c.get("user").id)
+    .maybeSingle();
+  const profile = profileRaw as { role: string; branch_id: string | null } | null;
+  if (!profile || !HQ_AND_BRANCH.has(profile.role)) {
+    return fail(c, "PERMISSION_DENIED", "회원 업로드 권한이 없습니다", 403);
+  }
+
+  // 대상 지점 결정: 본사는 body 지정 가능, 지점 사용자는 자기 지점 고정
+  const isHq = profile.role === "super_admin" || profile.role === "hq_admin";
+  const branchId = isHq ? (body.branch_id ?? profile.branch_id) : profile.branch_id;
+  if (!branchId) return fail(c, "INVALID_REQUEST", "대상 지점을 확인할 수 없습니다", 400);
+
+  const { data: branchRaw } = await db
+    .from("branches")
+    .select("company_id,brand_id")
+    .eq("id", branchId)
+    .maybeSingle();
+  const branch = branchRaw as { company_id: string; brand_id: string } | null;
+  if (!branch) return fail(c, "NOT_FOUND", "지점을 찾을 수 없습니다", 404);
+
+  try {
+    const report = await importMembers(
+      db, c.env, body.rows, branchId, branch.company_id, branch.brand_id,
+    );
+    return ok(c, report, `반영 ${report.inserted + report.updated}명 (신규 ${report.inserted}, 갱신 ${report.updated})`);
+  } catch (e) {
+    return fail(c, "IMPORT_FAILED", (e as Error).message, 500);
+  }
+});
+
+// 회원 명단 업로드 라우트 끝 (브로제이 엑셀 → upsert)

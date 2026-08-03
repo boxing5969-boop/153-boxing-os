@@ -234,8 +234,17 @@ export function ContactActionBoard() {
           {[1, 2, 3].map((i) => <SkeletonRow key={i} />)}
         </div>
       ) : !branchId ? (
-        <div className="px-5 py-8 text-center">
-          <p className="text-sm text-muted-foreground">지점 정보를 불러오는 중입니다…</p>
+        <div className="flex flex-col items-center gap-2 px-5 py-8 text-center">
+          <p className="text-sm font-semibold text-foreground">본사 계정입니다</p>
+          <p className="text-xs text-muted-foreground">
+            지점별 ‘오늘 연락할 회원’은 각 지점 계정에서 보거나, 전 지점 현황에서 확인하세요.
+          </p>
+          <Link
+            to="/hq"
+            className="mt-1 inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/5"
+          >
+            지점 현황 보기
+          </Link>
         </div>
       ) : members.length === 0 ? (
         <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">

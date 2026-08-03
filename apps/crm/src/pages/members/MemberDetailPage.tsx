@@ -29,6 +29,7 @@ import { CheckInDialog } from "@/components/memberships/CheckInDialog";
 import { ConsentManagementCard } from "@/components/consent/ConsentManagementCard";
 import { BodyMeasurementsCard } from "@/components/members/BodyMeasurementsCard";
 import { WorkoutLogsCard } from "@/components/members/WorkoutLogsCard";
+import { MemberProfileCard } from "@/components/members/MemberProfileCard";
 import { LinkRankingAppDialog } from "@/components/members/LinkRankingAppDialog";
 import { getMember, getMemberRelated } from "@/services/members";
 import { updateMembershipState, markMembershipUnpaid, markMembershipPaid } from "@/services/memberships";
@@ -61,6 +62,31 @@ function genderLabel(g: string | null) {
   return g === "male" ? "남" : g === "female" ? "여" : g === "other" ? "기타" : "—";
 }
 
+// 회원 상세 상단 요약 strip 항목 (킷: 상태·이용권·남은기간·미납·담당)
+function SummaryItem({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "muted" | "danger" | "warning" | "success";
+}) {
+  const color = {
+    default: "text-foreground",
+    muted: "text-muted-foreground",
+    danger: "text-danger",
+    warning: "text-warning",
+    success: "text-success",
+  }[tone];
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={cn("mt-0.5 text-sm font-bold", color)}>{value}</p>
+    </div>
+  );
+}
+
 interface AccessCheck { allowed: boolean; reason?: string; }
 const BLOCK_REASON: Partial<Record<string, string>> = {
   expired: "이용권 만료",
@@ -72,7 +98,7 @@ const BLOCK_REASON: Partial<Record<string, string>> = {
 function computeAccessReady(member: Member, memberships: Membership[], trials: TrialPass[]): AccessCheck {
   if (BLOCK_REASON[member.status])
     return { allowed: false, reason: BLOCK_REASON[member.status] };
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST
   if (memberships.find((m) => m.status === "active" && m.end_date >= today && ["paid", "partial"].includes(m.payment_status)))
     return { allowed: true };
   const nowIso = new Date().toISOString();
@@ -148,7 +174,7 @@ export default function MemberDetailPage() {
   // 납부 확인 (미납 해제)
   const paidMutation = useMutation({
     mutationFn: (m: Membership) => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST
       const stillActive = m.status === "active" && m.end_date >= todayStr;
       return markMembershipPaid(m.id, memberId, stillActive);
     },
@@ -200,10 +226,13 @@ export default function MemberDetailPage() {
   const trials = relatedQuery.data?.trials ?? [];
 
   // 현재 활성 이용권 (첫 번째 active 항목)
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST
   const activeMembership = memberships.find(
     (m) => m.status === "active" && m.end_date >= today
   ) ?? null;
+  // 상단 요약 strip용 파생값 (기존 데이터 재사용)
+  const remainingDays = activeMembership ? daysUntil(activeMembership.end_date) : null;
+  const isUnpaid = activeMembership?.payment_status === "unpaid" || member.status === "unpaid";
   const accessReadyFallback = computeAccessReady(member, memberships, trials);
   const previewData    = accessPreviewQuery.data;
   const previewError   = accessPreviewQuery.isError;
@@ -303,6 +332,40 @@ export default function MemberDetailPage() {
           </div>
         </div>
       </Card>
+
+      {/* 상태 요약 strip — 한눈에 (이용권·남은기간·결제·담당 코치) */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryItem
+          label="이용권"
+          value={activeMembership ? "보유 중" : "없음"}
+          tone={activeMembership ? "default" : "muted"}
+        />
+        <SummaryItem
+          label="남은 기간"
+          value={
+            !activeMembership
+              ? "—"
+              : remainingDays == null
+                ? "확인 필요"
+                : remainingDays < 0
+                  ? "만료"
+                  : `D-${remainingDays}`
+          }
+          tone={
+            activeMembership && remainingDays != null && remainingDays <= 7 ? "warning" : "default"
+          }
+        />
+        <SummaryItem
+          label="결제"
+          value={!activeMembership ? "—" : isUnpaid ? "미납" : "정상"}
+          tone={isUnpaid ? "danger" : activeMembership ? "success" : "muted"}
+        />
+        <SummaryItem
+          label="담당 코치"
+          value={member.assigned_coach_id ? "배정됨" : "미지정"}
+          tone={member.assigned_coach_id ? "default" : "muted"}
+        />
+      </div>
 
       {actionError && (
         <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
@@ -754,6 +817,9 @@ export default function MemberDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 확장 정보 (브로제이 명단) */}
+      <MemberProfileCard memberId={member.id} />
 
       {/* 체성분 기록 */}
       <BodyMeasurementsCard memberId={member.id} />

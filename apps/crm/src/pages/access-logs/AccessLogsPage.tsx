@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ScrollText, RotateCcw, ChevronRight } from "lucide-react";
+import { ScrollText, RotateCcw, ChevronRight, LogIn, LogOut, ScanFace, Smartphone } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -16,6 +16,8 @@ import {
   credentialLabel,
 } from "@/components/access/AccessResultBadge";
 import { listAccessLogs } from "@/services/accessLogs";
+import { getAutoStats } from "@/services/reportAutoStats";
+import { useAuth } from "@/contexts/AuthContext";
 import { formatDateTime } from "@/lib/format";
 import { DENIED_REASON_LABELS, type AccessResult, type CredentialType, type DeniedReason } from "@153/shared";
 import { cn } from "@/lib/cn";
@@ -33,6 +35,11 @@ const LOSS_PREVENTION_REASONS: DeniedReason[] = [
 ];
 
 const PAGE_SIZE = 20;
+
+// KST 자정 앵커 (boxing 규칙 6 — UTC 파싱 금지)
+function todayKst(): string {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
 
 const ROW_TONES: Record<string, string> = {
   success: "border-l-2 border-l-success",
@@ -88,6 +95,20 @@ export default function AccessLogsPage() {
     refetchInterval: 30_000,
   });
 
+  // 오늘 요약 — 홈·일일 리포트와 같은 통합 집계(auto-stats) → 숫자 단일 출처, 캐시 공유
+  const { profile } = useAuth();
+  const { data: stats } = useQuery({
+    queryKey: ["auto-stats", profile?.branch_id ?? "all"],
+    queryFn: () => getAutoStats({ branchId: profile?.branch_id ?? undefined }),
+    staleTime: 30_000,
+  });
+
+  // 오늘 카드 클릭 → 오늘 날짜 + 결과 필터 즉시 적용
+  function filterToday(r: "" | AccessResult) {
+    const t = todayKst();
+    setFrom(t); setTo(t); setResult(r); setCredential(""); setDeniedReason(""); setPage(0);
+  }
+
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const rows = data?.rows ?? [];
@@ -99,8 +120,8 @@ export default function AccessLogsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="출입 로그"
-        description="모든 출입 시도 기록 — 성공·거절·오류 포함"
+        title="출입 현황"
+        description="오늘 누가 왔는지, 왜 거절됐는지 한눈에 확인하세요"
         badge={
           total > 0 ? (
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-bold text-muted-foreground">
@@ -109,6 +130,56 @@ export default function AccessLogsPage() {
           ) : undefined
         }
       />
+
+      {/* 오늘 요약 — 큰 카드. 누르면 바로 그 목록으로 */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <button
+          type="button"
+          onClick={() => filterToday("success")}
+          className="rounded-2xl border border-border bg-card p-5 text-left shadow-card transition hover:border-success/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">오늘 출입</p>
+            <span className="flex size-9 items-center justify-center rounded-xl bg-success/10 text-success"><LogIn className="size-4" /></span>
+          </div>
+          <p className="mt-2 text-3xl font-black tabular text-success">{stats?.accessSuccess ?? "…"}</p>
+          <p className="mt-1 text-xs text-muted-foreground">누르면 오늘 출입만 보기</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => filterToday("denied")}
+          className="rounded-2xl border border-border bg-card p-5 text-left shadow-card transition hover:border-danger/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">오늘 거절</p>
+            <span className="flex size-9 items-center justify-center rounded-xl bg-danger/10 text-danger"><LogOut className="size-4" /></span>
+          </div>
+          <p className={cn("mt-2 text-3xl font-black tabular", (stats?.accessDenied ?? 0) > 0 ? "text-danger" : "text-foreground")}>
+            {stats?.accessDenied ?? "…"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">누르면 거절만 보기 · 사유 확인</p>
+        </button>
+        <Link
+          to="/face-attendance"
+          className="flex flex-col justify-between rounded-2xl border border-border bg-card p-5 shadow-card transition hover:border-primary/40 hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">얼굴 출석</p>
+            <span className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><ScanFace className="size-4" /></span>
+          </div>
+          <p className="mt-1 text-sm font-bold text-foreground">등록 현황 · 얼굴 출입 기록 →</p>
+        </Link>
+        <Link
+          to="/devices"
+          className="flex flex-col justify-between rounded-2xl border border-border bg-card p-5 shadow-card transition hover:border-primary/40 hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">장비 상태</p>
+            <span className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><Smartphone className="size-4" /></span>
+          </div>
+          <p className="mt-1 text-sm font-bold text-foreground">인식기 · 단말 연결 확인 →</p>
+        </Link>
+      </div>
 
       {/* 필터 바 */}
       <Card className="p-4">
