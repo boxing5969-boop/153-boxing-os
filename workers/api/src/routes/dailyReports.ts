@@ -305,8 +305,22 @@ dailyReportsRoutes.put("/daily", requireJwt, async (c) => {
   if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
   if (!isWithinEditWindow(parsed.data.report_date)) return fail(c, "EDIT_WINDOW", "작성일 당일·익일까지만 수정할 수 있습니다", 400);
 
+  // ⚠️ 매출·환불 금액은 이 경로로 저장하지 않는다.
+  //    매출의 정본은 매출 내역(sales_entries)이고, daily_reports 의 금액 칸은
+  //    recalc_daily_revenue 가 그 원장에서 계산해 채우는 '파생값'이다.
+  //    여기서 함께 upsert 하면 두 가지 사고가 난다:
+  //      ① 관장님이 리포트에서 손으로 넣은 매출이 다음 자동 동기화 때 조용히 덮인다
+  //      ② 프론트가 refund_* 를 안 보내면 zod 기본값 0 이 들어가
+  //         계산해 둔 환불액이 리포트를 저장할 때마다 지워진다
+  //    그래서 금액 칸은 아예 빼고 저장한다(값은 매출 화면에서 넣는다).
+  const {
+    revenue_pt: _rpt, revenue_membership: _rm, revenue_goods: _rg, revenue_dan: _rd,
+    refund_count: _rc, refund_amount: _ra,
+    ...saveable
+  } = parsed.data;
+
   const { error } = await db.from("daily_reports").upsert(
-    { ...parsed.data, author_profile_id: profile.id, updated_at: new Date().toISOString() },
+    { ...saveable, author_profile_id: profile.id, updated_at: new Date().toISOString() },
     { onConflict: "branch_id,report_date" },
   );
   if (error) return fail(c, "DB_ERROR", error.message, 500);
@@ -1006,18 +1020,38 @@ dailyReportsRoutes.get("/sales-summary", requireJwt, async (c) => {
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
   const [{ data: sRaw }, { data: pRaw }] = await Promise.all([
-    db.from("sales_entries").select("category,payment_method,amount").eq("branch_id", branchId).eq("sale_date", date),
+    // product 도 읽는다 — 브로제이는 PT 를 category="수강권" + product="퍼스널 트레이닝…" 으로 넣는다
+    db.from("sales_entries").select("category,product,payment_method,amount").eq("branch_id", branchId).eq("sale_date", date),
     db.from("pt_passes").select("payment_method,amount").eq("branch_id", branchId).eq("reg_date", date),
   ]);
-  const sales = (sRaw as { category: string; payment_method: string; amount: number }[] | null) ?? [];
+  const sales = (sRaw as { category: string; product: string | null; payment_method: string; amount: number }[] | null) ?? [];
   const pts = (pRaw as { payment_method: string | null; amount: number }[] | null) ?? [];
-  const sumCat = (cat: string): number => sales.filter((s) => s.category === cat).reduce((a, s) => a + s.amount, 0);
+  // ⚠️ 정확 일치로 세면 브로제이가 넣는 '기타' 같은 값이 어느 버킷에도 안 들어가
+  //    총액 < 결제수단 합계가 되어 관장님 눈에 숫자가 안 맞는다.
+  //    recalc_daily_revenue 와 같은 분류 기준을 쓴다.
+  const PT_RE = /PT|피티|개인/;
+  const DAN_RE = /단증|승단|심사/;
+  const GOODS_RE = /물품|용품|상품|기타|굿즈/;
+  const bucketOf = (cat: string, product: string): "pt" | "dan" | "goods" | "membership" => {
+    const t = `${cat} ${product}`;
+    if (PT_RE.test(t)) return "pt";
+    if (DAN_RE.test(cat)) return "dan";
+    if (GOODS_RE.test(cat)) return "goods";
+    return "membership";
+  };
+  const sumBucket = (b: "pt" | "dan" | "goods" | "membership"): number =>
+    sales.filter((s) => bucketOf(s.category, s.product ?? "") === b)
+      .reduce((a, s) => a + s.amount, 0);
   const pay = (m: string): number =>
     sales.filter((s) => s.payment_method === m).reduce((a, s) => a + s.amount, 0) +
     pts.filter((p) => p.payment_method === m).reduce((a, p) => a + p.amount, 0);
   const ptAmount = pts.reduce((a, p) => a + p.amount, 0);
   return ok(c, {
-    revenue: { membership: sumCat("수강권"), goods: sumCat("물품"), dan: sumCat("단증"), pt: ptAmount },
+    // PT 는 매출 원장(상품명에 PT 가 든 건)과 PT 이용권 테이블을 합쳐 보여준다
+    revenue: {
+      membership: sumBucket("membership"), goods: sumBucket("goods"),
+      dan: sumBucket("dan"), pt: sumBucket("pt") + ptAmount,
+    },
     payment: { cash: pay("현금"), card: pay("카드"), transfer: pay("계좌이체") },
   });
 });
@@ -2217,7 +2251,130 @@ dailyReportsRoutes.get("/messages", requireJwt, async (c) => {
     .eq("branch_id", branchId)
     .order("created_at", { ascending: false })
     .limit(500);
-  return ok(c, { messages: data ?? [] });
+  /**
+   * 🚨 이 라우트는 홈 진입 시 무조건 호출된다(ReportForm). 코치에게도 그대로 나가면
+   *    새로 만든 '보낸 문자함'에서 코치 열람을 좁혀 놓은 게 무의미해진다 —
+   *    지점 전체 회원 이름·전체 번호·문자 본문을 이미 내려받게 되기 때문.
+   *    소비처(온보딩·케어 보드)는 이름·유형·시각만 쓰므로 민감 필드만 비운다.
+   */
+  const raw = (data ?? []) as Record<string, unknown>[];
+  const messages = profile.role === "coach"
+    ? raw.map((r) => ({ ...r, phone: null, content: "" }))
+    : raw;
+  return ok(c, { messages });
+});
+
+/**
+ * ── 보낸 문자함 (메일함처럼 지나간 발송을 그대로 다시 읽는다) ──
+ * GET /messages/outbox?branch_id=&days=&kind=all|auto|manual&type=&q=&page=&size=
+ *
+ * 왜 만들었나: "자동문자가 뭐라고 나갔냐"는 회원 문의에 직원이 답할 방법이 없었다.
+ * 실제로 한 회원 배우자분이 문구를 오해해 환불 문의까지 갔는데(2026-08-04), 그때 우리는
+ * '무슨 문자가 갔는지' 화면으로 확인할 수가 없었다. 본문까지 그대로 보관·조회한다.
+ *
+ * 권한
+ *  · 지점장·본사 = 그 지점 전체
+ *  · 코치        = **본인이 보낸 것만**. 자동발송(created_by=null)은 코치에게 보이지 않는다.
+ *    회원 이름·전화번호가 그대로 담긴 화면이라 열람 범위를 넓히지 않는다.
+ */
+const isAutoType = (t: string | null): boolean =>
+  !!t && (t.startsWith("auto_") || t === "daily_auto_report");
+
+dailyReportsRoutes.get("/messages/outbox", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !CARE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  const mineOnly = profile.role === "coach" ? profile.id : null;
+
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 90) || 90, 1), 730);
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+  const kind = c.req.query("kind") === "auto" ? "auto" : c.req.query("kind") === "manual" ? "manual" : "all";
+  const type = (c.req.query("type") ?? "").trim();
+  // 상한을 안 두면 거대한 OFFSET 요청으로 DB 를 갉아먹을 수 있다(200페이지 = 20,000건이면 충분)
+  const page = Math.min(Math.max(Number(c.req.query("page") ?? 0) || 0, 0), 200);
+  const size = Math.min(Math.max(Number(c.req.query("size") ?? 30) || 30, 5), 100);
+  /**
+   * ⚠️ PostgREST 필터 문자열 주입 방어.
+   * q 를 .or("...ilike.*q*") 에 그대로 끼우면 콤마·괄호로 **다른 조건을 덧붙일 수 있다**
+   * (지점 조건을 무력화해 남의 지점 문자를 읽는 길이 된다). 위험문자는 아예 지운다.
+   */
+  //    `%`·`_` 는 LIKE 와일드카드라 그대로 두면 광역 매칭 + 풀스캔이 된다 — 같이 지운다.
+  const q = (c.req.query("q") ?? "").replace(/[,()*\\"'%_]/g, "").trim().slice(0, 40);
+  /**
+   * 번호 검색 — 저장 포맷이 두 가지다(하이픈 포함/숫자만). 한쪽만 비교하면 절반이 안 걸린다.
+   * 입력이 숫자면 하이픈 표기형도 같이 찾는다.
+   */
+  const qDigits = q.replace(/\D/g, "");
+  const qDashed = qDigits.length === 11
+    ? `${qDigits.slice(0, 3)}-${qDigits.slice(3, 7)}-${qDigits.slice(7)}`
+    : "";
+
+  let query = db.from("ops_message_logs")
+    .select("id,recipient_name,phone,template_type,content,status,created_by,created_at", { count: "exact" })
+    .eq("branch_id", branchId)
+    .gte("created_at", sinceIso);
+  if (mineOnly) query = query.eq("created_by", mineOnly);
+  if (type) query = query.eq("template_type", type);
+  else if (kind === "auto") query = query.or("template_type.like.auto\\_*,template_type.eq.daily_auto_report");
+  else if (kind === "manual") query = query.not("template_type", "like", "auto\\_*").neq("template_type", "daily_auto_report");
+  if (q) {
+    const conds = [`recipient_name.ilike.*${q}*`, `phone.ilike.*${q}*`, `content.ilike.*${q}*`];
+    if (qDashed) conds.push(`phone.ilike.*${qDashed}*`);
+    query = query.or(conds.join(","));
+  }
+
+  const { data, error, count } = await query
+    // ⚠️ created_at 만으로 정렬하면 같은 시각 행들의 순서가 매번 달라져 페이지 경계에서
+    //    같은 문자가 두 번 보이거나 어떤 건 영영 안 보인다(단체발송은 한 번에 여러 건이 같은 시각으로 들어온다).
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(page * size, page * size + size - 1);
+  if (error) return fail(c, "DB_ERROR", error.message, 500);
+
+  type Row = {
+    id: string; recipient_name: string | null; phone: string | null; template_type: string | null;
+    content: string | null; status: string | null; created_by: string | null; created_at: string;
+  };
+  const rows = ((data as Row[] | null) ?? []).map((r) => ({
+    id: r.id,
+    name: r.recipient_name ?? "이름 없음",
+    phone: r.phone,
+    template_type: r.template_type ?? "",
+    auto: isAutoType(r.template_type),
+    content: r.content ?? "",
+    status: r.status ?? "sent",
+    created_by: r.created_by,
+    created_at: r.created_at,
+  }));
+
+  // 종류별 건수는 DB 가 센다 — 이 페이지에 있는 것만 세면 숫자가 틀린다(페이지네이션 함정)
+  const { data: sum } = await db.rpc("ops_message_outbox_summary", {
+    _branch_id: branchId, _since: sinceIso, _created_by: mineOnly,
+  });
+  type Sum = { template_type: string; is_auto: boolean; n: number; last_at: string | null };
+  const types = ((sum as Sum[] | null) ?? []).map((s) => ({
+    type: s.template_type, auto: s.is_auto, n: s.n, last_at: s.last_at,
+  }));
+
+  // 보낸 사람 이름 — created_by 는 uuid 라 화면에 그대로 두면 아무 의미가 없다
+  const senderIds = Array.from(new Set(rows.map((r) => r.created_by).filter((v): v is string => !!v)));
+  const senders: Record<string, string> = {};
+  if (senderIds.length) {
+    const { data: ppl } = await db.from("profiles").select("id, name").in("id", senderIds);
+    for (const p of ((ppl as { id: string; name: string | null }[] | null) ?? [])) senders[p.id] = p.name ?? "직원";
+  }
+
+  return ok(c, {
+    rows, total: count ?? 0, page, size, days, kind, type, q,
+    types,
+    auto_total: types.filter((t) => t.auto).reduce((a, b) => a + b.n, 0),
+    manual_total: types.filter((t) => !t.auto).reduce((a, b) => a + b.n, 0),
+    senders,
+    scope: mineOnly ? "mine" : "branch",
+  });
 });
 
 // ── 지점 직원 목록 (공동 회원관리 담당자 = 지점장·FC 등) ──
@@ -3733,6 +3890,11 @@ dailyReportsRoutes.post("/member-care/events", requireJwt, async (c) => {
       product: b.sale_product ?? b.sale_category, is_new: false, payment_method: b.sale_payment_method, amount: b.amount, created_by: profile.id,
     }).select("id").maybeSingle();
     saleId = (sale as { id: string } | null)?.id ?? null;
+    // 매출 원장에 넣었으면 일일 리포트도 같은 날짜를 다시 계산한다.
+    // (POST /sales·엑셀 업로드·브로제이 동기화와 같은 규칙 — 이 경로만 빠져 있었다)
+    if (saleId) {
+      await db.rpc("recalc_daily_revenue", { _branch_id: b.branch_id, _from: today, _to: today });
+    }
   }
 
   // (선택) 기회 단계 갱신

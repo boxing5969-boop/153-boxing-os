@@ -145,16 +145,22 @@ export async function syncAttendance(
       if (calls >= maxCalls) { truncated = true; break outer; }   // 예산 소진 — 여기까지만
       calls += 1;
       let res: Awaited<ReturnType<typeof brojAttendance>>;
+      const ask = (mt: "ALL" | "CUSTOMER") => brojAttendance(env, {
+        group_id: groupId, start_date: w.from, end_date: w.to, size: SIZE, page_index: page,
+        attendance_status: status,
+        // 직원 출근까지 받아야 브로제이 출석부 총 건수와 맞는다(회원 통계에는 안 섞인다 — counts_as_visit)
+        member_type: mt,
+      });
       try {
-        res = await brojAttendance(env, {
-          group_id: groupId, start_date: w.from, end_date: w.to, size: SIZE, page_index: page,
-          attendance_status: status,
-          // 직원 출근까지 받아야 브로제이 출석부 총 건수와 맞는다(회원 통계에는 안 섞인다 — counts_as_visit)
-          member_type: "ALL",
-        });
+        res = await ask("ALL");
       } catch (e) {
         if (isUnsupportedStatus(e)) { unsupported.add(status); break; }  // 이 값은 포기, 나머지는 계속
-        throw e;
+        // member_type=ALL 을 브로제이가 거부하면 **출석 피드 전체가 멈춘다**(화면·케어·자동발송이 다 이걸 쓴다).
+        // 직원 몇 건 못 받는 것보다 회원 출석이 끊기는 게 훨씬 크다 → CUSTOMER 로 한 번 물러선다.
+        if (/member_type/i.test(String(e))) {
+          calls += 1;
+          res = await ask("CUSTOMER");
+        } else throw e;
       }
       const list = res.data ?? [];
       pages += 1;
@@ -170,7 +176,8 @@ export async function syncAttendance(
         // 직원 판정 — 브로제이가 member_type(ADMIN) 으로도, attendance_type(GO_TO_WORK=출근) 으로도 알려준다.
         // 둘 중 하나라도 걸리면 직원으로 본다(한쪽만 채워 오는 경우가 있다).
         const isStaff = a.member_type === "ADMIN" || a.attendance_type === "GO_TO_WORK";
-        const st = a.attendance_status ?? status;
+        // ⚠️ `??` 는 null 만 잡는다 — 빈 문자열이 오면 st="" 가 되어 어느 집계에도 안 걸리는 유령 행이 된다.
+        const st = a.attendance_status || status;
         rows.push({
           branch_id: branchId,
           broj_attendance_id: id,
@@ -185,7 +192,10 @@ export async function syncAttendance(
           fail_reason: a.failure_reason ?? null,
           // 🚨 화면·통계가 세는 기준. 고객이 실제로 들어온 것만 true.
           //    여기를 잘못 찍으면 전 지점 방문수·출석 등급·이탈 판정이 한꺼번에 틀어진다.
-          counts_as_visit: !isStaff && st === "SUCCESS",
+          // ⚠️ 화이트리스트(=== "SUCCESS")가 아니라 **블랙리스트**로 판정한다.
+          //    브로제이가 상태값을 또 바꾸거나(SHOW 처럼) 모르는 값을 주면, 화이트리스트에서는
+          //    정상 출석이 소리 없이 통계에서 증발한다. 변경 전 코드는 SUCCESS 조회로 받은 건 뭐든 셌다.
+          counts_as_visit: !isStaff && st !== "FAILURE" && st !== "NO_SHOW",
           ticket_name: a.ticket_info?.name ?? null,
           ticket_type: a.ticket_info?.type ?? null,
           remain_count: a.ticket_info?.remain_count ?? null,

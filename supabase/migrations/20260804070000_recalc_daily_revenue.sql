@@ -12,6 +12,11 @@
 -- 호출 지점: workers/api/src/services/brojSync.ts (브로제이 동기화 후)
 --            workers/api/src/routes/dailyReports.ts POST /sales/import (엑셀 업로드 후)
 --
+-- 2026-08-04 보강(2): PT 를 상품명으로도 가른다. category 에는 'PT' 가 절대 안 들어와
+--   revenue_pt 가 구조적으로 항상 0 이었고(화면엔 PT 칸이 있는데), 실제 PT 결제는
+--   '수강권 + 퍼스널 트레이닝 20회권' 형태로 수강권에 섞여 있었다.
+--   sales-summary 라우트도 같은 기준으로 맞췄다(숫자 단일 출처).
+--
 -- 2026-08-04 보강: 합계를 bigint 로 계산한다. int 였을 때는 금액 오타(0 을 더 누름) 한 건이
 --   그 날짜 재계산을 통째로 실패시켜, 이후 등록·삭제까지 리포트에 반영되지 않았다.
 --   입력 상한(1억)은 워커 zod(salesCreateSchema)에서 따로 막는다.
@@ -41,13 +46,19 @@ BEGIN
   WITH agg AS (
     SELECT
       s.sale_date AS d,
-      COALESCE(SUM(s.amount) FILTER (WHERE s.amount > 0 AND s.category ~ 'PT|피티|개인'), 0)::bigint AS pt,
-      COALESCE(SUM(s.amount) FILTER (WHERE s.amount > 0 AND s.category ~ '단증|승단|심사'), 0)::bigint AS dan,
+      -- PT: 분류 또는 상품명에 PT 표기가 있으면 (브로제이는 '수강권' + '퍼스널 트레이닝…' 으로 넣는다)
       COALESCE(SUM(s.amount) FILTER (WHERE s.amount > 0
-        AND s.category !~ 'PT|피티|개인' AND s.category !~ '단증|승단|심사'
+        AND (s.category || ' ' || COALESCE(s.product,'')) ~ 'PT|피티|퍼스널|개인'), 0)::bigint AS pt,
+      COALESCE(SUM(s.amount) FILTER (WHERE s.amount > 0
+        AND (s.category || ' ' || COALESCE(s.product,'')) !~ 'PT|피티|퍼스널|개인'
+        AND s.category ~ '단증|승단|심사'), 0)::bigint AS dan,
+      COALESCE(SUM(s.amount) FILTER (WHERE s.amount > 0
+        AND (s.category || ' ' || COALESCE(s.product,'')) !~ 'PT|피티|퍼스널|개인'
+        AND s.category !~ '단증|승단|심사'
         AND s.category ~ '물품|용품|상품|기타|굿즈'), 0)::bigint AS goods,
       COALESCE(SUM(s.amount) FILTER (WHERE s.amount > 0
-        AND s.category !~ 'PT|피티|개인' AND s.category !~ '단증|승단|심사'
+        AND (s.category || ' ' || COALESCE(s.product,'')) !~ 'PT|피티|퍼스널|개인'
+        AND s.category !~ '단증|승단|심사'
         AND s.category !~ '물품|용품|상품|기타|굿즈'), 0)::bigint AS membership,
       COALESCE(SUM(-s.amount) FILTER (WHERE s.amount < 0), 0)::bigint AS refund_amt,
       COUNT(*) FILTER (WHERE s.amount < 0)::int AS refund_cnt
