@@ -111,7 +111,12 @@ export async function syncAttendance(
   //    ③ 허용 값이 브로제이 쪽에서 바뀐다. 2026-07 기준 [ALL, SUCCESS, FAILURE] 이고,
   //       그 전에 쓰던 SHOW 는 이제 400 을 낸다. 그래서 후보를 순서대로 시도하고,
   //       '지원하지 않는 값'이면 그 값만 건너뛴다. 값 하나 때문에 동기화 전체가 실패하면 안 된다.
-  //       ※ ALL 은 쓰지 않는다 — 거절된 출입(FAILURE)까지 섞여 출석 수가 부풀려진다.
+  //    ④ (2026-08-04) 브로제이 출석부와 **1:1로 맞추기 위해** 성공만이 아니라 실패(FAILURE)도,
+  //       고객만이 아니라 직원 출근(member_type=ALL)도 받는다. 대표님이 브로제이 화면 35건과
+  //       앱 31건을 대조해 확인해 주셨다 — 차이는 딱 실패 2 + 직원 2였다.
+  //       ※ 그래도 **회원 방문 수는 안 변한다**: 저장할 때 counts_as_visit(고객 AND 성공) 을 찍고
+  //         모든 집계는 그 열만 센다. 실패 기록은 '만료 회원이 문 앞에서 튕긴' 재등록 상담 신호다.
+  //       ※ ALL(상태) 은 여전히 쓰지 않는다 — 상태별로 나눠 받아야 어느 쪽이 거절됐는지 남길 수 있다.
   const windows: { from: string; to: string }[] = [];
   {
     const WINDOW = 80;   // 90일 한도에 여유를 둔다
@@ -134,7 +139,7 @@ export async function syncAttendance(
   let truncated = false;
   outer:
   for (const w of windows) {
-  for (const status of ["SUCCESS", "SHOW"] as const) {
+  for (const status of ["SUCCESS", "FAILURE"] as const) {
     if (unsupported.has(status)) continue;
     for (let page = 0; page < MAX_PAGES; page++) {
       if (calls >= maxCalls) { truncated = true; break outer; }   // 예산 소진 — 여기까지만
@@ -144,6 +149,8 @@ export async function syncAttendance(
         res = await brojAttendance(env, {
           group_id: groupId, start_date: w.from, end_date: w.to, size: SIZE, page_index: page,
           attendance_status: status,
+          // 직원 출근까지 받아야 브로제이 출석부 총 건수와 맞는다(회원 통계에는 안 섞인다 — counts_as_visit)
+          member_type: "ALL",
         });
       } catch (e) {
         if (isUnsupportedStatus(e)) { unsupported.add(status); break; }  // 이 값은 포기, 나머지는 계속
@@ -160,6 +167,10 @@ export async function syncAttendance(
         const at = toKst(a.attendance_date);
         if (!at.date) continue;    // 날짜 없는 기록은 집계 불가 — 저장하지 않는다
         const exp = toKst(a.ticket_info?.expire_date);
+        // 직원 판정 — 브로제이가 member_type(ADMIN) 으로도, attendance_type(GO_TO_WORK=출근) 으로도 알려준다.
+        // 둘 중 하나라도 걸리면 직원으로 본다(한쪽만 채워 오는 경우가 있다).
+        const isStaff = a.member_type === "ADMIN" || a.attendance_type === "GO_TO_WORK";
+        const st = a.attendance_status ?? status;
         rows.push({
           branch_id: branchId,
           broj_attendance_id: id,
@@ -169,7 +180,12 @@ export async function syncAttendance(
           attended_at: at.iso,
           attend_date: at.date,
           attendance_type: a.attendance_type ?? null,
-          attendance_status: a.attendance_status ?? status,
+          attendance_status: st,
+          user_type: isStaff ? "직원" : "고객",
+          fail_reason: a.failure_reason ?? null,
+          // 🚨 화면·통계가 세는 기준. 고객이 실제로 들어온 것만 true.
+          //    여기를 잘못 찍으면 전 지점 방문수·출석 등급·이탈 판정이 한꺼번에 틀어진다.
+          counts_as_visit: !isStaff && st === "SUCCESS",
           ticket_name: a.ticket_info?.name ?? null,
           ticket_type: a.ticket_info?.type ?? null,
           remain_count: a.ticket_info?.remain_count ?? null,

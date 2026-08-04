@@ -1448,6 +1448,8 @@ dailyReportsRoutes.get("/morning/members", requireJwt, async (c) => {
   const { data, error } = await db.from("attendance_logs")
     .select("member_name, phone, attended_at")
     .eq("branch_id", branchId)
+    // 회원이 실제로 들어온 기록만. 직원 출근·거절된 출입은 방문이 아니다(counts_as_visit 참고)
+    .eq("counts_as_visit", true)
     .gte("attended_at", since)
     .order("attended_at", { ascending: false })
     .limit(5000);
@@ -1486,7 +1488,7 @@ dailyReportsRoutes.get("/morning/stats", requireJwt, async (c) => {
   const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
   const { data, error } = await db.from("attendance_logs")
     .select("member_name, phone, attended_at")
-    .eq("branch_id", branchId).gte("attended_at", sinceIso)
+    .eq("branch_id", branchId).eq("counts_as_visit", true).gte("attended_at", sinceIso)
     .order("attended_at", { ascending: false }).limit(8000);
   if (error) return fail(c, "DB_ERROR", error.message, 500);
 
@@ -1632,6 +1634,7 @@ dailyReportsRoutes.get("/attendance/days", requireJwt, async (c) => {
     const { data, error } = await db.from("attendance_logs")
       .select("attend_date, attended_at, phone, member_name")
       .eq("branch_id", branchId)
+      .eq("counts_as_visit", true)   // 달력 숫자 = 회원 방문. 직원 출근·거절은 빼고 센다
       .gte("attend_date", from).lte("attend_date", to)
       .order("attended_at", { ascending: true })
       .range(off, off + 999);
@@ -1685,8 +1688,9 @@ dailyReportsRoutes.get("/attendance/day", requireJwt, async (c) => {
   // KST 하루 = UTC 전날 15:00 ~ 당일 15:00. attend_date 로만 자르면 자정 근처가 새거나 섞인다.
   const startUtc = new Date(Date.parse(`${date}T00:00:00+09:00`)).toISOString();
   const endUtc = new Date(Date.parse(`${date}T00:00:00+09:00`) + 86400000).toISOString();
+  // 하루치는 한 번에 다 읽고 코드에서 가른다 — 방문/거절/직원을 따로 조회하면 쿼리가 3배가 된다.
   const { data, error } = await db.from("attendance_logs")
-    .select("member_name, phone, attended_at, attendance_type, ticket_name, ticket_type, remain_count, device_name")
+    .select("member_name, phone, attended_at, attendance_type, ticket_name, ticket_type, remain_count, device_name, counts_as_visit, user_type, fail_reason")
     .eq("branch_id", branchId)
     .gte("attended_at", startUtc).lt("attended_at", endUtc)
     .order("attended_at", { ascending: true })
@@ -1697,9 +1701,25 @@ dailyReportsRoutes.get("/attendance/day", requireJwt, async (c) => {
     member_name: string | null; phone: string | null; attended_at: string;
     attendance_type: string | null; ticket_name: string | null; ticket_type: string | null;
     remain_count: number | null; device_name: string | null;
+    counts_as_visit: boolean | null; user_type: string | null; fail_reason: string | null;
   };
   const hw = hourWindow(c);
-  const rows = ((data as Row[] | null) ?? []).filter((r) => inHours(kstHm(r.attended_at).hour, hw)).map((r) => {
+  const inWindow = ((data as Row[] | null) ?? []).filter((r) => inHours(kstHm(r.attended_at).hour, hw));
+  /**
+   * 거절된 출입 = 만료·미등록 회원이 문 앞까지 왔다 튕긴 것. **상담 골든타임**이라 따로 돌려준다.
+   * 직원 출근은 근태라 숫자만. 둘 다 rows(방문)에는 절대 섞지 않는다 — 섞으면 출석 인원이 부풀어
+   * 브로제이와 또 안 맞게 된다(이 기능이 생긴 이유가 그 불일치였다).
+   */
+  const denied = inWindow
+    .filter((r) => r.counts_as_visit === false && r.user_type !== "직원")
+    .map((r) => ({
+      name: r.member_name ?? "회원",
+      phone: r.phone,
+      time: kstHm(r.attended_at).hm,
+      reason: r.fail_reason ?? "사유 없음",
+    }));
+  const staffCount = inWindow.filter((r) => r.user_type === "직원").length;
+  const rows = inWindow.filter((r) => r.counts_as_visit !== false).map((r) => {
     const t = kstHm(r.attended_at);
     return {
       name: r.member_name ?? "회원",
@@ -1718,7 +1738,7 @@ dailyReportsRoutes.get("/attendance/day", requireJwt, async (c) => {
   const people = new Set(rows.map((r) => (r.phone ?? "").replace(/\D/g, "") || `n:${r.name}`));
   const shifts = ATT_SHIFTS.map((s) => ({ ko: s.ko, n: rows.filter((r) => r.shift === s.ko).length }))
     .filter((s) => s.n > 0);
-  return ok(c, { date, rows, visits: rows.length, members: people.size, shifts });
+  return ok(c, { date, rows, visits: rows.length, members: people.size, shifts, denied, staff: staffCount });
 });
 
 // 회원 1명의 출석 이력 — "이 회원은 언제언제 왔나".
@@ -1750,6 +1770,7 @@ dailyReportsRoutes.get("/attendance/member", requireJwt, async (c) => {
     const { data, error } = await db.from("attendance_logs")
       .select("member_name, phone, attended_at, ticket_name, ticket_type, remain_count, device_name")
       .eq("branch_id", branchId)
+      .eq("counts_as_visit", true)
       .gte("attended_at", sinceIso)
       .order("attended_at", { ascending: false })
       .range(off, off + 999);
@@ -1876,7 +1897,7 @@ dailyReportsRoutes.get("/attendance/people", requireJwt, async (c) => {
     for (let off = 0; off < 60000; off += 1000) {
       const { data, error } = await db.from("attendance_logs")
         .select("member_name, phone, attended_at")
-        .eq("branch_id", branchId).gte("attended_at", sinceIso)
+        .eq("branch_id", branchId).eq("counts_as_visit", true).gte("attended_at", sinceIso)
         .order("attended_at", { ascending: false }).range(off, off + 999);
       if (error) return fail(c, "DB_ERROR", error.message, 500);
       const arr = (data as L[] | null) ?? [];
@@ -2390,13 +2411,17 @@ dailyReportsRoutes.get("/staff-scores", requireJwt, async (c) => {
   return ok(c, { period, from, to: today, staff: rows });
 });
 
-// 주간 목표 점수(역할별). 실측 평균(코치 ~235/주, 관장 ~46/주) 기준으로 잡았고, 운영하며 조정한다.
+// 주간 목표 점수(역할별). 운영하며 조정한다.
+// 2026-08-04 재조정: 예전 값(코치 250 / 관장 150)은 실측의 1/5 수준이라
+//   막대가 늘 100% 로 꽉 차 목표 구실을 못 했다.
+//   최근 7일 실측 — 코치 1,252점(113건) / 관장 199점(21건).
+//   ⚠️ 표본이 지점 한 곳뿐이라 잠정치다. 지점이 늘면 중앙값으로 다시 잡는다.
 const WEEKLY_GOAL: Record<string, number> = {
-  coach: 250,
-  branch_manager: 150,
-  branch_owner: 150,
-  hq_admin: 150,
-  super_admin: 150,
+  coach: 1000,
+  branch_manager: 250,
+  branch_owner: 250,
+  hq_admin: 250,
+  super_admin: 250,
 };
 
 // ── 직원 점수판 상세(상황판) — 일별 추이·카테고리 분해·전기간 대비·목표 달성률을 한 번에 ──
@@ -3793,7 +3818,7 @@ dailyReportsRoutes.get("/member-care/message-effect", requireJwt, async (c) => {
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const { count } = await db.from("attendance_logs")
     .select("id", { count: "exact", head: true })
-    .eq("branch_id", branchId).gte("attend_date", since);
+    .eq("branch_id", branchId).eq("counts_as_visit", true).gte("attend_date", since);
 
   return ok(c, { days, rows: data ?? [], attendance_count: count ?? 0 });
 });
@@ -3814,7 +3839,7 @@ dailyReportsRoutes.get("/member-care/first4w", requireJwt, async (c) => {
   const { data, error } = await db.rpc("first4w_retention", { _branch_id: branchId });
   if (error) return fail(c, "DB_ERROR", error.message, 500);
   const { count } = await db.from("attendance_logs")
-    .select("id", { count: "exact", head: true }).eq("branch_id", branchId);
+    .select("id", { count: "exact", head: true }).eq("branch_id", branchId).eq("counts_as_visit", true);
 
   return ok(c, { rows: data ?? [], attendance_count: count ?? 0 });
 });
