@@ -116,6 +116,12 @@ brojRoutes.post("/sync/sales", requireJwt, async (c) => {
   const to = (body.to ?? kstToday()).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return fail(c, "BAD_DATE", "조회 기간 형식이 올바르지 않습니다", 400);
   if (from > to) return fail(c, "BAD_RANGE", "시작일이 종료일보다 늦습니다", 400);
+  // 리포트 재계산 함수의 상한(800일)과 맞춘다.
+  // 넘겨받고 나서 DB 가 거절하면 매출 줄만 들어간 채 실패로 끝난다 — 들어가기 전에 막는다.
+  {
+    const days = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+    if (days > 800) return fail(c, "BAD_RANGE", "한 번에 가져올 수 있는 기간은 800일까지입니다", 400);
+  }
 
   // 대상 지점 + 브로제이 센터(group_id) 매핑 확인
   let branchId = body.branch_id ?? "";
@@ -169,6 +175,12 @@ brojRoutes.post("/sync/all", requireJwt, async (c) => {
   const to = (body.to ?? kstToday()).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return fail(c, "BAD_DATE", "조회 기간 형식이 올바르지 않습니다", 400);
   if (from > to) return fail(c, "BAD_RANGE", "시작일이 종료일보다 늦습니다", 400);
+  // 리포트 재계산 함수의 상한(800일)과 맞춘다.
+  // 넘겨받고 나서 DB 가 거절하면 매출 줄만 들어간 채 실패로 끝난다 — 들어가기 전에 막는다.
+  {
+    const days = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+    if (days > 800) return fail(c, "BAD_RANGE", "한 번에 가져올 수 있는 기간은 800일까지입니다", 400);
+  }
 
   const { data } = await db.from("branches").select("id, name, broj_group_id, fiscal_start_day").not("broj_group_id", "is", null);
   const mapped = (data as { id: string; name: string; broj_group_id: string; fiscal_start_day?: number }[] | null) ?? [];

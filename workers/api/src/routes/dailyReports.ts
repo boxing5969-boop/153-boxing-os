@@ -51,6 +51,19 @@ interface ProfileRow {
 // 순수 매출 API는 403, 코치 업무에 걸린 혼용 API(/daily·/digest)는 금액 필드만 비워서 준다.
 const REVENUE_MSG = "매출 정보는 지점장·본사만 볼 수 있습니다";
 const canSeeMoney = (p: ProfileRow): boolean => WRITE_ROLES.has(p.role);
+// 회원 케어 프로필에서 금액 필드만 걷어낸다.
+// 코치도 '누구에게 연락할지'는 알아야 일을 한다 — 403으로 화면을 통째로 막는 대신
+// 기대매출·LTV 같은 돈 정보만 빼고 명단은 보여준다(위 /daily·/digest 와 같은 방침).
+const stripCareMoney = (rows: unknown[] | null | undefined): unknown[] =>
+  (rows ?? []).map((r) => {
+    const p = { ...(r as Record<string, unknown>) };
+    p.expected_revenue_amount = null;
+    p.ltv_amount = null;
+    return p;
+  });
+const stripCareSummaryMoney = (s: CareSummaryOut): CareSummaryOut =>
+  ({ ...s, expected_revenue_total: 0, won_revenue_today: 0 });
+
 // 잠복 방어: 과거(MRE v1) 태스크 metadata에 남아있을 수 있는 예상 매출액을 코치 응답에서 걷어낸다.
 const stripTaskMoney = (rows: unknown[] | null | undefined): unknown[] =>
   (rows ?? []).map((t) => {
@@ -705,6 +718,126 @@ dailyReportsRoutes.delete("/followups/:id", requireJwt, async (c) => {
   return ok(c, { id }, "삭제되었습니다");
 });
 
+// ── 매출 분석: 이번달 / 전월 / 작년 동월 3중 비교 ─────────────
+// 다짐·브로제이의 매출 화면 대응. sales_entries(매출 원장) 단일 출처.
+// 지점 미지정 시 본사=전 지점 합계, 지점 사용자=자기 지점(auto-stats 와 동일 규칙).
+interface SalesAggRow { sale_date: string; category: string | null; product: string | null; is_new: boolean | null; payment_method: string | null; amount: number | null; member_name: string | null; }
+
+function monthRange(ym: string): { start: string; end: string } {
+  const [y, m] = ym.split("-").map(Number);
+  const year = y ?? 2026; const mon = m ?? 1;
+  const last = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  return { start: `${ym}-01`, end: `${ym}-${String(last).padStart(2, "0")}` };
+}
+function shiftMonth(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y ?? 2026, (m ?? 1) - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+dailyReportsRoutes.get("/sales-analysis", requireJwt, async (c) => {
+  const branchParam = c.req.query("branch_id") || null;
+  const month = c.req.query("month") ?? kstDateStr().slice(0, 7); // YYYY-MM
+  // 01~12 범위까지 검증 — 정규식만으로는 2026-13 이 통과해 DB 오류(500)가 난다(검수 반영)
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return fail(c, "INVALID_REQUEST", "month 형식은 YYYY-MM (01~12)", 400);
+
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
+
+  let branchId: string | null;
+  if (branchParam) {
+    if (!canAccessBranch(profile, branchParam)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+    branchId = branchParam;
+  } else if (HQ_ROLES.has(profile.role)) {
+    branchId = null;
+  } else {
+    if (!profile.branch_id) return fail(c, "FORBIDDEN", "지점이 배정되지 않았습니다", 403);
+    branchId = profile.branch_id;
+  }
+
+  const prevMonth = shiftMonth(month, -1);
+  const lastYear = shiftMonth(month, -12);
+
+  // 한 번의 쿼리로 3개월치를 받아 메모리에서 나눈다(서브리퀘스트 절약)
+  const cur = monthRange(month);
+  const prev = monthRange(prevMonth);
+  const ly = monthRange(lastYear);
+  const ROW_CAP = 5000; // 초과 시 절단 — 응답에 truncated 로 알린다(무음 과소집계 방지)
+  const fetchRange = async (r: { start: string; end: string }) => {
+    // member_name 은 집계에 쓰지 않으므로 조회하지 않는다(개인정보 최소 수집)
+    let q = db.from("sales_entries")
+      .select("sale_date, category, product, is_new, payment_method, amount")
+      .gte("sale_date", r.start).lte("sale_date", r.end)
+      .order("sale_date", { ascending: true })
+      .limit(ROW_CAP);
+    if (branchId) q = q.eq("branch_id", branchId);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []) as SalesAggRow[];
+  };
+
+  let curRows: SalesAggRow[], prevRows: SalesAggRow[], lyRows: SalesAggRow[];
+  try {
+    [curRows, prevRows, lyRows] = await Promise.all([fetchRange(cur), fetchRange(prev), fetchRange(ly)]);
+  } catch (e) {
+    return fail(c, "DB_ERROR", (e as Error).message, 500);
+  }
+
+  const sum = (rows: SalesAggRow[]) => rows.reduce((a, r) => a + Number(r.amount ?? 0), 0);
+  const byKey = (rows: SalesAggRow[], key: (r: SalesAggRow) => string) => {
+    const map = new Map<string, { amount: number; count: number }>();
+    for (const r of rows) {
+      const k = key(r) || "기타";
+      const e = map.get(k) ?? { amount: 0, count: 0 };
+      e.amount += Number(r.amount ?? 0); e.count += 1;
+      map.set(k, e);
+    }
+    return [...map.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.amount - a.amount);
+  };
+
+  // 일별 추이 (해당 월 1일~말일, 빈 날 0)
+  const daily: { date: string; amount: number; count: number }[] = [];
+  const lastDay = Number(cur.end.slice(8, 10));
+  const dayMap = new Map<string, { amount: number; count: number }>();
+  for (const r of curRows) {
+    const d = String(r.sale_date).slice(0, 10);
+    const e = dayMap.get(d) ?? { amount: 0, count: 0 };
+    e.amount += Number(r.amount ?? 0); e.count += 1;
+    dayMap.set(d, e);
+  }
+  for (let i = 1; i <= lastDay; i++) {
+    const d = `${month}-${String(i).padStart(2, "0")}`;
+    const e = dayMap.get(d) ?? { amount: 0, count: 0 };
+    daily.push({ date: d, amount: e.amount, count: e.count });
+  }
+
+  const curTotal = sum(curRows), prevTotal = sum(prevRows), lyTotal = sum(lyRows);
+  const pct = (base: number, now: number) => (base > 0 ? Math.round(((now - base) / base) * 1000) / 10 : null);
+  const newAmount = sum(curRows.filter((r) => r.is_new === true));
+  const reAmount = sum(curRows.filter((r) => r.is_new === false));
+
+  return ok(c, {
+    month, prev_month: prevMonth, last_year_month: lastYear,
+    scope: branchId ? "branch" : "all",
+    truncated: curRows.length >= ROW_CAP || prevRows.length >= ROW_CAP || lyRows.length >= ROW_CAP,
+    total: { amount: curTotal, count: curRows.length,
+             avg: curRows.length ? Math.round(curTotal / curRows.length) : 0 },
+    compare: {
+      prev: { amount: prevTotal, count: prevRows.length, diff: curTotal - prevTotal, pct: pct(prevTotal, curTotal) },
+      last_year: { amount: lyTotal, count: lyRows.length, diff: curTotal - lyTotal, pct: pct(lyTotal, curTotal) },
+    },
+    by_category: byKey(curRows, (r) => String(r.category ?? "")),
+    by_product: byKey(curRows, (r) => String(r.product ?? "")).slice(0, 10),
+    by_payment: byKey(curRows, (r) => String(r.payment_method ?? "")),
+    new_vs_re: { new_amount: newAmount, re_amount: reAmount,
+                 new_count: curRows.filter((r) => r.is_new === true).length,
+                 re_count: curRows.filter((r) => r.is_new === false).length },
+    daily,
+  });
+});
+
 // ── 매출 등록 (수강권·물품·단증) ─────────────────────────────
 interface SalesRow {
   id: string; branch_id: string; sale_date: string; member_name: string;
@@ -731,7 +864,9 @@ const salesCreateSchema = z.object({
   product: z.string().min(1),
   is_new: z.boolean().default(true),
   payment_method: z.enum(["현금", "카드", "계좌이체"]),
-  amount: z.number().int().min(0).default(0),
+  // 상한 1억 — 0 을 잘못 눌러 억 단위가 들어가면 그 날짜 매출 재계산이 정수 한도를 넘어 멈춘다.
+  // 실제 이용권 결제는 수백만 원 단위라 1억이면 충분히 넉넉하다.
+  amount: z.number().int().min(0).max(100_000_000, "금액이 너무 큽니다. 자릿수를 확인해 주세요").default(0),
 });
 dailyReportsRoutes.post("/sales", requireJwt, async (c) => {
   const parsed = salesCreateSchema.safeParse(await c.req.json().catch(() => null));
@@ -742,7 +877,99 @@ dailyReportsRoutes.post("/sales", requireJwt, async (c) => {
   if (!canAccessBranch(profile, parsed.data.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
   const { data, error } = await db.from("sales_entries").insert({ ...parsed.data, created_by: profile.id }).select().maybeSingle();
   if (error) return fail(c, "DB_ERROR", error.message, 500);
+  // 일일 리포트 매출도 같은 숫자로 맞춘다 — 매출 내역과 리포트가 따로 놀지 않게.
+  // (엑셀 업로드·브로제이 동기화와 동일한 규칙)
+  const { error: recalcErr } = await db.rpc("recalc_daily_revenue", {
+    _branch_id: parsed.data.branch_id, _from: parsed.data.sale_date, _to: parsed.data.sale_date,
+  });
+  if (recalcErr) {
+    return ok(c, { ...(data as Record<string, unknown> | null), recalc_failed: true },
+      "등록했지만 일일 리포트 반영에 실패했습니다 — 관리자에게 알려주세요");
+  }
   return ok(c, data, "등록되었습니다");
+});
+
+// ── 매출 엑셀 일괄 업로드 (브로제이·다짐 매출 시트) ──────────
+// 재업로드해도 같은 건이 쌓이지 않게, 업로드에 포함된 '날짜 범위'의 기존 업로드분(source='import')만
+// 지우고 다시 넣는다. 수기 등록분(source null)과 브로제이 자동 동기화분('broj')은 건드리지 않는다.
+const salesImportSchema = z.object({
+  branch_id: z.string().uuid(),
+  // 여러 배치로 나눠 보낼 때, '첫 배치'만 기존 업로드분을 정리한다(replace=true).
+  // 배치마다 정리하면 뒤 배치가 앞 배치를 지워 데이터가 사라진다(검수 반영 — 실제 유실 버그).
+  replace: z.boolean().default(false),
+  range_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  range_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  rows: z.array(z.object({
+    sale_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    member_name: z.string().default("미상"),
+    category: z.enum(["수강권", "물품", "단증"]).default("수강권"),
+    product: z.string().default("기타"),
+    is_new: z.boolean().default(true),
+    payment_method: z.enum(["현금", "카드", "계좌이체"]).default("현금"),
+    // 환불(음수) 허용 — sales_entries 는 음수를 허용하며, 막으면 환불이 빠져 매출이 과대 계상된다
+    amount: z.number().int(),
+  })).min(1).max(200),
+});
+
+dailyReportsRoutes.post("/sales/import", requireJwt, async (c) => {
+  const parsed = salesImportSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    const iss = parsed.error.issues[0];
+    return fail(c, "INVALID_REQUEST", `${iss?.path.join(".") ?? "body"}: ${iss?.message ?? "형식 오류"}`, 400);
+  }
+  const { branch_id, rows, replace, range_from, range_to } = parsed.data;
+
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canAccessBranch(profile, branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
+
+  const dates = rows.map((r) => r.sale_date).sort();
+  const minDate = dates[0]!;
+  const maxDate = dates[dates.length - 1]!;
+
+  // 첫 배치에서만, 업로드 '전체 기간'의 이전 업로드분을 제거(멱등).
+  // source='import' 만 지우므로 수기 등록분('manual')·브로제이 동기화분('broj')은 보존된다.
+  if (replace) {
+    const from = range_from ?? minDate;
+    const to = range_to ?? maxDate;
+    const { error: delErr } = await db.from("sales_entries")
+      .delete()
+      .eq("branch_id", branch_id)
+      .eq("source", "import")
+      .gte("sale_date", from)
+      .lte("sale_date", to);
+    if (delErr) return fail(c, "DB_ERROR", `기존 업로드분 정리 실패: ${delErr.message}`, 500);
+  }
+
+  const { error: insErr } = await db.from("sales_entries").insert(
+    rows.map((r) => ({ ...r, branch_id, source: "import", created_by: profile.id }))
+  );
+  if (insErr) return fail(c, "DB_ERROR", insErr.message, 500);
+
+  // 일일 리포트 매출도 같은 숫자로 맞춘다 — 매출 분석과 리포트가 따로 놀지 않게.
+  // (출석·문의 등 관장님이 손으로 적는 항목은 건드리지 않는다.)
+  //
+  // ⚠️ 범위는 이 배치가 아니라 **업로드 전체 기간**이다.
+  //    첫 배치가 전체 기간의 옛 업로드분을 지우는데, 배치별 범위로만 다시 계산하면
+  //    배치 날짜 사이에 낀 날(예: 7/1과 7/20만 있는 파일의 7/10)은 줄이 사라졌는데도
+  //    리포트에 옛 숫자가 그대로 남는다.
+  const recalcFrom = range_from ?? minDate;
+  const recalcTo = range_to ?? maxDate;
+  const { error: recalcErr } = await db.rpc("recalc_daily_revenue", {
+    _branch_id: branch_id, _from: recalcFrom, _to: recalcTo,
+  });
+  // 재계산 실패는 업로드 자체를 되돌리지 않는다(매출 줄은 이미 정상 저장됨).
+  // 다만 리포트 숫자가 아직 옛 값이라는 사실을 관장님께 알린다.
+  if (recalcErr) {
+    return ok(c,
+      { inserted: rows.length, skipped: 0, from: minDate, to: maxDate, recalc_failed: true },
+      `${rows.length}건 저장했습니다 (${minDate} ~ ${maxDate}). 다만 일일 리포트 매출 반영에 실패했습니다 — 다시 올리거나 관리자에게 알려주세요.`);
+  }
+
+  return ok(c, { inserted: rows.length, skipped: 0, from: minDate, to: maxDate, recalc_failed: false },
+    `${rows.length}건 반영 (${minDate} ~ ${maxDate})`);
 });
 
 dailyReportsRoutes.delete("/sales/:id", requireJwt, async (c) => {
@@ -750,11 +977,21 @@ dailyReportsRoutes.delete("/sales/:id", requireJwt, async (c) => {
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
   if (!profile || !WRITE_ROLES.has(profile.role)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
-  const { data: row } = await db.from("sales_entries").select("branch_id").eq("id", id).maybeSingle();
+  // 지운 뒤 그 날짜 매출을 다시 계산해야 하므로 sale_date 도 함께 읽는다
+  const { data: row } = await db.from("sales_entries").select("branch_id, sale_date").eq("id", id).maybeSingle();
   if (!row) return fail(c, "NOT_FOUND", "대상을 찾을 수 없습니다", 404);
-  if (!canAccessBranch(profile, (row as { branch_id: string }).branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
+  const r = row as { branch_id: string; sale_date: string };
+  if (!canAccessBranch(profile, r.branch_id)) return fail(c, "FORBIDDEN", "다른 지점은 수정할 수 없습니다", 403);
   const { error } = await db.from("sales_entries").delete().eq("id", id);
   if (error) return fail(c, "DB_ERROR", error.message, 500);
+  // 지운 금액만큼 일일 리포트도 내려간다 — 안 하면 삭제해도 리포트 매출이 그대로 남는다
+  const { error: recalcErr } = await db.rpc("recalc_daily_revenue", {
+    _branch_id: r.branch_id, _from: r.sale_date, _to: r.sale_date,
+  });
+  if (recalcErr) {
+    return ok(c, { id, recalc_failed: true },
+      "삭제했지만 일일 리포트 반영에 실패했습니다 — 관리자에게 알려주세요");
+  }
   return ok(c, { id }, "삭제되었습니다");
 });
 
@@ -3308,7 +3545,9 @@ dailyReportsRoutes.get("/member-care/dashboard", requireJwt, async (c) => {
   const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
-  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);   // 기대매출·LTV 포함
+  // ⚠️ 예전에는 여기서 403 이었다. 그러면 코치는 회원 케어 화면이 통째로 죽어
+  //    "누구한테 연락해야 하는지"조차 못 본다. 명단은 주되 금액만 아래에서 비운다.
+  const money = canSeeMoney(profile);
   const date = c.req.query("date") ?? kstDateStr();
 
   const { count } = await db.from("member_care_profiles").select("id", { count: "exact", head: true }).eq("branch_id", branchId);
@@ -3327,13 +3566,43 @@ dailyReportsRoutes.get("/member-care/dashboard", requireJwt, async (c) => {
   const summary = buildCareSummary(profs.map((p) => ({ profile: p as unknown as CareProfileDraft })), evts, date);
   const buckets: Record<string, number> = {};
   for (const p of profs) { const b = String(p.care_bucket); buckets[b] = (buckets[b] ?? 0) + 1; }
-  const top = profs
-    .filter((p) => CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket as MemberCareBucket))
-    .sort((a, b) => (PRIORITY_SORT[String(a.contact_priority)] ?? 9) - (PRIORITY_SORT[String(b.contact_priority)] ?? 9)
-      || Number(b.revenue_opportunity_score ?? 0) - Number(a.revenue_opportunity_score ?? 0))
+  const byPriorityThenScore = (a: Record<string, unknown>, b: Record<string, unknown>): number =>
+    (PRIORITY_SORT[String(a.contact_priority)] ?? 9) - (PRIORITY_SORT[String(b.contact_priority)] ?? 9)
+    || Number(b.revenue_opportunity_score ?? 0) - Number(a.revenue_opportunity_score ?? 0);
+
+  const actionable = profs.filter((p) => CARE_ACTIONABLE_BUCKETS.includes(p.care_bucket as MemberCareBucket));
+  const top = [...actionable].sort(byPriorityThenScore).slice(0, 50);
+
+  // ⚠️ 복귀 유도(winback)는 '오래 전에 만료된 회원' 전부라 지점당 수백 명이고 대부분 urgent 다.
+  //    한 통에 담아 상위 50 만 자르면 winback 이 자리를 다 차지해(실측: 선릉역점 50명 중 49명)
+  //    정작 오늘 처리해야 할 만료 임박·신규 적응 회원이 화면에서 사라진다.
+  //    그래서 '오늘 할 것'과 '복귀 유도'를 나눠서 각각 상위를 준다.
+  const todayActions = actionable
+    .filter((p) => String(p.care_bucket) !== "winback")
+    .sort(byPriorityThenScore)
     .slice(0, 50);
+  const winbackActions = actionable
+    .filter((p) => String(p.care_bucket) === "winback")
+    .sort(byPriorityThenScore)
+    .slice(0, 50);
+
   const kpis = await computeMemberCareKpi(db, branchId, date.slice(0, 7));
-  return ok(c, { date, summary, top_actions: top, opportunities: oppsR.data ?? [], buckets, kpis });
+  return ok(c, {
+    date,
+    summary: money ? summary : stripCareSummaryMoney(summary),
+    top_actions: money ? top : stripCareMoney(top),                        // 기존 화면 호환용
+    today_actions: money ? todayActions : stripCareMoney(todayActions),    // 오늘 연락할 회원
+    winback_actions: money ? winbackActions : stripCareMoney(winbackActions),
+    // 매출 기회는 금액이 본체라 아예 주지 않는다
+    opportunities: money ? (oppsR.data ?? []) : [],
+    buckets,
+    kpis: money ? kpis : null,
+    // 화면이 '금액이 0원'인지 '권한이 없어 안 보이는지' 구분할 수 있게
+    money_visible: money,
+    // 복귀 유도는 수백 명이라 상위 50명만 보낸다 — 화면이 "N명 중 50명"이라 쓸 수 있게
+    winback_total: actionable.filter((p) => String(p.care_bucket) === "winback").length,
+    today_total: actionable.filter((p) => String(p.care_bucket) !== "winback").length,
+  });
 });
 
 // 3) 회원 리스트 (J, 페이지네이션·필터)

@@ -334,6 +334,8 @@ export interface SyncSalesResult {
   sales_total: number;
   refund_total: number;
   job_id: string | null;
+  /** 브로제이 응답이 비어 기존 기록을 건드리지 않고 넘어간 경우의 사유 */
+  skipped?: string;
 }
 
 /** 브로제이 매출 → sales_entries + daily_reports 동기화 */
@@ -394,6 +396,21 @@ export async function syncSales(
   // ⚠️ 회원 명부와 같은 원칙 — **먼저 쓰고, 나중에 지운다**.
   //    delete 를 앞에 두면 insert 가 한 번 실패했을 때 그 기간 매출이 0으로 남는다(역삼점 회원 사고와 같은 구조).
   //    워커가 네트워크·타임아웃으로 중간에 죽은 이력이 실제로 있어 가정이 아니다.
+  //
+  // ⚠️ 브로제이가 200 OK 로 **빈 목록**을 준 경우에는 아무것도 지우지 않는다.
+  //    응답이 비는 건 대개 브로제이 쪽 일시 장애다. 그대로 진행하면
+  //    그 기간 매출 줄이 사라지고 리포트 매출까지 0 으로 덮인다.
+  //    "매출이 진짜 0원인 기간"과 "받아오지 못한 기간"을 구분할 방법이 없으므로,
+  //    있는 숫자를 지우지 않는 쪽을 택한다.
+  if (lines.length === 0) {
+    return {
+      ok: true, branch_id: branchId, from, to, pages, rows_seen: rows.length,
+      lines_written: 0, days: 0,
+      sales_total: 0, refund_total: 0, job_id: null,
+      skipped: "브로제이에서 매출 내역을 받지 못해 기존 기록을 그대로 두었습니다",
+    };
+  }
+
   const { data: oldRows } = await db.from("sales_entries")
     .select("id").eq("branch_id", branchId).eq("source", "broj")
     .gte("sale_date", from).lte("sale_date", to)
@@ -411,22 +428,20 @@ export async function syncSales(
     if (error) { console.error(`[syncSales] 옛 매출 정리 실패: ${error.message}`); break; }
   }
 
-  // 4) daily_reports: 일자별 매출 필드만 SET (수기 항목 보존, 멱등)
-  //    ⚠️ 날짜별 개별 UPDATE 는 Cloudflare Workers 서브리퀘스트 한도를 넘김(지점 여러 곳 순차 처리 시).
-  //    (branch_id, report_date) 유니크 제약을 이용해 upsert 1회로 처리 — payload 에 담은 매출 필드만 갱신되고
-  //    출석·문의·가입 등 수기 입력 컬럼은 기존 값이 보존된다.
-  const dates = [...byDay.keys()];
-  if (dates.length) {
-    const rows = [...byDay.entries()].map(([date, a]) => ({
-      branch_id: branchId, report_date: date,
-      revenue_membership: a.membership, revenue_goods: a.goods,
-      refund_amount: a.refund, refund_count: a.refundCount,
-    }));
-    for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await db.from("daily_reports")
-        .upsert(rows.slice(i, i + 200), { onConflict: "branch_id,report_date" });
-      if (error) throw new Error(`daily_reports 갱신 실패: ${error.message}`);
-    }
+  // 4) daily_reports: 매출 필드를 sales_entries 전체에서 다시 계산 (수기 항목 보존, 멱등)
+  //    ⚠️ 예전에는 여기서 '브로제이 분'만 합산해 덮어썼다. 그래서 같은 날 수동 엑셀로 올린 매출이
+  //       리포트에서 사라졌다(선릉역점 2026-07-02, 79만원 누락 — 매출 분석과 리포트 숫자가 달랐다).
+  //    이제 어느 경로로 들어왔든 그 날의 매출 줄 전체를 정답으로 삼는다.
+  //    DB 함수 1회 호출이라 Workers 서브리퀘스트 한도에도 안전하다.
+  //    ⚠️ 범위는 '매출이 있던 날'이 아니라 **동기화 창 전체(from~to)** 여야 한다.
+  //       매출 줄은 이 창 전체에서 지웠기 때문에, 매출이 0건이 된 날(전액 환불 정정 등)까지
+  //       0 으로 내려야 리포트에 옛 숫자가 남지 않는다. 매출이 아예 없으면 재계산을 건너뛰던
+  //       예전 방식은 바로 그 경우에 불일치를 남겼다.
+  {
+    const { error } = await db.rpc("recalc_daily_revenue", {
+      _branch_id: branchId, _from: from, _to: to,
+    });
+    if (error) throw new Error(`daily_reports 갱신 실패: ${error.message}`);
   }
 
   // 5) 실행 기록
@@ -440,7 +455,7 @@ export async function syncSales(
 
   return {
     ok: true, branch_id: branchId, from, to, pages, rows_seen: rows.length,
-    lines_written: lines.length, days: dates.length,
+    lines_written: lines.length, days: byDay.size,
     sales_total: salesTotal, refund_total: refundTotal, job_id: jobId,
   };
 }
@@ -658,7 +673,11 @@ export async function syncMembers(
     } else {
       for (let i = 0; i < stale.length; i += 100) {   // URL 길이(8KB) 한도 — uuid 100개면 여유 있다
         const { error } = await db.from("member_snapshots")
-          .delete().eq("branch_id", branchId).in("id", stale.slice(i, i + 100));
+          .delete().eq("branch_id", branchId)
+          // 🚨 수동 업로드분(source='manual') 보호 — 브로제이 API 응답에 없는 게 당연하므로
+          //    source 필터가 없으면 엑셀로 올린 명부가 다음 동기화에서 통째로 지워진다.
+          .eq("source", "broj")
+          .in("id", stale.slice(i, i + 100));
         // 정리 실패는 치명적이지 않다(탈퇴자가 남을 뿐). 저장은 이미 끝났으니 동기화를 실패로 만들지 않는다.
         if (error) { console.error(`[syncMembers] 탈퇴 정리 실패: ${error.message}`); break; }
       }
