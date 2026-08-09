@@ -54,8 +54,20 @@ interface DispatchRow {
 
 export interface HealthReport { checked: string; issues: number; text: string }
 
-/** 지난 24시간 시스템 상태를 조사해 보고문을 만든다(발송은 별도) */
-export async function buildHealthReport(db: SupabaseClient): Promise<HealthReport> {
+/**
+ * 지난 24시간 시스템 상태를 조사해 보고문을 만든다(발송은 별도).
+ *
+ * @param focusBranchId 지정하면 **그 지점만** 본다. 대표님이 "선릉 위주로, 잠실·역삼은 빼줘"라고 하셔서
+ *   지점 전부를 훑던 걸 한 곳으로 좁힐 수 있게 했다. 안 넘기면 예전처럼 전 지점(본사 관제용).
+ */
+export async function buildHealthReport(db: SupabaseClient, focusBranchId?: string | null): Promise<HealthReport> {
+  /** 지점 범위 좁히기 — branch_id 를 가진 조회에만 붙인다 */
+  // T 를 자기 제약 안에서 다시 쓰면(<T extends { eq: (...) => T }>) Supabase 의 원래도 깊은
+  // 쿼리 타입과 맞물려 컴파일러가 무한히 파고든다(TS2589). 제약을 걷고 호출 지점에서만 좁힌다.
+  const sc = <T>(q: T): T =>
+    focusBranchId
+      ? (q as unknown as { eq: (col: string, val: string) => T }).eq("branch_id", focusBranchId)
+      : q;
   const today = kstDate(0);
   const since = kstDate(-1);          // 자동발송·직원활동 = 어제(당일 확정 데이터)
   const since7 = kstDate(-7);
@@ -73,27 +85,31 @@ export async function buildHealthReport(db: SupabaseClient): Promise<HealthRepor
   const ydayToIso = `${addDaysStr(attDay, 1)}T00:00:00+09:00`;
 
   const [branchesR, dispatchR, msgR, syncR, autoR, attR, rewardR, profR, classR, subR, trendR] = await Promise.all([
-    db.from("branches").select("id, name"),
-    db.from("automation_dispatch_log")
+    focusBranchId
+      ? db.from("branches").select("id, name").eq("id", focusBranchId)
+      : db.from("branches").select("id, name"),
+    sc(db.from("automation_dispatch_log")
       .select("branch_id, member_name, phone, kind, step, status, error, dispatched_on")
-      .gte("dispatched_on", since).limit(3000),
-    db.from("ops_message_logs").select("branch_id, status, created_at, created_by").gte("created_at", `${since}T00:00:00Z`).limit(3000),
-    db.from("broj_sync_runs").select("branch_id, kind, status, error_message, finished_at").gte("finished_at", `${since}T00:00:00Z`).limit(200),
-    db.from("fc_automation_config").select("branch_id, onboarding_enabled, renewal_enabled, pace_drop_enabled, weekly_care_enabled"),
+      .gte("dispatched_on", since)).limit(3000),
+    sc(db.from("ops_message_logs").select("branch_id, status, created_at, created_by").gte("created_at", `${since}T00:00:00Z`)).limit(3000),
+    sc(db.from("broj_sync_runs").select("branch_id, kind, status, error_message, finished_at").gte("finished_at", `${since}T00:00:00Z`)).limit(200),
+    sc(db.from("fc_automation_config").select("branch_id, onboarding_enabled, renewal_enabled, pace_drop_enabled, weekly_care_enabled")),
     // 어제 출입 — 반별 집계용
-    db.from("attendance_logs").select("branch_id, phone, attended_at")
-      .gte("attended_at", ydayFromIso).lt("attended_at", ydayToIso)
+    sc(db.from("attendance_logs").select("branch_id, phone, attended_at")
+      .eq("counts_as_visit", true)   // 직원 출근·거절된 출입 제외 — 리포트 숫자는 '회원 방문'이다
+      .gte("attended_at", ydayFromIso).lt("attended_at", ydayToIso))
       .order("attended_at", { ascending: false }).limit(5000),   // 캡에 걸려도 최신 우선
     // 어제 직원 활동 — 미션 XP
-    db.from("reward_events").select("user_id, branch_id, xp_bonus, event_date")
-      .eq("event_date", since).not("user_id", "is", null).limit(2000),
-    db.from("profiles").select("id, name, role, branch_id").in("role", ["branch_owner", "branch_manager", "coach"]).eq("status", "active"),
-    db.from("class_logs").select("branch_id, class_date, shift, coach_name, attendance_count, mood").eq("class_date", since),
-    db.from("branch_subscriptions").select("branch_id, status"),
+    sc(db.from("reward_events").select("user_id, branch_id, xp_bonus, event_date")
+      .eq("event_date", since).not("user_id", "is", null)).limit(2000),
+    sc(db.from("profiles").select("id, name, role, branch_id").in("role", ["branch_owner", "branch_manager", "coach"]).eq("status", "active")),
+    sc(db.from("class_logs").select("branch_id, class_date, shift, coach_name, attendance_count, mood").eq("class_date", since)),
+    sc(db.from("branch_subscriptions").select("branch_id, status")),
     // 최근 7일 출석 추세 — 하루 숫자만 보면 동기화 지연·휴관을 사고로 오해한다
-    db.from("attendance_logs").select("attended_at, branch_id")
+    sc(db.from("attendance_logs").select("attended_at, branch_id")
+      .eq("counts_as_visit", true)
       .gte("attended_at", `${addDaysStr(since, -6)}T00:00:00+09:00`)
-      .lt("attended_at", `${addDaysStr(since, 1)}T00:00:00+09:00`)
+      .lt("attended_at", `${addDaysStr(since, 1)}T00:00:00+09:00`))
       .order("attended_at", { ascending: false }).limit(8000),
   ]);
 
@@ -314,9 +330,12 @@ export async function buildHealthReport(db: SupabaseClient): Promise<HealthRepor
     `· 직원 인앱 문자 ${((msgR.data as unknown[] | null) ?? []).length}건`,
   ];
 
+  const scopeKo = focusBranchId
+    ? `${([...brName.values()][0] ?? "지점").replace("153복싱짐 ", "")} 기준`
+    : "전 지점";
   const head = issues === 0
-    ? `[153 시스템 점검] ${today}\n✅ 이상 없음 — 어제 사고 0건`
-    : `[153 시스템 점검] ${today}\n⚠️ 확인 필요 ${issues}건`;
+    ? `[시스템 점검 · ${scopeKo}] ${today}\n✅ 이상 없음 — 어제 사고 0건`
+    : `[시스템 점검 · ${scopeKo}] ${today}\n⚠️ 확인 필요 ${issues}건`;
 
   const body = [
     ``,

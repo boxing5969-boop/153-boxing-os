@@ -19,18 +19,48 @@ interface MemberRow {
   branch_id: string;
   name: string;
   status: string;
+  created_at: string;
 }
+
+/**
+ * 회원 상태 우선순위 — 낮을수록 대표 행으로 우선 선택.
+ * 한 사람이 여러 지점에 회원으로 등록될 수 있어(지점 이동 등) 같은
+ * ranking_app_user_id 로 여러 행이 잡힌다. 그중 "지금 유효한" 행을 골라야
+ * 앱에서 이용권이 정상 표시된다.
+ */
+const MEMBER_STATUS_RANK: Record<string, number> = {
+  active: 0,
+  trial: 1,
+  unpaid: 2,
+  suspended: 3,
+  expired: 4,
+  withdrawn: 5,
+};
 
 async function loadMember(
   db: SupabaseClient,
   rankingId: string
 ): Promise<MemberRow | null> {
-  const { data } = await db
+  // maybeSingle() 금지 — 다지점 등록 시 2행 이상이면 에러가 난다.
+  // 대표 행 선택 규칙: 유효한 상태 우선 → 동일 상태면 최근 등록 순.
+  const { data, error } = await db
     .from("members")
-    .select("id, branch_id, name, status")
+    .select("id, branch_id, name, status, created_at")
     .eq("ranking_app_user_id", rankingId)
-    .maybeSingle();
-  return (data as MemberRow | null) ?? null;
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) return null;
+  const rows = (data as MemberRow[] | null) ?? [];
+  if (rows.length === 0) return null;
+
+  // sort 는 안정 정렬이므로 상태가 같으면 위의 created_at DESC 순서가 유지된다.
+  return rows
+    .slice()
+    .sort(
+      (a, b) =>
+        (MEMBER_STATUS_RANK[a.status] ?? 9) - (MEMBER_STATUS_RANK[b.status] ?? 9)
+    )[0] ?? null;   // noUncheckedIndexedAccess: [0] 은 undefined 일 수 있다 → null 로 맞춘다
 }
 
 interface MembershipRow {
