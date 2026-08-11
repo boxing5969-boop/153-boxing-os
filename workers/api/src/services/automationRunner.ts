@@ -57,7 +57,32 @@ function isRejoinMember(s: Snap): boolean {
 }
 interface BranchRow { name: string | null }
 
-const MAX_PER_RUN = 300;          // 지점당 1회 실행 발송 상한(Worker CPU/subrequest 보호)
+/**
+ * 지점당 **1회 실행** 발송 상한.
+ *
+ * 🚨 왜 6인가 (2026-08-11 실측):
+ *   예전 값 300은 허구였다. 무료 플랜 서브리퀘스트 예산은 크론 이벤트 1회당 50인데
+ *   발송 1건이 4콜(선점 insert · 발신설정 조회 · NCP 호출 · 상태 update)을 쓴다.
+ *   준비 쿼리 ~13콜을 빼면 실제로는 8~9건에서 워커가 통째로 죽었다.
+ *   증거: automation_dispatch_log 에 매일 'pending' 1건이 남아 다음 날 '발송 확인 불가(중단)'로
+ *   확정됨(8/1·8/3·8/4·8/6·8/7·8/10). 죽는 지점이 잡 배열의 앞쪽(온보딩)이라
+ *   뒤에 줄 선 페이지스 하락·주간 안부는 **60일간 한 번도 실행되지 못했다**.
+ *
+ *   그래서 ① 발송을 **건수가 아니라 콜 예산**으로 제한하고(준비 ~15콜 + 30 + 여유 = 50 안)
+ *          ② 종류를 phase 로 쪼개 서로 다른 분(minute) 슬롯에서 각자 예산 50을 받게 한다.
+ *   남은 대상은 다음 슬롯/다음 날 그대로 다시 잡힌다(선점 unique 제약이 중복을 막는다).
+ *
+ *   30콜 = SMS 7~8건 또는 카카오 5건. 슬롯 2개면 하루 14~16건(기존 7~8건의 2배).
+ */
+const SEND_CALL_BUDGET = 30;
+
+/**
+ * 실행 묶음.
+ *  · primary = 온보딩 · 재등록 — **날짜가 정해진** 발송. 그날 못 나가면 그 단계는 영영 사라진다.
+ *  · care    = 페이스 하락 · 주간 안부 — 안부성. 하루쯤 밀려도 손해가 없다.
+ * 둘을 한 실행에 담으면 앞의 primary 가 예산을 다 쓰고 care 가 굶는다(위 참조).
+ */
+export type AutoPhase = "primary" | "care";
 
 /**
  * 온보딩 7단계 — 앱의 수동 온보딩 보드(D+0/2/6/9/13/20/29)와 **날짜까지 동일**하게 맞춘다.
@@ -237,11 +262,14 @@ function firstVisitBody(name: string, center: string, step: number): string {
 
 interface Job { snap: Snap; kind: "onboarding" | "renewal" | "pace_drop" | "weekly_care"; step: number; body: string }
 
-async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise<{ sent: number; failed: number; skipped: number }> {
+async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig, phase: AutoPhase): Promise<{ sent: number; failed: number; skipped: number }> {
   const hour = kstHour();
   const stat = { sent: 0, failed: 0, skipped: 0 };
   // 지점이 설정한 발송 시각에만 (기본 11시)
   if (hour !== (cfg.send_hour ?? 11)) return stat;
+  // 심야 금지도 여기서 미리 컷 — 루프 안에만 두면 준비 쿼리 15콜을 다 쓰고 한 건도 못 보낸다
+  // (send_hour 를 7시나 22시로 설정한 지점). 아래 루프의 채널별 가드는 그대로 둔다.
+  if (hour < 8 || hour >= 21) return stat;
 
   const channels: ("sms" | "kakao")[] = [];
   if (cfg.channel_sms !== false) channels.push("sms");   // 기본 문자 ON
@@ -306,8 +334,15 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
     digits(s.phone).length >= 9 && !blocked.has(digits(s.phone)) && s.hold_status !== "HOLDING";
   const jobs: Job[] = [];
 
-  if (cfg.onboarding_enabled) {
-    const steps = (Array.isArray(cfg.onboarding_steps) && cfg.onboarding_steps.length ? cfg.onboarding_steps : DEFAULT_STEPS);
+  if (phase === "primary" && cfg.onboarding_enabled) {
+    const stepsRaw = (Array.isArray(cfg.onboarding_steps) && cfg.onboarding_steps.length ? cfg.onboarding_steps : DEFAULT_STEPS);
+    /**
+     * 단계 순서를 날짜로 **회전**시킨다.
+     * [1,2,6,9,13,20,29] 고정 순서로 넣으면 예산 상한에 걸릴 때 항상 뒤쪽(D+20·D+29)이 잘리고,
+     * D+N 은 하루 지나면 재시도가 없어 **후반 온보딩이 구조적으로 0건**이 된다.
+     */
+    const rot = ((dayNum(kstDateStr(0)) % stepsRaw.length) + stepsRaw.length) % stepsRaw.length;
+    const steps = [...stepsRaw.slice(rot), ...stepsRaw.slice(0, rot)];
     /**
      * 🚨 실제로 나온 사람만 '나오고 계시죠' 라고 부른다.
      * 이 지점의 최근 출입 번호를 한 번만 읽어 두고(단계마다 조회하면 쿼리가 7배), 없는 사람은 첫방문 문구로 바꾼다.
@@ -315,17 +350,26 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
      *    정상 회원에게 "아직 못 오셨다면" 문자가 나간다. 그래서 .range() 로 전량을 읽는다.
      */
     const visited = new Set<string>();
+    /**
+     * 명단을 **끝까지 못 읽었으면** 첫방문 판정을 아예 쓰지 않는다.
+     * 반쪽 명단으로 판정하면 이미 다니는 회원이 '아직 안 오신 분'으로 뒤집혀
+     * "아직 못 오셨다면" 문자가 나간다(실제 항의 사례). 그럴 바엔 일반 온보딩 문구가 낫다.
+     * 페이지 상한 10 = 1만 행(하루 320방문×31일) — 그 이상이면 예산(50콜)이 더 위험하다.
+     */
+    let visitedComplete = true;
     {
       const maxStep = Math.max(...steps, 1);
       const sinceIso = new Date(Date.now() - (maxStep + 2) * 86400000).toISOString();
-      for (let off = 0; off < 40000; off += 1000) {
+      let off = 0;
+      for (; off < 10000; off += 1000) {
         const { data: av, error: ae } = await db.from("attendance_logs")
           .select("phone").eq("branch_id", cfg.branch_id).eq("counts_as_visit", true)
           .gte("attended_at", sinceIso).order("phone", { ascending: true }).range(off, off + 999);
-        if (ae) { console.error("[automationRunner] 출입 조회 실패 — 온보딩 건너뜀", cfg.branch_id, ae.message); break; }
+        if (ae) { console.error("[automationRunner] 출입 조회 실패 — 첫방문 판정 생략", cfg.branch_id, ae.message); visitedComplete = false; break; }
         const arr = (av as { phone: string | null }[] | null) ?? [];
         for (const r of arr) if (r.phone) visited.add(digits(r.phone));
         if (arr.length < 1000) break;
+        if (off + 1000 >= 10000) { console.error("[automationRunner] 출입 기록 과다 — 첫방문 판정 생략", cfg.branch_id); visitedComplete = false; }
       }
     }
     for (const d of steps) {
@@ -341,7 +385,7 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
         const rejoin = isRejoinMember(s);
         if (rejoin && d !== 1 && d !== 6 && d !== 20) continue;
         // D+1(환영)은 출석을 단정하지 않으니 그대로. D+3 이후는 실제 방문이 있어야 그 문구를 쓴다.
-        const neverCame = d > 1 && !visited.has(digits(s.phone));
+        const neverCame = visitedComplete && d > 1 && !visited.has(digits(s.phone));
         const body = neverCame
           ? firstVisitBody(s.member_name ?? "", center, d)
           : rejoin ? rejoinBody(s.member_name ?? "", center, d) : onBody(s.member_name ?? "", center, d);
@@ -352,7 +396,7 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
     }
   }
 
-  if (cfg.renewal_enabled) {
+  if (phase === "primary" && cfg.renewal_enabled) {
     // 최근 7일 내 만료 — 만료일 기준 사이클당 1회(step=만료일 일수). 홀딩(일시정지)·미등록은 제외(만료 아님).
     const { data } = await db.from("member_snapshots")
       .select("id, member_name, phone, start_date, end_date, status, hold_status")
@@ -366,7 +410,15 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
     }
   }
 
-  if (cfg.pace_drop_enabled) {
+  /**
+   * 🚨 같은 날 안부가 두 통 가는 것을 막는다 (검수 지적, 2026-08-11).
+   * 페이스 하락 대상은 대부분 '이번 주 0회'도 만족한다 → 두 블록이 같은 회원을 집는다.
+   * kind 가 달라 DB unique 제약도, 선점 사전필터도 이걸 못 막고,
+   * 게다가 두 문구가 같은 WEEKLY_CARE 풀이라 **똑같은 문장이 두 번** 갈 수 있다.
+   */
+  const careTaken = new Set<string>();
+
+  if (phase === "care" && cfg.pace_drop_enabled) {
     // 페이스 하락 — 아직 이용권이 살아있는데 출석 빈도가 평소 절반 이하로 떨어진 회원.
     // 이탈은 만료 전에 '출석 빈도'부터 떨어지므로, 이 시점의 안부가 가장 잘 통한다.
     //
@@ -387,11 +439,12 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
       // 선정된 안부 4문구 로테이션 — step(30일 버킷)은 쿨다운 역할 그대로 두고,
       // 문구는 회원+주기 해시로 골라 같은 회원이 주기마다 다른 문구를 받는다.
       const pick = (idHash(s.id) + bucket) % WEEKLY_CARE.length;
+      careTaken.add(s.id);
       jobs.push({ snap: s, kind: "pace_drop", step: bucket, body: WEEKLY_CARE[pick]!(s.member_name ?? "회원", center, coachName) });
     }
   }
 
-  if (cfg.weekly_care_enabled) {
+  if (phase === "care" && cfg.weekly_care_enabled) {
     // 주간 안부 — 최근 7일 방문 0회인 유효 회원에게 4개 문구 중 하나.
     //
     // ⚠️ 매일 크론이 도는데 조건이 '이번 주 0회'라 매일 대상이 잡힌다. 그래서 3중으로 잠근다.
@@ -404,11 +457,18 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
       const maxSends = Math.max(1, cfg.weekly_care_max_sends ?? 3);
 
       // 과거 발송 이력 — 간격·상한·이미 쓴 문구를 한 번에 판정한다.
-      const { data: hist } = await db.from("automation_dispatch_log")
+      //
+      // ⚠️ fail-closed 필수. weekly_care 는 step 이 '문구 번호'라 unique 제약이 같은 날 재발송을
+      //    막지 못한다. 동일일 중복을 막는 유일한 방어가 아래 gap 체크인데, 이 조회가 실패하면
+      //    맵이 비어 모든 게이트를 통과한다. care 슬롯이 하루 두 번(:30·:50) 도는 지금은
+      //    조회 한 번만 실패해도 같은 회원에게 두 통이 나간다.
+      const { data: hist, error: he } = await db.from("automation_dispatch_log")
         .select("member_id, step, dispatched_on")
         .eq("branch_id", cfg.branch_id).eq("kind", "weekly_care")
         .gte("dispatched_on", kstDateStr(-400))
         .limit(20000);
+      if (he) console.error("[automationRunner] 주간안부 이력 조회 실패 — 이번 회차 건너뜀", cfg.branch_id, he.message);
+      else {
       const sentCount = new Map<string, number>();
       const lastDay = new Map<string, string>();
       const usedVariant = new Map<string, Set<number>>();
@@ -432,6 +492,7 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
 
       for (const s of (data as Snap[] | null) ?? []) {
         if (!eligible(s)) continue;
+        if (careTaken.has(s.id)) continue;                                          // 오늘 페이스하락으로 이미 나감
         if ((sentCount.get(s.id) ?? 0) >= maxSends) continue;                       // 상한 도달
         const last = lastDay.get(s.id);
         if (last && dayNum(today0) - dayNum(last) < gap) continue;                  // 간격 미달
@@ -445,19 +506,70 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
           body: WEEKLY_CARE[pick]!(s.member_name ?? "회원", center, coachName),
         });
       }
+      }
     }
   }
 
   if (jobs.length === 0) return stat;
 
   const today = kstDateStr(0);
+  /**
+   * 이미 선점된 슬롯은 **미리** 걸러낸다 — 충돌 insert 도 서브리퀘스트 1콜을 먹기 때문.
+   *
+   * ⚠️ 키는 DB unique 제약과 **똑같이** (member, kind, step, channel) 여야 한다.
+   *    · channel 을 빼면: SMS 만 보낸 회원의 카카오분까지 걸러져 영영 안 나간다.
+   *    · 오늘 날짜만 보면: step 이 날짜와 무관한 kind(재등록=만료일, 페이스하락=30일 버킷)가
+   *      매일 다시 큐에 실려 충돌 insert 로 예산을 통째로 태운다. 그래서 40일 창으로 읽는다.
+   */
+  const seen = new Set<string>();
+  {
+    const { data: done } = await db.from("automation_dispatch_log")
+      .select("member_id, kind, step, channel")
+      .eq("branch_id", cfg.branch_id)
+      .gte("dispatched_on", kstDateStr(-40))     // pace_drop 30일 버킷 + 여유
+      .limit(5000);
+    for (const d of (done as { member_id: string | null; kind: string | null; step: number | null; channel: string | null }[] | null) ?? []) {
+      seen.add(`${d.member_id}|${d.kind}|${d.step}|${d.channel}`);
+    }
+  }
+  const key = (j: Job, ch: string) => `${j.snap.id}|${j.kind}|${j.step}|${ch}`;
+  // 아직 남은 채널이 하나라도 있는 잡만 남긴다
+  let queue = seen.size ? jobs.filter((j) => channels.some((ch) => !seen.has(key(j, ch)))) : jobs;
+  if (queue.length === 0) return stat;
+
+  /**
+   * 종류를 **교대로** 배치한다(라운드로빈).
+   * 그냥 두면 배열 순서가 온보딩 → 재등록 이라, 상한에 걸릴 때 재등록이 매일 0건이 된다.
+   * 재등록은 만료일 기준 8일 창이라 8일 내내 밀리면 그 회원 문자는 영영 안 나간다.
+   */
+  {
+    const byKind = new Map<string, Job[]>();
+    for (const j of queue) { const a = byKind.get(j.kind) ?? []; a.push(j); byKind.set(j.kind, a); }
+    if (byKind.size > 1) {
+      const lanes = [...byKind.values()];
+      const mixed: Job[] = [];
+      for (let i = 0; mixed.length < queue.length; i++) for (const lane of lanes) if (lane[i]) mixed.push(lane[i]!);
+      queue = mixed;
+    }
+  }
+
+  /**
+   * 서브리퀘스트 **콜 예산**으로 센다(건수가 아니라).
+   * SMS 1건 = 선점 insert 1 + 발신설정 조회 1 + NCP 1 + 상태 update 1 = 4콜
+   * 카카오 1건 = 위 + 채널ID·비즈메시지ID 조회 2 = 6콜
+   * 건수로 세면 카카오 지점은 6건 = 36콜이라 준비분과 합쳐 한도 50을 넘어 워커가 죽는다.
+   */
+  const CALL_COST: Record<string, number> = { sms: 4, kakao: 6 };
+  let budget = SEND_CALL_BUDGET;
   let count = 0;
   const opsRows: Record<string, unknown>[] = [];   // 연락 이력 — 마지막에 한 번에 기록(잡당 서브리퀘스트 1개 절약)
-  for (const job of jobs) {
-    if (count >= MAX_PER_RUN) break;
+  for (const job of queue) {
+    if (budget < 4) break;
     const phone = digits(job.snap.phone);
     for (const ch of channels) {
-      if (count >= MAX_PER_RUN) break;
+      const cost = CALL_COST[ch] ?? 4;
+      if (budget < cost) break;
+      if (seen.has(key(job, ch))) { stat.skipped++; continue; }   // 이 채널은 이미 나감(insert 없이 스킵)
       // 검수 반영(boxer): 심야 발송 금지는 채널 공통(KST 08~21시) — SMS 도 예외 없음
       // (buddy 초대권·연장 혜택 등 광고성 소지 본문이 존재. fc.ts 가드와 정합).
       if (hour < 8 || hour >= 21) { stat.skipped++; continue; }
@@ -470,7 +582,9 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
         branch_id: cfg.branch_id, member_id: job.snap.id, member_name: job.snap.member_name,
         phone, kind: job.kind, step: job.step, channel: ch, status: "pending", dispatched_on: today,
       }).select("id").maybeSingle();
+      budget -= 1;                                // 충돌해도 콜은 이미 썼다 — 예산에서 먼저 뺀다
       if (!claim) { stat.skipped++; continue; }   // 이미 발송/처리됨(충돌) 또는 삽입 실패
+      budget -= cost - 1;                         // 남은 비용(발신설정·전송·상태update)
       count++;
       // 초대권({link})은 선점 성공 후 발급 — 유령 초대권 방지. 재사용 로직이 있어 중복 발급도 없다.
       let body = job.body;
@@ -507,31 +621,47 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
   }
   // 회원 연락 이력 일괄 기록(best-effort)
   if (opsRows.length) { try { await db.from("ops_message_logs").insert(opsRows); } catch { /* 무시 */ } }
+  // 상한에 걸려 남은 대상 — 다음 슬롯/다음 날 그대로 다시 잡힌다(선점 unique 가 중복을 막는다).
+  // 이 숫자가 매일 쌓이면 슬롯을 늘려야 한다는 신호다.
+  if (queue.length > count) console.log("[automationRunner] 예산 소진 — 다음 슬롯 대기", { branch: cfg.branch_id, phase, 발송: count, 대기: queue.length - count, 기발송제외: jobs.length - queue.length, 잔여콜: budget });
   return stat;
 }
 
-// 매시간 크론에서 호출 — 유료 구독 + 자동화 ON 인 지점만 처리
-export async function runAutomationDaily(env: Env): Promise<void> {
+/**
+ * 크론에서 호출 — 유료 구독 + 자동화 ON 인 지점만 처리.
+ *
+ * phase 로 종류를 나눠 **서로 다른 분(minute) 슬롯**에서 부른다(index.ts 참조).
+ * 한 실행에 다 담으면 앞의 온보딩이 서브리퀘스트 예산 50을 다 쓰고 뒤의 안부가 굶는다.
+ */
+export async function runAutomationDaily(env: Env, phase: AutoPhase = "primary"): Promise<void> {
   const db = getServiceClient(env);
   // 이전 날짜의 미완료 선점(pending) 정리 — 크론 중단으로 '발송 후 상태갱신 실패'한 유령 행일 수 있다.
   // 지우면(재시도) 이미 보낸 재등록 문자를 다음 날 다시 보낼 위험이 있으므로, 지우지 않고 'failed'로 확정한다.
   // (슬롯을 유지해 재선점·이중발송을 막고, 리포트 실패목록에 노출해 수동 확인을 유도한다.)
-  try { await db.from("automation_dispatch_log").update({ status: "failed", error: "발송 확인 불가(중단)" }).eq("status", "pending").lt("dispatched_on", kstDateStr(0)); }
-  catch { /* 무시 */ }
+  // primary 슬롯에서만 — care 에서도 하면 예산 1콜을 매번 헛되이 쓴다.
+  if (phase === "primary") {
+    try { await db.from("automation_dispatch_log").update({ status: "failed", error: "발송 확인 불가(중단)" }).eq("status", "pending").lt("dispatched_on", kstDateStr(0)); }
+    catch { /* 무시 */ }
+  }
   const { data, error } = await db.from("fc_automation_config")
     .select("branch_id, renewal_enabled, onboarding_enabled, pace_drop_enabled, weekly_care_enabled, weekly_care_dow, weekly_care_gap_days, weekly_care_max_sends, weekly_care_coach, channel_sms, channel_kakao, onboarding_steps, send_hour, message_tone")
-    .or("renewal_enabled.eq.true,onboarding_enabled.eq.true,pace_drop_enabled.eq.true,weekly_care_enabled.eq.true");
+    .or(phase === "primary"
+      ? "renewal_enabled.eq.true,onboarding_enabled.eq.true"
+      : "pace_drop_enabled.eq.true,weekly_care_enabled.eq.true");
   if (error) { console.error("[automationDaily] config fetch:", error.message); return; }
   const configs = (data as AutoConfig[] | null) ?? [];
+  const hourNow = kstHour();
   let sent = 0, failed = 0;
   for (const cfg of configs) {
     try {
+      // 발송 시각 컷을 구독 조회보다 **먼저** — 안 그러면 하루 46회의 헛 실행마다 지점 수만큼 콜을 태운다
+      if (hourNow !== (cfg.send_hour ?? 11)) continue;
       if (!(await isPremium(db, cfg.branch_id))) continue;   // 구독 게이트 (조회 실패 시 이 지점만 스킵)
-      const r = await runBranch(db, env, cfg);
+      const r = await runBranch(db, env, cfg, phase);
       sent += r.sent; failed += r.failed;
     } catch (e) {
       console.error("[automationDaily] branch", cfg.branch_id, e instanceof Error ? e.message : e);
     }
   }
-  if (sent || failed) console.log("[automationDaily]", { branches: configs.length, sent, failed });
+  if (sent || failed) console.log("[automationDaily]", { phase, branches: configs.length, sent, failed });
 }

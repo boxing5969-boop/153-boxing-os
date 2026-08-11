@@ -145,6 +145,26 @@ async function handleScheduled(
           .then((r) => console.log("[scheduled:holds]", JSON.stringify(r)))
           .catch((e) => console.error("[scheduled:holds]", e))
       );
+    } else if (minute === 0 || minute === 10) {
+      // :00·:10 — 자동발송 primary (온보딩·재등록)
+      //   ⚠️ 정각 크론(0 * * * *)이 아니라 **이 */10 크론의 분 슬롯**을 쓴다.
+      //     정각 크론에는 예약발송·일일리포트가 같이 붙어 예산 50을 셋이 나눠 쓰고,
+      //     리포트만 ~29콜이라 발송이 도중에 끊긴다. 여기(QR 정리 1~2콜뿐)면 예산을 온전히 쓴다.
+      //   슬롯 2개 = 하루 SMS 14~16건. 온보딩 D+N 은 날짜가 지나면 영영 사라지므로 여유가 필요하다.
+      ctx.waitUntil(
+        runAutomationDaily(env, "primary")
+          .then(() => console.log("[scheduled:automation:primary]", minute))
+          .catch((e) => console.error("[scheduled:automation:primary]", e))
+      );
+    } else if (minute === 30 || minute === 50) {
+      // :30·:50 — 자동발송 care (페이스 하락 · 주간 안부)
+      //   정각의 온보딩과 같은 실행에 두면 예산 50을 온보딩이 다 써서 **60일간 한 건도 못 나갔다**
+      //   (weekly_care 0건 / 대기 33명, 2026-08-11 실측). 별도 슬롯이라야 각자 예산 50을 받는다.
+      ctx.waitUntil(
+        runAutomationDaily(env, "care")
+          .then(() => console.log("[scheduled:automation:care]"))
+          .catch((e) => console.error("[scheduled:automation:care]", e))
+      );
     }
     return;
   }
@@ -157,25 +177,21 @@ async function handleScheduled(
     return;
   }
   if (controller.cron === SCHEDULED_MSG_CRON) {
-    // 두 작업을 독립 실행 — 예약발송이 실패해도 완전 자동화(유료) 발송이 막히지 않게 한다.
+    // 두 작업을 독립 실행 — 예약발송이 실패해도 리포트가 막히지 않게 한다.
     ctx.waitUntil(
       runScheduledMessages(env)
         .then(() => console.log("[scheduled:messages] done"))
         .catch((e) => console.error("[scheduled:messages]", e))
     );
     ctx.waitUntil(
-      runAutomationDaily(env)    // 지점별 send_hour 에만 실제 발송
-        .then(() => console.log("[scheduled:automation] done"))
-        .catch((e) => console.error("[scheduled:automation]", e))
-    );
-    ctx.waitUntil(
       runDailyAutomationReport(env)   // KST 11시에만 — 대표님께 일일 자동관리 리포트(카카오→문자)
         .then(() => console.log("[scheduled:autoReport] done"))
         .catch((e) => console.error("[scheduled:autoReport]", e))
     );
-    // ※ 출석 매시간 동기화(:20)와 홀딩 스윕(:40)은 QR_CLEANUP(*/10) 크론의 분 슬롯으로 옮겼다.
-    //   여기(정각)에 같이 두면 예약발송·자동발송·11시 리포트와 서브리퀘스트 50을 나눠 써
-    //   서로를 굶긴다(위 QR_CLEANUP 분기 주석 참고).
+    // ※ 출석 동기화(:20)·홀딩 스윕(:40)·**자동발송(:00·:10 primary / :30·:50 care)** 은
+    //   전부 QR_CLEANUP(*/10) 크론의 분 슬롯으로 옮겼다. 여기(정각)에 같이 두면
+    //   예약발송·11시 리포트와 서브리퀘스트 50을 나눠 써 서로를 굶긴다.
+    //   특히 리포트만 ~29콜이라, 같이 두면 발송이 매일 도중에 끊겼다(2026-08-11 실측).
     return;
   }
   // every minute fallback — sync queue
