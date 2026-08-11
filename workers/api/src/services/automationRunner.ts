@@ -105,6 +105,13 @@ const VALUE_LINES = {
 } as const;
 const withName = (s: string, nm: string) => s.split("{이름}").join(nm);
 
+/**
+ * 직원이 직접 연락한 뒤 며칠간 자동발송을 멈출지.
+ * 3일 = "코치가 그저께 문자했는데 오늘 앱이 또 보내는" 상황까지 막는 선.
+ * 늘리면 자동발송이 많이 줄고, 줄이면 중복이 는다.
+ */
+const STAFF_CONTACT_COOLDOWN_DAYS = 3;
+
 function onboardingBody(name: string, center: string, step: number): string {
   const nm = name || "회원";
   const v = (k: keyof typeof VALUE_LINES) => withName(VALUE_LINES[k], nm);
@@ -203,6 +210,31 @@ const WEEKLY_CARE: ((name: string, center: string, coach: string) => string)[] =
     `${nm}님, ${sender(c, coach)}입니다.\n\n잘 지내시죠.\n운동하시면서 몸도 마음도 편안해지시길 진심으로 바랍니다.\n\n운동습관 같이 만들어봐요~`,
 ];
 
+/**
+ * 아직 한 번도 안 나온 신규 회원용 문구.
+ *
+ * 왜 필요한가 (2026-08-04, 실제 항의로 발견):
+ *   온보딩 문구는 등록일 D+N 만 보고 나가는데 본문은 출석을 **단정**한다
+ *   ("며칠 나와보니 어떠세요", "벌써 일주일이에요! 첫 주를 채우신 것만으로").
+ *   결제만 하고 한 번도 못 온 회원이 이걸 받으면 "등록한 적도 없는데 운동 중이라고 온다"로 읽힌다.
+ *   실제로 한 회원 배우자분이 그렇게 받아들여 환불 문의로 이어졌다.
+ *
+ * 원칙
+ *  · 안 왔다고 지적하지 않는다. "아직 안 오셨네요"는 감시당한 느낌을 준다.
+ *  · 첫 방문의 문턱을 낮추는 정보만 준다(준비물 없음·시간·코치가 붙는다).
+ *  · 할인·독촉을 넣지 않는다.
+ */
+function firstVisitBody(name: string, center: string, step: number): string {
+  const nm = name || "회원";
+  if (step <= 3) {
+    return `${nm}님, ${center}입니다. 등록해 주셔서 감사합니다!\n첫날은 준비물 없이 편한 옷차림만 오시면 됩니다. 운동화도 대여해 드려요.\n처음 오시는 날은 코치가 처음부터 끝까지 옆에서 함께하니 편하게 오세요. 편하신 시간 알려주시면 맞춰 준비해두겠습니다.`;
+  }
+  if (step <= 14) {
+    return `${nm}님, ${center}입니다. 시작이 제일 어렵더라고요.\n첫날만 넘기면 그다음은 훨씬 수월해집니다. 30분만 하고 가셔도 괜찮아요.\n오시기 편한 요일·시간 하나만 알려주시면 코치 시간을 비워두겠습니다.`;
+  }
+  return `${nm}님, ${center}입니다. 바쁘셨죠.\n이용 기간이 지나가고 있어 조심스레 안내드려요 — 아직 한 번도 못 오셨다면 시작일을 뒤로 미뤄드리거나 정지해 드릴 수 있습니다.\n편하신 방법으로 답장 주시면 바로 처리해 드리겠습니다.`;
+}
+
 interface Job { snap: Snap; kind: "onboarding" | "renewal" | "pace_drop" | "weekly_care"; step: number; body: string }
 
 async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise<{ sent: number; failed: number; skipped: number }> {
@@ -241,6 +273,32 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
     }
     for (const r of (stop as { normalized_phone: string | null }[] | null) ?? []) if (r.normalized_phone) blocked.add(digits(r.normalized_phone));
     for (const r of (opt as { normalized_phone: string | null }[] | null) ?? []) if (r.normalized_phone) blocked.add(digits(r.normalized_phone));
+
+    /**
+     * 🚨 최근에 **직원이 직접 연락한** 회원은 자동발송에서 뺀다 (2026-08 대표님 지적).
+     *
+     * 실제로 겹쳤다: 7/29 코치가 회원케어 문자를 보냈는데 7/30 앱이 온보딩 D+3 을 또 보냈다.
+     * 회원 입장에선 이틀 연속 같은 곳에서 문자가 온다. 코치 미션(careQueue)은 자동발송분을
+     * 이미 보고 피하는데, 반대로 자동발송이 코치 연락을 안 봐서 한쪽만 새고 있었다.
+     *
+     * ⚠️ `created_by is not null` = 직원이 보낸 것만. 자동발송(created_by null)까지 막으면
+     *    온보딩 D+1 → D+3 처럼 **제 시퀀스가 스스로를 막아** 온보딩이 통째로 멈춘다.
+     */
+    const sinceContact = new Date(Date.now() - STAFF_CONTACT_COOLDOWN_DAYS * 86400000).toISOString();
+    const { data: recent, error: e3 } = await db.from("ops_message_logs")
+      .select("phone")
+      .eq("branch_id", cfg.branch_id)
+      .not("created_by", "is", null)
+      .gte("created_at", sinceContact)
+      .limit(3000);
+    if (e3) {
+      console.error("[automationRunner] 최근 연락 조회 실패 — 이 지점 발송 건너뜀", cfg.branch_id, e3.message);
+      return stat;   // 못 읽었으면 보내지 않는다(중복 발송보다 한 회차 거르는 게 낫다)
+    }
+    for (const r of (recent as { phone: string | null }[] | null) ?? []) {
+      const d = digits(r.phone ?? "");
+      if (d.length >= 9) blocked.add(d);
+    }
   }
 
   // hold_status=HOLDING(브로제이 일시정지)은 status가 '유효'로 남아 상태필터를 통과하므로 여기서 거른다
@@ -250,6 +308,26 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
 
   if (cfg.onboarding_enabled) {
     const steps = (Array.isArray(cfg.onboarding_steps) && cfg.onboarding_steps.length ? cfg.onboarding_steps : DEFAULT_STEPS);
+    /**
+     * 🚨 실제로 나온 사람만 '나오고 계시죠' 라고 부른다.
+     * 이 지점의 최근 출입 번호를 한 번만 읽어 두고(단계마다 조회하면 쿼리가 7배), 없는 사람은 첫방문 문구로 바꾼다.
+     * ⚠️ PostgREST 는 .limit() 을 걸어도 1000행에서 자른다 — 자르면 '온 사람'이 안 온 사람으로 뒤집혀
+     *    정상 회원에게 "아직 못 오셨다면" 문자가 나간다. 그래서 .range() 로 전량을 읽는다.
+     */
+    const visited = new Set<string>();
+    {
+      const maxStep = Math.max(...steps, 1);
+      const sinceIso = new Date(Date.now() - (maxStep + 2) * 86400000).toISOString();
+      for (let off = 0; off < 40000; off += 1000) {
+        const { data: av, error: ae } = await db.from("attendance_logs")
+          .select("phone").eq("branch_id", cfg.branch_id).eq("counts_as_visit", true)
+          .gte("attended_at", sinceIso).order("phone", { ascending: true }).range(off, off + 999);
+        if (ae) { console.error("[automationRunner] 출입 조회 실패 — 온보딩 건너뜀", cfg.branch_id, ae.message); break; }
+        const arr = (av as { phone: string | null }[] | null) ?? [];
+        for (const r of arr) if (r.phone) visited.add(digits(r.phone));
+        if (arr.length < 1000) break;
+      }
+    }
     for (const d of steps) {
       const { data } = await db.from("member_snapshots")
         .select("id, member_name, phone, start_date, end_date, status, membership_type, hold_status")
@@ -262,7 +340,11 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig): Promise
         // 7단계 전부 보내면 같은 문장이 최대 4번 나간다 → 3단계에서만 발송.
         const rejoin = isRejoinMember(s);
         if (rejoin && d !== 1 && d !== 6 && d !== 20) continue;
-        const body = rejoin ? rejoinBody(s.member_name ?? "", center, d) : onBody(s.member_name ?? "", center, d);
+        // D+1(환영)은 출석을 단정하지 않으니 그대로. D+3 이후는 실제 방문이 있어야 그 문구를 쓴다.
+        const neverCame = d > 1 && !visited.has(digits(s.phone));
+        const body = neverCame
+          ? firstVisitBody(s.member_name ?? "", center, d)
+          : rejoin ? rejoinBody(s.member_name ?? "", center, d) : onBody(s.member_name ?? "", center, d);
         // 초대권({link}) 발급은 디스패치 루프에서 '선점 성공 후'에 한다 —
         // 여기서 미리 발급하면 크론이 중간에 죽었을 때 문자 없는 유령 초대권이 남는다(2026-07-30 실제 발생).
         jobs.push({ snap: s, kind: "onboarding", step: d, body });
