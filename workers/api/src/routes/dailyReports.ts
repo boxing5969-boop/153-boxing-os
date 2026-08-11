@@ -870,6 +870,48 @@ dailyReportsRoutes.get("/sales", requireJwt, async (c) => {
   return ok(c, { sales: (data as SalesRow[] | null) ?? [] });
 });
 
+// ── 매출 중복 확인 ───────────────────────────────────────────
+// 이용권을 등록하면서 '매출로도 기록'을 켤 때, 같은 결제가 이미 들어와 있는지 미리 본다.
+// 브로제이 연동 지점은 결제가 자동으로 들어오므로 손으로 또 넣으면 이중 계상이 된다.
+dailyReportsRoutes.get("/sales/check-duplicate", requireJwt, async (c) => {
+  const branchId = c.req.query("branch_id");
+  const date = c.req.query("date") ?? kstDateStr();
+  const name = (c.req.query("member_name") ?? "").trim();
+  const amount = Number(c.req.query("amount") ?? 0);
+  if (!branchId || !name) return fail(c, "INVALID_REQUEST", "branch_id, member_name 필수", 400);
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+  if (!canSeeMoney(profile)) return fail(c, "FORBIDDEN", REVENUE_MSG, 403);
+
+  // 같은 날 ±3일 안에 같은 이름의 결제가 있는지 (브로제이 결제일과 등록일이 하루이틀 어긋날 수 있다)
+  const from = addDays(date, -3);
+  const to = addDays(date, 3);
+  // 이름 표기가 조금씩 다를 수 있다(공백·전각). 넓게 찾아 화면에서 좁힌다.
+  // PostgREST ilike 의 특수문자를 막고, 앞뒤 공백은 무시한다.
+  const safe = name.replace(/[%_,()"\\]/g, "").trim();
+  const { data } = await db.from("sales_entries")
+    .select("id, sale_date, member_name, product, amount, source")
+    .eq("branch_id", branchId)
+    .ilike("member_name", `%${safe}%`)
+    .gte("sale_date", from).lte("sale_date", to)
+    .order("sale_date", { ascending: false })
+    .limit(20);
+  const compact = (v: string): string => v.replace(/\s/g, "");
+  const rows = ((data as { id: string; sale_date: string; member_name: string; product: string; amount: number; source: string | null }[] | null) ?? [])
+    // 부분일치로 넓게 받은 뒤 '공백 뺀 이름이 같은' 것만 남긴다(동명이인 오탐은 남지만 누락은 줄인다)
+    .filter((r) => compact(r.member_name ?? "") === compact(name));
+  // 금액까지 같으면 거의 확실한 중복
+  const exact = amount > 0 ? rows.filter((r) => r.amount === amount) : [];
+
+  // 이 지점이 브로제이와 연동돼 있는지 — 연동 지점이면 기본을 '기록 안 함'으로 둔다
+  const { data: br } = await db.from("branches").select("broj_group_id").eq("id", branchId).maybeSingle();
+  const linked = !!(br as { broj_group_id: string | null } | null)?.broj_group_id;
+
+  return ok(c, { nearby: rows, exact, broj_linked: linked });
+});
+
 const salesCreateSchema = z.object({
   branch_id: z.string().uuid(),
   sale_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
