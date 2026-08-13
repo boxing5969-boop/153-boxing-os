@@ -266,7 +266,24 @@ export async function runBrojAutoSync(env: Env): Promise<AutoSyncReport> {
  *    출석은 최근 3일치라 지점당 1초 안쪽으로 가볍다. 무거운 명부·매출과 분리해 매시간 전 지점을 돌린다.
  *    (명부·매출은 하루 단위로 변해도 되니 기존 로테이션 유지)
  */
-export async function runBrojAttendanceSync(env: Env): Promise<{ ran: boolean; branches: { name: string; ok: boolean; written: number }[] }> {
+/**
+ * light 모드 (2026-08-13) — 라이브보드가 "지금 운동 중"을 실시간으로 띄우기 위해 5분마다 도는 경량 버전.
+ *
+ * 왜 필요했나: 출석이 매시간(:20) 한 번만 들어와서, 21시에 온 회원이 21:30 동기화 전까지
+ *   보드에 아예 없었다. 대표님이 CCTV엔 8명인데 보드엔 3명이라고 짚어 발견.
+ *   실측 지연: 입실 19:30 → DB 20:30 (60분), 20:58 → 21:30 (32분).
+ *
+ * 무거운 부분을 덜어낸다:
+ *   · 조회 범위 3일 → 오늘 하루 (호출·행수 감소)
+ *   · refreshAttendanceStats(7·30·90일 재계산) 생략 — 케어 판정용이라 5분 신선도가 필요 없다
+ *   · 성공 로그(broj_sync_runs) 생략 — 5분마다 쌓으면 로그가 하루 288줄이 된다. 실패만 남긴다
+ * 정시(:20) 동기화는 그대로 두어 3일치 보정·통계 갱신을 계속 담당한다.
+ */
+export async function runBrojAttendanceSync(
+  env: Env,
+  opts?: { light?: boolean },
+): Promise<{ ran: boolean; branches: { name: string; ok: boolean; written: number }[] }> {
+  const light = opts?.light === true;
   const db = getServiceClient(env);
   if (!hasBrojKey(env)) return { ran: false, branches: [] };
   const { data } = await db.from("branches")
@@ -276,21 +293,29 @@ export async function runBrojAttendanceSync(env: Env): Promise<{ ran: boolean; b
   if (all.length === 0) return { ran: false, branches: [] };
 
   const today = kstToday();
-  const from = new Date(Date.parse(`${today}T00:00:00Z`) - 2 * 86400000).toISOString().slice(0, 10); // 최근 3일(늦게 반영되는 건까지)
+  // light = 오늘만, 정시 = 최근 3일(늦게 반영되는 건까지 보정)
+  const from = light
+    ? today
+    : new Date(Date.parse(`${today}T00:00:00Z`) - 2 * 86400000).toISOString().slice(0, 10);
   const startedMs = Date.now();
+  const budgetMs = light ? 20_000 : 40_000;
   const out: { name: string; ok: boolean; written: number }[] = [];
 
   for (const b of all) {
-    if (Date.now() - startedMs > 40_000) {      // 안전 예산 — 남은 지점은 다음 시간에
+    if (Date.now() - startedMs > budgetMs) {    // 안전 예산 — 남은 지점은 다음 회차에
       out.push({ name: b.name, ok: false, written: 0 });
       continue;
     }
     const t = new Date().toISOString();
     try {
-      const a = await syncAttendance(db, env, { branchId: b.id, groupId: b.broj_group_id, from, to: today });
+      const a = await syncAttendance(db, env, {
+        branchId: b.id, groupId: b.broj_group_id, from, to: today,
+        // light 는 하루치라 지점당 2~3콜이면 끝난다. 상한을 낮게 못 박아 한 지점이 예산을 다 먹지 않게.
+        ...(light ? { maxCalls: 6 } : {}),
+      });
       out.push({ name: b.name, ok: true, written: a.written });
-      // 매시간이라 로그가 쌓인다 — 실제로 뭔가 들어온 경우만 기록
-      if (a.written > 0) {
+      // 매시간이라 로그가 쌓인다 — 실제로 뭔가 들어온 경우만 기록 (light 는 5분마다라 성공 로그 생략)
+      if (!light && a.written > 0) {
         await logSyncRun(db, {
           branchId: b.id, kind: "attendance", mode: "auto", status: "success",
           from, to: today, fetched: a.fetched, written: a.written, startedAt: t,
@@ -305,8 +330,11 @@ export async function runBrojAttendanceSync(env: Env): Promise<{ ran: boolean; b
       });
     }
   }
-  // 출석이 갱신됐으니 회원별 방문 통계(7·30·90일)도 다시 계산 — 케어 대상 판정의 근거
-  try { await refreshAttendanceStats(db, null); } catch (e) { console.error("[brojAttendanceSync] stats", e); }
+  // 출석이 갱신됐으니 회원별 방문 통계(7·30·90일)도 다시 계산 — 케어 대상 판정의 근거.
+  // light 는 건너뛴다: 무겁고, 케어 판정은 정시 동기화(:20)가 갱신해주면 충분하다.
+  if (!light) {
+    try { await refreshAttendanceStats(db, null); } catch (e) { console.error("[brojAttendanceSync] stats", e); }
+  }
   return { ran: true, branches: out };
 }
 

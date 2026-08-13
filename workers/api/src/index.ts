@@ -174,6 +174,20 @@ async function handleScheduled(
         console.log("[scheduled:alerts]", report)
       )
     );
+    // 라이브보드용 출석 경량 동기화 — 5분마다 오늘분만.
+    //   정시(:20) 동기화만으론 21시에 온 회원이 21:30 까지 보드에 안 떴다(실측 지연 최대 60분).
+    //   이 크론에 얹는 이유: 알림 체크는 RPC 1콜뿐이라 서브리퀘스트 예산 50이 거의 통째로 남는다.
+    //   비용 = 지점 조회 1 + (broj 연결 지점 3 × 상태 2) ≈ 7~10콜.
+    //   ⚠️ 브로제이 분당 한도는 계정 전체 공용 — 정시 동기화와 겹칠 때를 대비해
+    //      brojClient 의 429 백오프(5→15→30초)에 그대로 기댄다.
+    ctx.waitUntil(
+      runBrojAttendanceSync(env, { light: true })
+        .then((r) => {
+          const wrote = r.branches.reduce((n, b) => n + b.written, 0);
+          if (wrote > 0) console.log("[scheduled:attendanceLive]", JSON.stringify(r));
+        })
+        .catch((e) => console.error("[scheduled:attendanceLive]", e))
+    );
     return;
   }
   if (controller.cron === SCHEDULED_MSG_CRON) {
