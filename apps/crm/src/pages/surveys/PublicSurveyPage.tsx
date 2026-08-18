@@ -122,6 +122,46 @@ function NpsPicker({
   );
 }
 
+// ── 보기 선택 입력 ────────────────────────────────────────────
+/**
+ * options.choices 가 있는 multiple_choice 를 **보기 목록**으로 그린다.
+ *
+ * 왜 필요했나: 예전에는 multiple_choice 도 1~5 숫자 픽커로 그려서, '이탈 사유' 같은
+ * 진짜 객관식을 물어볼 방법이 없었다(문항 글은 보기인데 화면은 별점이라 회원이 뭘 고르는지 모름).
+ * 저장은 answer_text = 보기 문구(집계용 원문), answer_score = 보기 번호(정렬·차트용).
+ */
+function ChoicePicker({
+  choices, value, onChange,
+}: { choices: string[]; value: string | null; onChange: (label: string, index: number) => void }) {
+  return (
+    <div className="space-y-2.5">
+      {choices.map((label, i) => (
+        <button
+          key={`${i}-${label}`}
+          type="button"
+          onClick={() => onChange(label, i)}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-2xl border-2 px-4 py-4 text-left text-[15px] font-semibold transition-all active:scale-[0.99]",
+            value === label
+              ? "border-primary bg-primary/10 text-primary survey-pop"
+              : "border-border text-muted-foreground hover:border-primary/50"
+          )}
+        >
+          <span
+            className={cn(
+              "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold",
+              value === label ? "border-primary bg-primary text-white" : "border-border"
+            )}
+          >
+            {i + 1}
+          </span>
+          <span className="min-w-0 flex-1 leading-snug">{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── 예/아니오 입력 ────────────────────────────────────────────
 function YesNoPicker({
   value, onChange,
@@ -161,9 +201,13 @@ function QuestionView({
   answer: AnswerInput;
   onAnswer: (a: Partial<AnswerInput>, autoNext?: boolean) => void;
 }) {
-  const opts = q.options as { min?: number; max?: number } | null;
+  const opts = q.options as { min?: number; max?: number; choices?: unknown } | null;
   const max = opts?.max ?? 5;
-  const isNps = q.question_type === "multiple_choice" && max >= 10;
+  // 보기 목록이 지정된 객관식인가 — 숫자 픽커와 갈라지는 유일한 기준
+  const choices = Array.isArray(opts?.choices)
+    ? (opts.choices as unknown[]).filter((v): v is string => typeof v === "string" && v.trim() !== "")
+    : [];
+  const isNps = q.question_type === "multiple_choice" && choices.length === 0 && max >= 10;
 
   return (
     <div className="survey-anim space-y-7">
@@ -186,7 +230,13 @@ function QuestionView({
       )}
 
       {q.question_type === "multiple_choice" &&
-        (isNps ? (
+        (choices.length > 0 ? (
+          <ChoicePicker
+            choices={choices}
+            value={answer.answer_text ?? null}
+            onChange={(label, i) => onAnswer({ answer_text: label, answer_score: i + 1 }, true)}
+          />
+        ) : isNps ? (
           <NpsPicker
             value={answer.answer_score ?? null}
             onChange={(v) => onAnswer({ answer_score: v }, true)}

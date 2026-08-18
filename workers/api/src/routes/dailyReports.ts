@@ -33,6 +33,13 @@ export const dailyReportsRoutes = new Hono<{ Bindings: Env }>();
 
 const HQ_ROLES = new Set(["super_admin", "hq_admin"]);
 const WRITE_ROLES = new Set(["super_admin", "hq_admin", "branch_owner", "branch_manager"]);
+
+/**
+ * 자동발송 종류 — automation_dispatch_log.kind 의 전체 목록.
+ * 상세 화면·리포트가 이 목록을 기준으로 돌아간다. 새 종류를 추가하면 **여기만** 고치면 된다.
+ * (예전엔 배열이 라우트 안에 하드코딩돼, exit_survey 를 추가했을 때 상세 화면이 400 이 됐다.)
+ */
+const AUTO_KINDS = ["onboarding", "renewal", "pace_drop", "weekly_care", "exit_survey"];
 // 회원관리(퀘스트·문자·태스크완료)는 코치도 자기 지점 한정 허용 — canAccessBranch로 지점 스코프 보장.
 const CARE_ROLES = new Set(["super_admin", "hq_admin", "branch_owner", "branch_manager", "coach"]);
 // 마스터(본사) 계정은 관전자 — 개인 점수를 적립하지 않는다. 지점 XP·활동 감사로그는 그대로 남긴다.
@@ -3618,6 +3625,7 @@ const configSchema = z.object({
   renewal_enabled: z.boolean().nullish(),
   onboarding_enabled: z.boolean().nullish(),
   pace_drop_enabled: z.boolean().nullish(),   // 페이스 하락(출석 급감) 자동 안부
+  exit_survey_enabled: z.boolean().nullish(), // 만료 후 7일 미재등록 회원 이탈 설문(회원당 1회)
   channel_sms: z.boolean().nullish(),
   channel_kakao: z.boolean().nullish(),
   onboarding_steps: z.array(z.number().int().min(0).max(365)).max(12).nullish(),
@@ -4060,8 +4068,10 @@ dailyReportsRoutes.get("/member-care/automation-detail", requireJwt, async (c) =
   if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
   if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
   const kind = c.req.query("kind") ?? "";
-  if (!["onboarding", "renewal", "pace_drop", "weekly_care"].includes(kind)) {
-    return fail(c, "INVALID_REQUEST", "kind는 onboarding/renewal/pace_drop/weekly_care 중 하나", 400);
+  // ⚠️ 자동화 종류를 새로 추가하면 **여기에도 넣어야 한다.** 빠뜨리면 그 종류의 상세 화면이
+  //    통째로 400 이 되어, 발송은 되는데 성공·실패를 볼 화면이 없는 상태가 된다(검수 지적).
+  if (!AUTO_KINDS.includes(kind)) {
+    return fail(c, "INVALID_REQUEST", `kind는 ${AUTO_KINDS.join("/")} 중 하나`, 400);
   }
   const days = Math.min(Math.max(Number(c.req.query("days") ?? 30) || 30, 7), 180);
   const since = new Date(Date.now() + 9 * 3600 * 1000 - days * 86400000).toISOString().slice(0, 10);

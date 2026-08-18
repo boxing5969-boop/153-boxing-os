@@ -68,7 +68,14 @@ function QuestionRow({
         options:
           draft.type === "rating"
             ? { min: 1, max: 5, labels: { "1": "매우 불만족", "5": "매우 만족" } }
-            : null,
+            // 🚨 보기 목록(options.choices)이 있는 객관식은 **원래 options 를 보존**한다.
+            //    예전엔 무조건 null 로 덮어써서, 직원이 '이탈 사유' 문항의 오타 하나만 고쳐 저장해도
+            //    보기 8개가 통째로 날아가고 화면이 별점 1~5 로 되돌아갔다(에러도 안 나서 눈치채기 어렵다).
+            //    보기를 편집하는 UI 는 아직 없으므로, 최소한 지우지는 않는다.
+            : draft.type === "multiple_choice" &&
+              Array.isArray((q.options as { choices?: unknown } | null)?.choices)
+              ? q.options
+              : null,
         is_required: draft.required,
       }),
     onSuccess: () => {
@@ -153,7 +160,7 @@ function QuestionRow({
         </div>
         <p className="mt-1 text-sm font-medium text-foreground">{q.question_text}</p>
       </div>
-      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 shrink-0 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
         <button
           onClick={() => {
             setDraft({ text: q.question_text, type: q.question_type, required: q.is_required });

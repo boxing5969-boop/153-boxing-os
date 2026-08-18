@@ -16,6 +16,8 @@ interface AutoConfig {
   onboarding_enabled: boolean | null;
   /** 페이스 하락(출석 빈도 급감) 회원 자동 안부. 기본 OFF */
   pace_drop_enabled?: boolean | null;
+  /** 만료 후 7일 미재등록 회원 이탈 설문(회원당 평생 1회). 기본 OFF */
+  exit_survey_enabled?: boolean | null;
   channel_sms: boolean | null;
   channel_kakao: boolean | null;
   onboarding_steps: number[] | null;
@@ -260,7 +262,31 @@ function firstVisitBody(name: string, center: string, step: number): string {
   return `${nm}님, ${center}입니다. 바쁘셨죠.\n이용 기간이 지나가고 있어 조심스레 안내드려요 — 아직 한 번도 못 오셨다면 시작일을 뒤로 미뤄드리거나 정지해 드릴 수 있습니다.\n편하신 방법으로 답장 주시면 바로 처리해 드리겠습니다.`;
 }
 
-interface Job { snap: Snap; kind: "onboarding" | "renewal" | "pace_drop" | "weekly_care"; step: number; body: string }
+/**
+ * 만료 회원 이탈 설문 문구.
+ *
+ * 원칙 — **재등록 권유·할인을 넣지 않는다.**
+ *   "다시 오세요 + 할인"이 붙는 순간 회원은 이걸 광고로 읽고, 설문 답도 형식적으로 바뀐다.
+ *   우리가 얻어야 하는 건 재등록 한 건이 아니라 "왜 나갔는가"라는 사실이다.
+ * 링크는 회원마다 다른 1회용 토큰이라 누가 어떤 답을 했는지 이어진다(문항은 5개·1분).
+ */
+function exitSurveyBody(name: string, center: string): string {
+  const nm = name || "회원";
+  return `${nm}님, ${center}입니다.\n\n그동안 함께해 주셔서 진심으로 감사했습니다.\n저희가 무엇을 더 잘할 수 있었을지 여쭙고 싶어 짧은 설문을 보내드립니다.\n\n1분이면 끝나고, 답변은 체육관을 고치는 데에만 씁니다.\n{survey}`;
+}
+
+interface Job { snap: Snap; kind: "onboarding" | "renewal" | "pace_drop" | "weekly_care" | "exit_survey"; step: number; body: string }
+
+/**
+ * 이탈 설문 발송에 필요한 지점별 설문 링크 정보.
+ *
+ * ⚠️ crmIdByPhone — survey_invitations.member_id 는 **members(CRM 원장)** 를 가리키는데,
+ *   자동발송 대상은 member_snapshots(브로제이 동기화본)에서 뽑는다. 두 테이블은 별개이고
+ *   전화번호로만 이어진다(선릉 실측: 대상 6명 중 원장 매칭 3명). 매칭되면 member_id 를 채우고,
+ *   안 되면 null 로 둔 채 recipient_phone 으로 식별한다. 원장에 없는 사람을 새로 만들지는 않는다 —
+ *   자동발송이 회원 원장에 유령 행을 만들면 회원수·통계가 오염된다.
+ */
+interface ExitSurveyRef { qrId: string; slug: string; templateId: string; crmIdByPhone: Map<string, string> }
 
 async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig, phase: AutoPhase): Promise<{ sent: number; failed: number; skipped: number }> {
   const hour = kstHour();
@@ -293,8 +319,11 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig, phase: A
     //    조회가 실패했는데 발송하면 수신거부 회원에게 유료 문자가 나간다(권한 사고 전례 있는 DB다).
     const { data: stop, error: e1 } = await db.from("fc_send_state")
       .select("normalized_phone").eq("branch_id", cfg.branch_id).eq("status", "stopped").limit(5000);
+    // return_declined = "다시 안 갑니다"라고 못 박은 회원. 특히 이탈 설문에서 중요하다 —
+    // 환불하고 나간 분에게 일주일 뒤 설문이 가면 항의로 이어진다(검수 지적).
     const { data: opt, error: e2 } = await db.from("fc_member_inputs")
-      .select("normalized_phone").eq("branch_id", cfg.branch_id).or("opt_out.eq.true,do_not_contact.eq.true").limit(5000);
+      .select("normalized_phone").eq("branch_id", cfg.branch_id)
+      .or("opt_out.eq.true,do_not_contact.eq.true,return_declined.eq.true").limit(5000);
     if (e1 || e2) {
       console.error("[automationRunner] 차단셋 조회 실패 — 이 지점 발송 건너뜀", cfg.branch_id, e1?.message ?? e2?.message);
       return stat;   // 이 지점은 이번 회차 발송하지 않는다(다음 시간에 재시도)
@@ -510,6 +539,32 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig, phase: A
     }
   }
 
+  /**
+   * 만료 후 7일이 지나도 재등록하지 않은 회원 → 이탈 설문 (회원당 **평생 1회**).
+   *
+   * 왜 7일을 기다리나: 만료 당일~며칠은 재등록을 저울질하는 구간이다. 그때 설문을 보내면
+   *   "이미 나간 사람 취급"이 되어 살릴 수 있는 회원을 밀어낸다. 일주일이 지나면 사실상 이탈이다.
+   *
+   * 왜 7~14일 창인가: 정확히 D+7 하루만 노리면 그날 크론이 밀리는 순간 그 회원은 영영 놓친다.
+   *   창으로 잡고 step 을 0 으로 고정하면, unique 제약이 "이미 보냈다"를 기억해 1회만 나간다.
+   *
+   * 재등록 판정: member_snapshots 는 회원당 1행이고 브로제이 동기화로 end_date 가 갱신된다.
+   *   재등록하면 end_date 가 미래로 밀리므로, end_date 가 아직 7일 전이면 = 재등록 안 한 것.
+   */
+  if (phase === "care" && cfg.exit_survey_enabled) {
+    const { data } = await db.from("member_snapshots")
+      .select("id, member_name, phone, start_date, end_date, status, hold_status")
+      .eq("branch_id", cfg.branch_id)
+      .lte("end_date", kstDateStr(-7))                 // 만료 후 7일 이상 지났고
+      .gte("end_date", kstDateStr(-14))                // 아직 2주는 안 지난 (놓침 보정 창)
+      .not("status", "in", "(미등록,홀딩,정지)")        // ⚠️ '만료'는 빼지 않는다 — 만료가 곧 대상이다
+      .limit(1000);
+    for (const s of (data as Snap[] | null) ?? []) {
+      if (!eligible(s)) continue;
+      jobs.push({ snap: s, kind: "exit_survey", step: 0, body: exitSurveyBody(s.member_name ?? "회원", center) });
+    }
+  }
+
   if (jobs.length === 0) return stat;
 
   const today = kstDateStr(0);
@@ -561,13 +616,68 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig, phase: A
    */
   const CALL_COST: Record<string, number> = { sms: 4, kakao: 6 };
   let budget = SEND_CALL_BUDGET;
+
+  /**
+   * 이탈 설문 링크 정보 — 큐에 설문 잡이 있을 때만 1콜 써서 읽는다.
+   * 지점마다 '153복싱 만료 회원 설문' 템플릿에 딸린 개인링크용 슬러그가 하나 있다(마이그레이션에서 생성).
+   * 못 찾으면 설문 잡을 통째로 버린다 — 링크 없는 문자는 발송비만 쓰고 회원은 열 곳이 없다.
+   */
+  let surveyRef: ExitSurveyRef | null = null;
+  if (queue.some((j) => j.kind === "exit_survey")) {
+    const { data: qr, error: qe } = await db.from("survey_qr_codes")
+      .select("id, slug, survey_template_id, survey_templates!inner(title)")
+      .eq("branch_id", cfg.branch_id)
+      .eq("status", "active")
+      .eq("survey_templates.title", "153복싱 만료 회원 설문")
+      .limit(1).maybeSingle();
+    budget -= 1;
+    const q = qr as { id: string; slug: string; survey_template_id: string } | null;
+    if (!q) {
+      // 조회 실패와 '설문이 아직 안 만들어짐'을 구분해 남긴다 — 안 그러면 DB 장애를 설정 문제로 오진한다
+      if (qe) console.error("[automationRunner] 설문 링크 조회 실패 — 설문 발송 건너뜀", cfg.branch_id, qe.message);
+      else console.error("[automationRunner] 이탈 설문 링크 없음(템플릿·QR 미생성) — 설문 발송 건너뜀", cfg.branch_id);
+      queue = queue.filter((j) => j.kind !== "exit_survey");
+      if (queue.length === 0) return stat;
+    } else {
+      // 원장(members) 전화번호 → id 지도. 대상자 번호만 조회해 한 콜로 끝낸다.
+      const wanted = queue.filter((j) => j.kind === "exit_survey").map((j) => digits(j.snap.phone)).filter((p) => p.length >= 9);
+      const crmIdByPhone = new Map<string, string>();
+      if (wanted.length) {
+        const { data: mem, error: me } = await db.from("members")
+          .select("id, phone").eq("branch_id", cfg.branch_id).limit(5000);
+        budget -= 1;
+        // 실패해도 발송은 계속한다(member_id 가 null 이 될 뿐) — 다만 조용히 넘어가지는 않는다
+        if (me) console.error("[automationRunner] 원장 조회 실패 — 설문 초대에 회원 연결 생략", cfg.branch_id, me.message);
+        for (const m of (mem as { id: string; phone: string | null }[] | null) ?? []) {
+          const d = digits(m.phone);
+          if (d.length >= 9 && !crmIdByPhone.has(d)) crmIdByPhone.set(d, m.id);
+        }
+      }
+      surveyRef = { qrId: q.id, slug: q.slug, templateId: q.survey_template_id, crmIdByPhone };
+    }
+  }
+
   let count = 0;
   const opsRows: Record<string, unknown>[] = [];   // 연락 이력 — 마지막에 한 번에 기록(잡당 서브리퀘스트 1개 절약)
+  // 가장 싼 채널 1건도 못 보낼 예산이면 그만둔다(카톡 전용 지점은 최소 6콜이라 4로 재면 헛돈다)
+  const minCost = Math.min(...channels.map((ch) => CALL_COST[ch] ?? 4));
   for (const job of queue) {
-    if (budget < 4) break;
+    if (budget < minCost) break;
     const phone = digits(job.snap.phone);
-    for (const ch of channels) {
-      const cost = CALL_COST[ch] ?? 4;
+    // 링크가 들어가는 문구는 발급 조회가 1콜 더 붙는다 — **차감 전에** 예산 검사에 포함시켜야
+    // 마지막 한 건이 예산을 넘겨 워커를 죽이지 않는다(초대권 {link}·설문 {survey} 공통).
+    //   {link}   초대권 발급 1콜
+    //   {survey} 재등록 재확인 1콜 + 초대 생성 1콜 = 2콜
+    const extra = job.body.includes("{survey}") ? 2 : job.body.includes("{link}") ? 1 : 0;
+    /**
+     * 🚨 이탈 설문은 **채널 하나로만** 보낸다.
+     * 다른 자동화는 문자·카톡 둘 다 보내도 "같은 안내를 두 경로로" 라 문제가 없지만,
+     * 설문은 채널마다 토큰이 달라 ① 회원이 같은 설문 요청을 두 통 받고
+     * ② 두 링크로 각각 답하면 그 사람만 2표가 되어 이탈 사유 통계가 망가진다.
+     */
+    const jobChannels = job.kind === "exit_survey" ? channels.slice(0, 1) : channels;
+    for (const ch of jobChannels) {
+      const cost = (CALL_COST[ch] ?? 4) + extra;
       if (budget < cost) break;
       if (seen.has(key(job, ch))) { stat.skipped++; continue; }   // 이 채널은 이미 나감(insert 없이 스킵)
       // 검수 반영(boxer): 심야 발송 금지는 채널 공통(KST 08~21시) — SMS 도 예외 없음
@@ -600,21 +710,78 @@ async function runBranch(db: SupabaseClient, env: Env, cfg: AutoConfig, phase: A
         }
         body = body.replace("{link}", guestPassUrl(pass.slug));
       }
+      /**
+       * 설문 개인 링크({survey})도 선점 성공 후에 발급한다.
+       * 회원마다 다른 1회용 토큰이라 "누가 어떤 답을 했는지"가 이어지고,
+       * 응답하면 초대가 responded 로 닫혀 같은 링크로 두 번 답할 수 없다.
+       */
+      let surveyToken: string | null = null;
+      if (body.includes("{survey}")) {
+        if (!surveyRef) { stat.skipped++; continue; }   // 위에서 걸렀어야 하는 경로(방어)
+        /**
+         * 🚨 보내기 직전 **재등록 여부를 한 번 더** 확인한다.
+         * 대상은 회원 명부 스냅샷에서 뽑는데, 그 명부는 하루 한 번 동기화된다(엑셀 지점은 수동).
+         * 오늘 아침에 재등록한 회원이 낮에 "그동안 감사했습니다" 설문을 받는 사고가
+         * 이 한 콜로 막힌다 — 오발송 한 건이 조회 한 번보다 훨씬 비싸다.
+         */
+        const { data: fresh } = await db.from("member_snapshots")
+          .select("end_date").eq("id", job.snap.id).maybeSingle();
+        const freshEnd = (fresh as { end_date: string | null } | null)?.end_date ?? null;
+        if (!freshEnd || freshEnd > kstDateStr(-7)) {
+          stat.skipped++;
+          // 선점 슬롯을 반납한다 — 재등록이 또 끝나면 그때 다시 대상이 될 수 있어야 한다
+          await db.from("automation_dispatch_log").delete().eq("id", (claim as { id: string }).id);
+          continue;
+        }
+        const { data: inv } = await db.from("survey_invitations").insert({
+          survey_template_id: surveyRef.templateId,
+          qr_code_id: surveyRef.qrId,
+          branch_id: cfg.branch_id,
+          // ⚠️ members(원장) id 여야 한다 — member_snapshots.id 를 넣으면 FK 위반으로 전건 실패한다.
+          //    매칭 안 되는 회원은 null 로 두고 recipient_phone 으로 식별한다.
+          member_id: surveyRef.crmIdByPhone.get(phone) ?? null,
+          channel: ch,
+          status: "sent",
+          recipient_phone: phone,
+        }).select("token").maybeSingle();
+        const token = (inv as { token: string } | null)?.token;
+        if (!token) {
+          stat.failed++;
+          // 선점 반납 — 남겨두면 회원당 1회 제약 때문에 그 회원은 영영 설문을 못 받는다
+          await db.from("automation_dispatch_log").delete().eq("id", (claim as { id: string }).id);
+          console.error("[automationRunner] 설문 초대 생성 실패 — 슬롯 반납", cfg.branch_id);
+          continue;
+        }
+        surveyToken = token;
+        body = body.replace("{survey}", `https://153-boxing-os.pages.dev/s/${surveyRef.slug}?t=${encodeURIComponent(token)}`);
+      }
       let res: { success: boolean; error?: string };
       try {
         res = ch === "kakao"
-          ? await sendFriendTalk(db, env, cfg.branch_id, phone, body, { isAd: true })
+          // 이탈 설문은 광고가 아니다 — 할인·권유 없이 의견만 묻는다.
+          // isAd 를 켜면 카톡이 "(광고)" 머리말을 붙여, 설문 취지와 정반대로 읽힌다.
+          ? await sendFriendTalk(db, env, cfg.branch_id, phone, body, { isAd: job.kind !== "exit_survey" })
           : await sendSms(db, env, cfg.branch_id, phone, body);
       } catch (e) {
         res = { success: false, error: e instanceof Error ? e.message : "send error" };
       }
       if (res.success) stat.sent++; else stat.failed++;
-      await db.from("automation_dispatch_log")
-        .update({ status: res.success ? "sent" : "failed", error: res.error ?? null })
-        .eq("id", (claim as { id: string }).id);
+      if (!res.success && job.kind === "exit_survey") {
+        // 발송 실패는 회원 잘못이 아니다 — 슬롯을 반납해 7~14일 창 안에서 다시 시도되게 한다.
+        // (실패 기록은 아래 ops_message_logs 에 남으므로 감사 흔적은 유지된다)
+        await db.from("automation_dispatch_log").delete().eq("id", (claim as { id: string }).id);
+      } else {
+        await db.from("automation_dispatch_log")
+          .update({ status: res.success ? "sent" : "failed", error: res.error ?? null })
+          .eq("id", (claim as { id: string }).id);
+      }
       opsRows.push({
         branch_id: cfg.branch_id, recipient_name: job.snap.member_name, phone,
-        template_type: `auto_${job.kind}_${job.step}`, content: body,
+        template_type: `auto_${job.kind}_${job.step}`,
+        // 🚨 1회용 설문 토큰은 직원이 보는 연락 이력에 남기지 않는다.
+        //    토큰만 있으면 누구나 그 회원 대신 응답할 수 있는데, 이 설문은 '코치 지도'를 묻는다.
+        //    평가 대상인 코치에게 응답 수단을 쥐여주는 꼴이 된다.
+        content: surveyToken ? body.replace(surveyToken, "***") : body,
         status: res.success ? "sent" : "failed",
       });
     }
@@ -644,10 +811,10 @@ export async function runAutomationDaily(env: Env, phase: AutoPhase = "primary")
     catch { /* 무시 */ }
   }
   const { data, error } = await db.from("fc_automation_config")
-    .select("branch_id, renewal_enabled, onboarding_enabled, pace_drop_enabled, weekly_care_enabled, weekly_care_dow, weekly_care_gap_days, weekly_care_max_sends, weekly_care_coach, channel_sms, channel_kakao, onboarding_steps, send_hour, message_tone")
+    .select("branch_id, renewal_enabled, onboarding_enabled, pace_drop_enabled, exit_survey_enabled, weekly_care_enabled, weekly_care_dow, weekly_care_gap_days, weekly_care_max_sends, weekly_care_coach, channel_sms, channel_kakao, onboarding_steps, send_hour, message_tone")
     .or(phase === "primary"
       ? "renewal_enabled.eq.true,onboarding_enabled.eq.true"
-      : "pace_drop_enabled.eq.true,weekly_care_enabled.eq.true");
+      : "pace_drop_enabled.eq.true,weekly_care_enabled.eq.true,exit_survey_enabled.eq.true");
   if (error) { console.error("[automationDaily] config fetch:", error.message); return; }
   const configs = (data as AutoConfig[] | null) ?? [];
   const hourNow = kstHour();

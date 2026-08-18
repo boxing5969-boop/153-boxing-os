@@ -464,7 +464,8 @@ export function calcAvgByKeyword(
   const scores: number[] = [];
   for (const r of responses) {
     for (const a of r.answers) {
-      if (a.question_text.includes(keyword) && a.answer_score != null) {
+      // 보기 선택형은 answer_score 가 보기 번호라 평균에 섞으면 안 된다
+      if (a.question_text.includes(keyword) && a.answer_score != null && !isChoiceAnswer(a)) {
         scores.push(a.answer_score);
       }
     }
@@ -502,6 +503,15 @@ export function calcNps(responses: SurveyResponseDetail[]): NpsResult | null {
   return { score: nps, promoters, passives, detractors, total };
 }
 
+/**
+ * 보기 선택형(options.choices) 문항인가.
+ * 이런 문항의 answer_score 는 **점수가 아니라 보기 번호**라 만족도 계산에 섞이면 안 된다.
+ * (예: 이탈 사유 1번 "시간이 안 맞아서"를 고른 회원이 '1점 불만' 으로 잡히던 문제)
+ */
+function isChoiceAnswer(a: { options: unknown | null }): boolean {
+  return Array.isArray((a.options as { choices?: unknown } | null)?.choices);
+}
+
 /** 낮은 점수 응답 필터 (rating ≤ 2/5 또는 NPS ≤ 6) */
 export function filterLowScoreResponses(
   responses: SurveyResponseDetail[],
@@ -511,6 +521,7 @@ export function filterLowScoreResponses(
   return responses.filter((r) =>
     r.answers.some((a) => {
       if (a.answer_score == null) return false;
+      if (isChoiceAnswer(a)) return false;        // 보기 번호는 점수가 아니다
       const opts = a.options as { max?: number } | null;
       const qMax = opts?.max ?? 5;
       if (qMax >= 10) return a.answer_score <= npsThreshold;
