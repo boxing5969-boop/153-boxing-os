@@ -3587,6 +3587,40 @@ dailyReportsRoutes.put("/member-care/products", requireJwt, async (c) => {
 });
 
 // V6-c) 자동화 설정 — 조회/저장(fc_automation_config)
+/**
+ * GET /member-care/blocked-phones?branch_id= — 연락하면 안 되는 번호 목록
+ *
+ * 왜 필요한가: 단체 공지를 **폰 무료 문자**로 보낼 때는 서버를 거치지 않는다.
+ *   유료 발송은 서버가 마지막에 수신거부를 걸러주지만, 폰 문자는 화면이 안 걸러주면 그대로 나간다.
+ *   전 회원 공지는 만료·휴면 회원까지 가므로 "다시 연락하지 마세요"라고 한 분이 섞이면 바로 클레임이다.
+ *
+ * 번호만 반환한다(이름·사유 없음) — 화면은 걸러내기만 하면 되고, 굳이 더 내보낼 이유가 없다.
+ */
+dailyReportsRoutes.get("/member-care/blocked-phones", requireJwt, async (c) => {
+  const db = getServiceClient(c.env);
+  const profile = await getProfile(db, c.get("user").id);
+  if (!profile) return fail(c, "FORBIDDEN", "프로필을 찾을 수 없습니다", 403);
+  const branchId = c.req.query("branch_id") ?? profile.branch_id ?? "";
+  if (!branchId) return fail(c, "INVALID_REQUEST", "branch_id 필수", 400);
+  if (!canAccessBranch(profile, branchId)) return fail(c, "FORBIDDEN", "권한이 없습니다", 403);
+
+  const { data: stop, error: e1 } = await db.from("fc_send_state")
+    .select("normalized_phone").eq("branch_id", branchId).eq("status", "stopped").limit(5000);
+  const { data: opt, error: e2 } = await db.from("fc_member_inputs")
+    .select("normalized_phone").eq("branch_id", branchId)
+    .or("opt_out.eq.true,do_not_contact.eq.true,return_declined.eq.true").limit(5000);
+  // fail-closed — 못 읽었으면 "차단 없음"으로 응답하면 안 된다. 그러면 화면이 전원에게 보낸다.
+  if (e1 || e2) return fail(c, "DB_ERROR", `수신거부 명단 조회 실패: ${e1?.message ?? e2?.message}`, 500);
+
+  const set = new Set<string>();
+  for (const r of [...((stop as { normalized_phone: string | null }[] | null) ?? []),
+                   ...((opt as { normalized_phone: string | null }[] | null) ?? [])]) {
+    const d = (r.normalized_phone ?? "").replace(/\D/g, "");
+    if (d.length >= 9) set.add(d);
+  }
+  return ok(c, { phones: [...set] });
+});
+
 dailyReportsRoutes.get("/member-care/automation-config", requireJwt, async (c) => {
   const db = getServiceClient(c.env);
   const profile = await getProfile(db, c.get("user").id);
