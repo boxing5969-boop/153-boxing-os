@@ -525,7 +525,8 @@ export default function PublicSurveyPage() {
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-foreground">
                   연락처{" "}
-                  <span className="text-xs text-muted-foreground">(선택 · 불편사항 후속 연락용)</span>
+                  {/* 추첨 이벤트를 돌릴 때 이 번호로 당첨 안내를 한다 — 아래 동의문의 수집 목적과 반드시 같은 말이어야 한다 */}
+                  <span className="text-xs text-muted-foreground">(선택 · 경품 추첨 응모 및 후속 연락용)</span>
                 </label>
                 <input
                   type="tel"
@@ -538,8 +539,10 @@ export default function PublicSurveyPage() {
               <div className="rounded-xl bg-muted/40 border border-border p-4 space-y-3">
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
                   <strong className="text-foreground">개인정보 수집 및 이용 안내</strong><br />
-                  수집 항목: 연락처(선택), 응답 내용 · 수집 목적: 서비스 품질 개선 및 불편사항 후속 처리 ·
-                  보유 기간: 수집일로부터 1년. 거부 시 연락처 미제공으로 참여 가능합니다.
+                  수집 항목: 연락처(선택), 응답 내용 ·
+                  수집 목적: 서비스 품질 개선, 불편사항 후속 처리, <strong className="text-foreground">경품 추첨 및 당첨 안내</strong> ·
+                  보유 기간: 수집일로부터 1년. 동의하지 않으셔도 연락처 없이 설문에 참여하실 수 있으나,
+                  그 경우 경품 추첨 대상에서는 제외됩니다.
                 </p>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
